@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'ai_engine' => [
+        'url' => env('AI_SERVICE_BASE_URL', 'http://ai-service:8000'),
+    ],
+
 ];

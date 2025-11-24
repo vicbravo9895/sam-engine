@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
     POETRY_NO_INTERACTION=1 \
     POETRY_VENV_IN_PROJECT=1 \
     POETRY_CACHE_DIR=/tmp/poetry_cache \
-    POETRY_VERSION=1.7.1
+    POETRY_VERSION=1.8.0
 
 # Instalar dependencias del sistema y Poetry
 RUN apt-get update && \

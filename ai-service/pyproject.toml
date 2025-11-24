@@ -1,9 +1,10 @@
 [tool.poetry]
 name = "ai-service"
 version = "1.0.0"
-description = "AI Service built with FastAPI"
-authors = ["Your Name <your.email@example.com>"]
+description = "Samsara Alert AI Service - Procesa alertas usando OpenAI GPT-4o con Google ADK"
+authors = ["SAM Technologies"]
 readme = "README.md"
+package-mode = false
 
 
 [tool.poetry.dependencies]
@@ -15,6 +16,8 @@ httpx = ">=0.28.1,<1.0.0"
 python-dotenv = "^1.0.0"
 google-adk = "^1.18.0"
 litellm = "^1.80.0"
+langfuse = "^2.0.0"
+
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"
