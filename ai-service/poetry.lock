@@ -4091,6 +4091,24 @@ files = [
 ]
 
 [[package]]
+name = "samsara-api"
+version = "4.1.0"
+description = ""
+optional = false
+python-versions = "<4.0,>=3.8"
+groups = ["main"]
+files = [
+    {file = "samsara_api-4.1.0-py3-none-any.whl", hash = "sha256:3372e7030309b7d93837374d86602d5eb0c1748a9c989d214e0686aee9cdeb1e"},
+    {file = "samsara_api-4.1.0.tar.gz", hash = "sha256:0293334412f2d65d938ad92359bfb7b0ce34cc7a4ecdac0ebb0db34072ab0923"},
+]
+
+[package.dependencies]
+httpx = ">=0.21.2"
+pydantic = ">=1.9.2"
+pydantic-core = ">=2.18.2"
+typing_extensions = ">=4.0.0"
+
+[[package]]
 name = "shapely"
 version = "2.1.2"
 description = "Manipulation and analysis of geometric objects"
@@ -5218,4 +5236,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "577ec3414278cbcef344fe97e46ac484b09f8f14db76a5cfc3841f1471d34f31"
+content-hash = "abc7b71ff38c53df8f607f2cb0c6314c24a4caac1e1aa25c30303bdf5a49fac9"

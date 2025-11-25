@@ -10,8 +10,9 @@ from config import OpenAIConfig
 
 from tools import (
     get_vehicle_stats,
-    get_vehicle_event_history,
-    get_vehicle_camera_snapshot
+    get_vehicle_info,
+    get_driver_assignment,
+    get_camera_media
 )
 from .prompts import (
     INGESTION_AGENT_PROMPT,
@@ -40,8 +41,9 @@ panic_investigator = LlmAgent(
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O),
     tools=[
         get_vehicle_stats,
-        get_vehicle_event_history,
-        get_vehicle_camera_snapshot
+        get_vehicle_info,
+        get_driver_assignment,
+        get_camera_media
     ],
     instruction=PANIC_INVESTIGATOR_PROMPT,
     description="Investiga alertas de pánico usando tools y genera evaluación técnica"

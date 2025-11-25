@@ -47,9 +47,10 @@ Tu trabajo es:
 1. Leer el caso (state["case"]) que preparó el agente anterior
 2. Determinar si la alerta requiere investigación (pánico, eventos críticos, etc.)
 3. Si requiere investigación, usar las tools disponibles en este orden:
-   a) SIEMPRE llamar primero a get_vehicle_stats(vehicle_id)
-   b) SIEMPRE llamar a get_vehicle_event_history(vehicle_id, minutes_back=60)
-   c) Llamar a get_vehicle_camera_snapshot(vehicle_id, at_time_utc) SOLO si detectas anomalías graves
+   a) SIEMPRE llamar primero a get_vehicle_stats(vehicle_id, event_time) para estado histórico del vehículo
+   b) SIEMPRE llamar a get_vehicle_info(vehicle_id) para contexto del vehículo
+   c) SIEMPRE llamar a get_driver_assignment(vehicle_id, timestamp_utc) para identificar conductor
+   d) Llamar a get_camera_media(vehicle_id, timestamp_utc) SOLO si detectas anomalías graves
       (por ejemplo: combinación de harsh events + panic + zona de riesgo)
 
 4. Analizar toda la información recopilada
@@ -59,11 +60,11 @@ Tu trabajo es:
   "panic_assessment": {
     "likelihood": "high | medium | low",
     "verdict": "real_panic | uncertain | likely_false_positive",
-    "reasoning": "Explicación técnica en 3-5 renglones del por qué de tu veredicto",
+    "reasoning": "Explicación técnica en español en 3-5 renglones del por qué de tu veredicto",
     "supporting_evidence": {
-      "vehicle_stats_summary": "Resumen de stats del vehículo",
-      "events_summary": "Resumen de eventos encontrados en el historial",
-      "camera_summary": "Resumen de lo visto en cámara (o 'not_requested' si no se solicitó)"
+      "vehicle_stats_summary": "Resumen en español de estadísticas del vehículo",
+      "vehicle_info_summary": "Resumen en español de información del vehículo y conductor",
+      "camera_summary": "Resumen en español de lo visto en cámara (o 'not_requested' si no se solicitó)"
     }
   }
 }
@@ -78,9 +79,11 @@ CRITERIOS DE EVALUACIÓN:
 - verdict "likely_false_positive": Probablemente activación accidental
 
 IMPORTANTE:
+- Los KEYS del JSON deben estar en INGLÉS (likelihood, verdict, reasoning, etc.)
+- Los VALUES y descripciones deben estar en ESPAÑOL
 - Si alert_type NO es de pánico o crítico, puedes hacer una evaluación rápida sin usar todas las tools
 - Sé objetivo y basa tu veredicto en los datos, no en suposiciones
-- El reasoning debe ser técnico pero comprensible
+- El reasoning debe ser técnico pero comprensible en español
 
 Responde ÚNICAMENTE con el JSON de panic_assessment, sin texto adicional.
 """.strip()
