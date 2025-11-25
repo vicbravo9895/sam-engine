@@ -24,11 +24,13 @@ class SamsaraEvent extends Model
         'ai_message',
         'ai_processed_at',
         'ai_error',
+        'ai_actions',
     ];
 
     protected $casts = [
         'raw_payload' => 'array',
         'ai_assessment' => 'array',
+        'ai_actions' => 'array',
         'occurred_at' => 'datetime',
         'ai_processed_at' => 'datetime',
     ];
@@ -80,12 +82,13 @@ class SamsaraEvent extends Model
         $this->update(['ai_status' => self::STATUS_PROCESSING]);
     }
 
-    public function markAsCompleted(array $assessment, string $message): void
+    public function markAsCompleted(array $assessment, string $message, ?array $actions = null): void
     {
         $this->update([
             'ai_status' => self::STATUS_COMPLETED,
             'ai_assessment' => $assessment,
             'ai_message' => $message,
+            'ai_actions' => $actions,
             'ai_processed_at' => now(),
         ]);
     }

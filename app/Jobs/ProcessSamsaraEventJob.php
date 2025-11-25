@@ -73,7 +73,8 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Actualizar el evento con los resultados
             $this->event->markAsCompleted(
                 assessment: $result['assessment'] ?? [],
-                message: $result['message'] ?? 'No message provided'
+                message: $result['message'] ?? 'No message provided',
+                actions: $result['actions'] ?? null
             );
 
             Log::info("Samsara event processed successfully", [

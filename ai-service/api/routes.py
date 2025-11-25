@@ -13,7 +13,7 @@ from google.genai import types
 
 from config import ServiceConfig, langfuse_client
 from core import runner, session_service
-from core.context import current_langfuse_span
+from core.context import current_langfuse_span, current_tool_tracker
 from agents.agent_definitions import AGENTS_BY_NAME
 from .models import AlertRequest, HealthResponse
 from .breadcrumbs import create_breadcrumb
@@ -108,19 +108,69 @@ async def ingest_alert(request: AlertRequest):
                 input=current_input
             )
         
+        # ============================================================================
+        # AI ACTIONS TRACKING
+        # ============================================================================
+        # Estructura para capturar todas las acciones de los agentes
+        ai_actions = {
+            "agents": [],
+            "total_duration_ms": 0,
+            "total_tools_called": 0
+        }
+        
+        # Variables para tracking de agentes
+        current_agent_actions = None
+        agent_start_time = None
+        
+        # Variables para tracking de tool calls
+        pending_tool_calls = {}  # {tool_name: {started_at, parameters}}
+        
         # Ejecutar el runner de forma asíncrona
         async for event in runner.run_async(
             user_id=user_id,
             session_id=session_id,
             new_message=initial_message
         ):
+            # DEBUG: Verbose event inspection
+            print(f"DEBUG: Event type: {type(event).__name__}")
+            print(f"DEBUG: Has tool_requests: {hasattr(event, 'tool_requests')}")
+            if hasattr(event, 'tool_requests') and event.tool_requests:
+                print(f"DEBUG: Tool requests: {event.tool_requests}")
+            print(f"DEBUG: Has tool_responses: {hasattr(event, 'tool_responses')}")
+            if hasattr(event, 'tool_responses') and event.tool_responses:
+                print(f"DEBUG: Tool responses: {event.tool_responses}")
+            print(f"DEBUG: Current agent: {current_agent}")
+            print(f"DEBUG: Current actions obj exists: {current_agent_actions is not None}")
+            
             # Detectar cambio de agente y gestionar spans
             # Usamos 'author' para identificar el agente que emitió el evento
-            if hasattr(event, 'author') and event.author:
-                agent_name = event.author
-                
+            agent_name = getattr(event, 'author', None)
+            
+            # Si no hay autor pero hay contenido o tools, usar el último conocido o 'unknown'
+            if not agent_name and (hasattr(event, 'tool_requests') or (hasattr(event, 'content') and event.content)):
+                agent_name = current_agent or "unknown_agent"
+            
+            if agent_name:
                 # Si cambiamos de agente
                 if current_agent and current_agent != agent_name:
+                    # ============ AI ACTIONS: Finalizar agente anterior ============
+                    if current_agent_actions and agent_start_time:
+                        duration_ms = int((datetime.utcnow() - agent_start_time).total_seconds() * 1000)
+                        current_agent_actions["completed_at"] = datetime.utcnow().isoformat() + "Z"
+                        current_agent_actions["duration_ms"] = duration_ms
+                        
+                        # Limpiar output summary de markdown
+                        raw_summary = agent_accumulated_output.get(current_agent, "")
+                        clean_summary = raw_summary
+                        if "```" in clean_summary:
+                            import re
+                            clean_summary = re.sub(r'^```\w*\s*', '', clean_summary)
+                            clean_summary = re.sub(r'\s*```$', '', clean_summary)
+                            clean_summary = clean_summary.strip()
+                        
+                        current_agent_actions["output_summary"] = clean_summary[:500]
+                        ai_actions["total_duration_ms"] += duration_ms
+                    
                     # Cerrar el span anterior
                     if current_agent in active_spans:
                         # El output de este agente se convierte en el input del siguiente
@@ -131,8 +181,24 @@ async def ingest_alert(request: AlertRequest):
                         # Actualizar el input para el nuevo agente
                         if last_output:
                             current_input = last_output
+                    
+                    # Limpiar tracker de tools para evitar asignaciones incorrectas
+                    current_tool_tracker.set(None)
                 
                 current_agent = agent_name
+                
+                # ============ AI ACTIONS: Iniciar nuevo agente ============
+                if current_agent not in [a["name"] for a in ai_actions["agents"]]:
+                    agent_start_time = datetime.utcnow()
+                    current_agent_actions = {
+                        "name": current_agent,
+                        "started_at": agent_start_time.isoformat() + "Z",
+                        "completed_at": None,
+                        "duration_ms": 0,
+                        "output_summary": "",
+                        "tools_used": []
+                    }
+                    ai_actions["agents"].append(current_agent_actions)
                 
                 # Iniciar nuevo span si no existe para este agente
                 if trace and agent_name not in active_spans:
@@ -156,6 +222,113 @@ async def ingest_alert(request: AlertRequest):
                     
                     # Establecer el span actual en el contexto para que las tools lo usen
                     current_langfuse_span.set(span)
+                
+                # Compartir contexto del agente para que las tools registren su ejecución
+                if current_agent_actions:
+                    current_tool_tracker.set({
+                        "agent_name": current_agent,
+                        "agent_actions": current_agent_actions,
+                        "ai_actions": ai_actions
+                    })
+            
+            tracker_context = current_tool_tracker.get()
+
+            # ============ AI ACTIONS: Capturar Tool Calls (fallback si no hay tracker) ============
+            if not tracker_context:
+                # Verificamos tool_requests (ADK estándar) y tool_calls (OpenAI raw)
+                has_tools = False
+                tool_list = []
+                
+                if hasattr(event, 'tool_requests') and event.tool_requests:
+                    has_tools = True
+                    tool_list = event.tool_requests
+                elif hasattr(event, 'tool_calls') and event.tool_calls:
+                    has_tools = True
+                    tool_list = event.tool_calls
+                    
+                if has_tools:
+                    for tool_req in tool_list:
+                        # Intentar obtener nombre de diferentes formas
+                        tool_name = "unknown_tool"
+                        if hasattr(tool_req, 'name'):
+                            tool_name = tool_req.name
+                        elif hasattr(tool_req, 'function') and hasattr(tool_req.function, 'name'):
+                            tool_name = tool_req.function.name
+                            
+                        tool_call_time = datetime.utcnow()
+                        
+                        # Extraer parámetros
+                        parameters = {}
+                        if hasattr(tool_req, 'input') and tool_req.input:
+                            try:
+                                parameters = dict(tool_req.input) if hasattr(tool_req.input, '__dict__') else {}
+                            except:
+                                parameters = {"raw": str(tool_req.input)[:200]}
+                        elif hasattr(tool_req, 'function') and hasattr(tool_req.function, 'arguments'):
+                            try:
+                                parameters = json.loads(tool_req.function.arguments)
+                            except:
+                                parameters = {"raw": str(tool_req.function.arguments)[:200]}
+                        
+                        # Guardar tool call pendiente
+                        pending_tool_calls[tool_name] = {
+                            "tool_name": tool_name,
+                            "called_at": tool_call_time.isoformat() + "Z",
+                            "parameters": parameters,
+                            "status": "pending",
+                            "start_time": tool_call_time
+                        }
+                        
+                        # Agregar a las acciones del agente actual
+                        if current_agent_actions:
+                            current_agent_actions["tools_used"].append(pending_tool_calls[tool_name])
+                            ai_actions["total_tools_called"] += 1
+                        else:
+                            print(f"DEBUG: WARNING - Tool call {tool_name} received but current_agent_actions is None")
+                
+                # ============ AI ACTIONS: Capturar Tool Responses ============
+                if hasattr(event, 'tool_responses') and event.tool_responses:
+                    for tool_resp in event.tool_responses:
+                        tool_name = tool_resp.name if hasattr(tool_resp, 'name') else "unknown_tool"
+                        
+                        # Buscar el tool call pendiente
+                        if tool_name in pending_tool_calls:
+                            tool_call = pending_tool_calls[tool_name]
+                            end_time = datetime.utcnow()
+                            duration_ms = int((end_time - tool_call["start_time"]).total_seconds() * 1000)
+                            
+                            # Actualizar con resultado
+                            tool_call["duration_ms"] = duration_ms
+                            tool_call["status"] = "success"
+                            
+                            # Extraer resumen del resultado
+                            result_summary = "Completed"
+                            if hasattr(tool_resp, 'response') and tool_resp.response:
+                                response_str = str(tool_resp.response)
+                                result_summary = response_str[:150] + "..." if len(response_str) > 150 else response_str
+                                
+                                # Para get_camera_media, agregar detalles de análisis de imágenes
+                                if tool_name == "get_camera_media" and isinstance(tool_resp.response, dict):
+                                    ai_analysis = tool_resp.response.get('ai_analysis', {})
+                                    if ai_analysis and 'analyses' in ai_analysis:
+                                        analyses = ai_analysis['analyses']
+                                        tool_call["details"] = {
+                                            "images_analyzed": len(analyses),
+                                            "analyses": [
+                                                {
+                                                    "camera": a.get('input', 'unknown'),
+                                                    "analysis_preview": a.get('analysis', '')[:200]
+                                                }
+                                                for a in analyses if 'error' not in a
+                                            ]
+                                        }
+                                        result_summary = f"{len(analyses)} images analyzed with AI"
+                            
+                            tool_call["result_summary"] = result_summary
+                            
+                            # Limpiar start_time (no es JSON serializable)
+                            del tool_call["start_time"]
+                            del pending_tool_calls[tool_name]
 
             # Capturar el texto generado por los agentes
             # El evento no tiene .text directo, viene en content.parts[0].text
@@ -205,6 +378,16 @@ async def ingest_alert(request: AlertRequest):
             # Dejamos que el runner termine naturalmente cuando se agoten los eventos.
             pass
         
+        # ============ AI ACTIONS: Finalizar último agente ============
+        if current_agent and current_agent_actions and agent_start_time:
+             # Verificar si ya se completó (por si acaso el loop terminó justo después de un cambio de agente)
+             if current_agent_actions["completed_at"] is None:
+                duration_ms = int((datetime.utcnow() - agent_start_time).total_seconds() * 1000)
+                current_agent_actions["completed_at"] = datetime.utcnow().isoformat() + "Z"
+                current_agent_actions["duration_ms"] = duration_ms
+                current_agent_actions["output_summary"] = agent_accumulated_output.get(current_agent, "")[:200]
+                ai_actions["total_duration_ms"] += duration_ms
+
         # Cerrar cualquier span que haya quedado abierto
         for agent_name, span in active_spans.items():
             final_output = agent_accumulated_output.get(agent_name, "")
@@ -235,6 +418,7 @@ async def ingest_alert(request: AlertRequest):
             "event_id": event_id,
             "assessment": assessment or {},
             "message": message or "Procesamiento completado sin mensaje final",
+            "actions": ai_actions
         }
         
     except Exception as e:
@@ -254,6 +438,9 @@ async def ingest_alert(request: AlertRequest):
                 "error": str(e),
             }
         )
+    finally:
+        # Limpiar contexto compartido para tool tracking
+        current_tool_tracker.set(None)
 
 
 

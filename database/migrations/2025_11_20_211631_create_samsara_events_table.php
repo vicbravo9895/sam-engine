@@ -38,10 +38,11 @@ return new class extends Migration {
                 ->index();
 
             // Resultados del análisis de IA
-            $table->json('ai_assessment')->nullable(); // Resultado del panic_investigator
-            $table->text('ai_message')->nullable();    // Mensaje final en español
+            $table->json('ai_assessment')->nullable();
+            $table->json('ai_actions')->nullable();
+            $table->text('ai_message')->nullable();
             $table->timestamp('ai_processed_at')->nullable();
-            $table->text('ai_error')->nullable();      // Error si falla el procesamiento
+            $table->text('ai_error')->nullable();
 
             // Timestamps estándar de Laravel
             $table->timestamps();

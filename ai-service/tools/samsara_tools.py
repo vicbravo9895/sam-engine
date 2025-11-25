@@ -4,8 +4,8 @@ Estas funciones son usadas por el panic_investigator agent.
 """
 
 import functools
-import os
 import base64
+import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
@@ -14,58 +14,121 @@ import httpx
 from litellm import acompletion
 
 from config import SamsaraConfig, OpenAIConfig
-from core.context import current_langfuse_span
+from core.context import current_langfuse_span, current_tool_tracker
+
+
+def _safe_value_for_logging(value: Any, max_length: int = 200) -> Any:
+    """Convierte valores arbitrarios en algo serializable/legible para logs."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        if isinstance(value, str) and len(value) > max_length:
+            return value[:max_length - 3] + "..."
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_safe_value_for_logging(v, max_length) for v in value[:5]]
+    if isinstance(value, dict):
+        limited_items = list(value.items())[:5]
+        return {str(k): _safe_value_for_logging(v, max_length) for k, v in limited_items}
+    return str(value)[:max_length]
+
+
+def _serialize_tool_parameters(args: tuple, kwargs: dict) -> Dict[str, Any]:
+    """Prepara los parámetros de una tool para logging/JSON."""
+    serialized: Dict[str, Any] = {}
+    if args:
+        serialized["args"] = [_safe_value_for_logging(arg) for arg in args]
+    if kwargs:
+        serialized["kwargs"] = {key: _safe_value_for_logging(val) for key, val in kwargs.items()}
+    return serialized
+
+
+def _summarize_tool_result(result: Any, max_length: int = 300) -> str:
+    """Genera un resumen corto del resultado de la tool."""
+    try:
+        if isinstance(result, (dict, list)):
+            summary = json.dumps(result, ensure_ascii=False)
+        else:
+            summary = str(result)
+    except Exception:
+        summary = str(result)
+    if len(summary) > max_length:
+        return summary[:max_length - 3] + "..."
+    return summary
 
 
 def trace_tool(func):
     """
     Decorador para rastrear la ejecución de tools en Langfuse.
-    Crea un span hijo del span actual del agente.
+    Crea un span hijo del span actual del agente y captura metadata para actions.
     """
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         span = current_langfuse_span.get()
-        if not span:
-            return await func(*args, **kwargs)
-        
-        # Crear nombre del span basado en la función
+        tracking_ctx = current_tool_tracker.get()
+
         tool_name = func.__name__
-        
-        # Preparar input para el span
-        input_data = {
-            "args": args,
-            "kwargs": kwargs
-        }
-        
-        # Iniciar span de tool
-        tool_span = span.span(
-            name=f"tool_{tool_name}",
-            input=input_data,
-            metadata={
+        serialized_params = _serialize_tool_parameters(args, kwargs)
+        tool_entry = None
+        tool_start = datetime.utcnow()
+
+        if tracking_ctx and tracking_ctx.get("agent_actions"):
+            tool_entry = {
                 "tool_name": tool_name,
-                "type": "tool_execution"
+                "called_at": tool_start.isoformat() + "Z",
+                "status": "pending",
+                "parameters": serialized_params
             }
-        )
-        
-        try:
-            # Ejecutar la tool
-            result = await func(*args, **kwargs)
-            
-            # Registrar output exitoso
-            tool_span.end(output=result)
-            return result
-            
-        except Exception as e:
-            # Registrar error
-            tool_span.end(
-                level="ERROR",
-                status_message=str(e),
-                output={"error": str(e)}
+            tracking_ctx["agent_actions"]["tools_used"].append(tool_entry)
+            if tracking_ctx.get("ai_actions") is not None:
+                tracking_ctx["ai_actions"]["total_tools_called"] += 1
+
+        tool_span = None
+        if span:
+            tool_span = span.span(
+                name=f"tool_{tool_name}",
+                input=serialized_params,
+                metadata={
+                    "tool_name": tool_name,
+                    "type": "tool_execution"
+                }
             )
+
+        try:
+            result = await func(*args, **kwargs)
+            if tool_span:
+                tool_span.end(output=result)
+            if tool_entry:
+                _finalize_tool_entry(
+                    tool_entry,
+                    tool_start,
+                    status="success",
+                    summary=_summarize_tool_result(result)
+                )
+            return result
+        except Exception as e:
+            if tool_span:
+                tool_span.end(
+                    level="ERROR",
+                    status_message=str(e),
+                    output={"error": str(e)}
+                )
+            if tool_entry:
+                _finalize_tool_entry(
+                    tool_entry,
+                    tool_start,
+                    status="error",
+                    summary=str(e)[:200]
+                )
             raise e
-            
+
     return wrapper
 
+
+def _finalize_tool_entry(tool_entry: Dict[str, Any], start_time: datetime, status: str, summary: str) -> None:
+    """Actualiza el registro del tool call con duración y resultado."""
+    duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+    tool_entry["duration_ms"] = duration_ms
+    tool_entry["status"] = status
+    tool_entry["result_summary"] = summary
 
 def _get_client() -> AsyncSamsara:
     """Helper to get the AsyncSamsara client."""
@@ -413,5 +476,3 @@ Sé conciso y objetivo. Responde en español."""
         "total_images_analyzed": len(analyses),
         "analyses": analyses
     }
-
-
