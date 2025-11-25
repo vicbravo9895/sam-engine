@@ -70,16 +70,42 @@ class ProcessSamsaraEventJob implements ShouldQueue
 
             $result = $response->json();
 
-            // Actualizar el evento con los resultados
-            $this->event->markAsCompleted(
-                assessment: $result['assessment'] ?? [],
-                message: $result['message'] ?? 'No message provided',
-                actions: $result['actions'] ?? null
-            );
+            // Verificar si la AI requiere monitoreo continuo
+            if ($result['requires_monitoring'] ?? false) {
+                $nextCheckMinutes = $result['next_check_minutes'] ?? 15;
 
-            Log::info("Samsara event processed successfully", [
-                'event_id' => $this->event->id,
-            ]);
+                $this->event->markAsInvestigating(
+                    assessment: $result['assessment'] ?? [],
+                    message: $result['message'] ?? 'Evento bajo investigación',
+                    nextCheckMinutes: $nextCheckMinutes,
+                    actions: $result['actions'] ?? null
+                );
+
+                $this->event->addInvestigationRecord(
+                    reason: $result['monitoring_reason'] ?? 'Confianza insuficiente para veredicto final'
+                );
+
+                // Programar revalidación
+                RevalidateSamsaraEventJob::dispatch($this->event)
+                    ->delay(now()->addMinutes($nextCheckMinutes))
+                    ->onQueue('samsara-revalidation');
+
+                Log::info("Event marked for investigation", [
+                    'event_id' => $this->event->id,
+                    'next_check_minutes' => $nextCheckMinutes,
+                ]);
+            } else {
+                // Flujo normal - completar
+                $this->event->markAsCompleted(
+                    assessment: $result['assessment'] ?? [],
+                    message: $result['message'] ?? 'No message provided',
+                    actions: $result['actions'] ?? null
+                );
+
+                Log::info("Samsara event processed successfully", [
+                    'event_id' => $this->event->id,
+                ]);
+            }
 
         } catch (\Exception $e) {
             Log::error("Failed to process Samsara event", [

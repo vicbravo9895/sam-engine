@@ -33,7 +33,7 @@ return new class extends Migration {
             $table->json('raw_payload');
 
             // Estado del procesamiento de IA
-            $table->enum('ai_status', ['pending', 'processing', 'completed', 'failed'])
+            $table->enum('ai_status', ['pending', 'processing', 'investigating', 'completed', 'failed'])
                 ->default('pending')
                 ->index();
 
@@ -43,6 +43,12 @@ return new class extends Migration {
             $table->text('ai_message')->nullable();
             $table->timestamp('ai_processed_at')->nullable();
             $table->text('ai_error')->nullable();
+
+            // Campos para investigación continua
+            $table->timestamp('last_investigation_at')->nullable();
+            $table->integer('investigation_count')->default(0);
+            $table->integer('next_check_minutes')->nullable();
+            $table->json('investigation_history')->nullable();
 
             // Timestamps estándar de Laravel
             $table->timestamps();

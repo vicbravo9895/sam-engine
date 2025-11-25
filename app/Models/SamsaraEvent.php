@@ -25,19 +25,26 @@ class SamsaraEvent extends Model
         'ai_processed_at',
         'ai_error',
         'ai_actions',
+        'last_investigation_at',
+        'investigation_count',
+        'next_check_minutes',
+        'investigation_history',
     ];
 
     protected $casts = [
         'raw_payload' => 'array',
         'ai_assessment' => 'array',
         'ai_actions' => 'array',
+        'investigation_history' => 'array',
         'occurred_at' => 'datetime',
         'ai_processed_at' => 'datetime',
+        'last_investigation_at' => 'datetime',
     ];
 
     // Constantes de estado
     const STATUS_PENDING = 'pending';
     const STATUS_PROCESSING = 'processing';
+    const STATUS_INVESTIGATING = 'investigating';
     const STATUS_COMPLETED = 'completed';
     const STATUS_FAILED = 'failed';
 
@@ -67,6 +74,11 @@ class SamsaraEvent extends Model
     public function scopeFailed($query)
     {
         return $query->where('ai_status', self::STATUS_FAILED);
+    }
+
+    public function scopeInvestigating($query)
+    {
+        return $query->where('ai_status', self::STATUS_INVESTIGATING);
     }
 
     public function scopeCritical($query)
@@ -102,6 +114,19 @@ class SamsaraEvent extends Model
         ]);
     }
 
+    public function markAsInvestigating(array $assessment, string $message, int $nextCheckMinutes, ?array $actions = null): void
+    {
+        $this->update([
+            'ai_status' => self::STATUS_INVESTIGATING,
+            'ai_assessment' => $assessment,
+            'ai_message' => $message,
+            'ai_actions' => $actions,
+            'last_investigation_at' => now(),
+            'investigation_count' => $this->investigation_count + 1,
+            'next_check_minutes' => $nextCheckMinutes,
+        ]);
+    }
+
     /**
      * Verificar si el evento está procesado
      */
@@ -116,5 +141,44 @@ class SamsaraEvent extends Model
     public function isCritical(): bool
     {
         return $this->severity === self::SEVERITY_CRITICAL;
+    }
+
+    /**
+     * Verificar si debe revalidarse
+     */
+    public function shouldRevalidate(): bool
+    {
+        if ($this->ai_status !== self::STATUS_INVESTIGATING) {
+            return false;
+        }
+
+        if (!$this->last_investigation_at || !$this->next_check_minutes) {
+            return true;
+        }
+
+        return now()->diffInMinutes($this->last_investigation_at) >= $this->next_check_minutes;
+    }
+
+    /**
+     * Agregar registro de investigación al historial
+     */
+    public function addInvestigationRecord(string $reason): void
+    {
+        $history = $this->investigation_history ?? [];
+        $history[] = [
+            'timestamp' => now()->toIso8601String(),
+            'reason' => $reason,
+            'count' => $this->investigation_count,
+        ];
+
+        $this->update(['investigation_history' => $history]);
+    }
+
+    /**
+     * Máximo de investigaciones permitidas
+     */
+    public static function getMaxInvestigations(): int
+    {
+        return 3;
     }
 }

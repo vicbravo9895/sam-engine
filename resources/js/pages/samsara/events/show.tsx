@@ -10,7 +10,7 @@ import {
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Disclosure } from '@headlessui/react';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     AlertCircle,
     AlertTriangle,
@@ -21,15 +21,17 @@ import {
     CheckCircle2,
     ChevronDown,
     Clock,
+    Loader2,
     MapPin,
     Radar,
+    Search,
     ShieldAlert,
     Sparkles,
     Truck,
     User,
 } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface ToolUsage {
     tool_name?: string;
@@ -112,6 +114,17 @@ interface SamsaraEventPayload {
             details?: any;
         }[];
     }[];
+    investigation_metadata?: {
+        count: number;
+        last_check?: string | null;
+        next_check_minutes?: number | null;
+        history: {
+            timestamp: string;
+            reason: string;
+            count: number;
+        }[];
+        max_investigations: number;
+    };
     verdict_badge?: {
         verdict: string;
         likelihood?: string | null;
@@ -137,11 +150,16 @@ const severityPalette: Record<string, string> = {
 const statusPalette: Record<string, string> = {
     pending: 'bg-slate-500/10 text-slate-500',
     processing: 'bg-sky-500/10 text-sky-500',
+    investigating: 'bg-amber-500/10 text-amber-500',
     completed: 'bg-emerald-500/15 text-emerald-400',
     failed: 'bg-rose-500/15 text-rose-400',
 };
 
 export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
+    const [isPolling, setIsPolling] = useState(false);
+    const [previousStatus, setPreviousStatus] = useState(event.ai_status);
+    const [simulatedTools, setSimulatedTools] = useState<string[]>([]);
+
     const eventLabel =
         event.display_event_type ?? 'Alerta procesada por AI';
 
@@ -158,6 +176,64 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                     href: getAlertShowUrl(event.id),
                 },
             ];
+
+    // Polling para eventos en processing o investigating
+    useEffect(() => {
+        const shouldPoll = event.ai_status === 'processing' || event.ai_status === 'investigating';
+
+        if (shouldPoll) {
+            setIsPolling(true);
+
+            // Simular herramientas siendo usadas
+            const tools = [
+                'Obteniendo estadísticas del vehículo...',
+                'Consultando información del vehículo...',
+                'Identificando conductor asignado...',
+                'Analizando imágenes de cámaras con IA...',
+                'Generando veredicto final...'
+            ];
+
+            let currentToolIndex = 0;
+            const toolInterval = setInterval(() => {
+                if (currentToolIndex < tools.length) {
+                    setSimulatedTools(prev => [...prev, tools[currentToolIndex]]);
+                    currentToolIndex++;
+                } else {
+                    clearInterval(toolInterval);
+                }
+            }, 5000); // Cada 5 segundos muestra una nueva herramienta
+
+            // Polling cada 3 segundos
+            const pollingInterval = setInterval(() => {
+                router.reload({
+                    only: ['event'],
+                });
+            }, 3000);
+
+            return () => {
+                clearInterval(pollingInterval);
+                clearInterval(toolInterval);
+            };
+        } else {
+            setIsPolling(false);
+
+            // Detectar si cambió de processing/investigating a completed
+            if ((previousStatus === 'processing' || previousStatus === 'investigating') &&
+                event.ai_status === 'completed') {
+                // Mostrar notificación de completado
+                if (typeof window !== 'undefined' && 'Notification' in window) {
+                    if (Notification.permission === 'granted') {
+                        new Notification('Análisis completado', {
+                            body: `El evento "${eventLabel}" ha sido procesado por la AI`,
+                            icon: '/favicon.ico'
+                        });
+                    }
+                }
+            }
+
+            setPreviousStatus(event.ai_status);
+        }
+    }, [event.ai_status, event.id, previousStatus, eventLabel]);
 
     const summaryChips = useMemo(
         () => [
@@ -305,6 +381,62 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                     </div>
                 </div>
 
+                {(event.ai_status === 'processing' || event.ai_status === 'investigating') && isPolling && (
+                    <Card className="border-2 border-sky-500/30 bg-sky-50/50 dark:bg-sky-950/20">
+                        <CardHeader>
+                            <div className="flex items-center gap-3">
+                                <Loader2 className="size-6 animate-spin text-sky-600 dark:text-sky-400" />
+                                <div className="flex-1">
+                                    <CardTitle className="text-sky-900 dark:text-sky-100">
+                                        {event.ai_status === 'processing' ? 'Procesando evento...' : 'Revalidando evento...'}
+                                    </CardTitle>
+                                    <CardDescription className="text-sky-700 dark:text-sky-300">
+                                        La AI está analizando el evento. Esto tomará aproximadamente 25 segundos.
+                                    </CardDescription>
+                                </div>
+                                <Badge className="bg-sky-500 text-white animate-pulse">
+                                    En progreso
+                                </Badge>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="space-y-2">
+                                <p className="text-xs font-semibold uppercase text-sky-700 dark:text-sky-400">
+                                    Herramientas ejecutándose
+                                </p>
+                                <div className="space-y-2">
+                                    {simulatedTools.map((tool, idx) => (
+                                        <div
+                                            key={idx}
+                                            className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30"
+                                        >
+                                            <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+                                            <span className="text-sky-900 dark:text-sky-100">{tool}</span>
+                                        </div>
+                                    ))}
+                                    {simulatedTools.length < 5 && (
+                                        <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30">
+                                            <Loader2 className="size-4 shrink-0 animate-spin text-sky-500" />
+                                            <span className="text-sky-700 dark:text-sky-300">
+                                                {simulatedTools.length === 0 && 'Iniciando análisis...'}
+                                                {simulatedTools.length === 1 && 'Consultando información del vehículo...'}
+                                                {simulatedTools.length === 2 && 'Identificando conductor asignado...'}
+                                                {simulatedTools.length === 3 && 'Analizando imágenes de cámaras con IA...'}
+                                                {simulatedTools.length === 4 && 'Generando veredicto final...'}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="mt-3 rounded-lg border border-sky-200 bg-sky-100/50 p-2 dark:border-sky-900/30">
+                                    <p className="text-xs text-sky-800 dark:text-sky-200">
+                                        <strong>Actualizando automáticamente:</strong> Esta página se refrescará cada 3 segundos hasta que el análisis se complete.
+                                    </p>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
                 {event.verdict_badge && (
                     <div
                         className={`flex items-center gap-3 rounded-xl border-2 p-4 ${getVerdictStyles(event.verdict_badge.color)
@@ -325,6 +457,92 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                             )}
                         </div>
                     </div>
+                )}
+
+                {event.ai_status === 'investigating' && event.investigation_metadata && (
+                    <Card className="border-2 border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20">
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="rounded-full bg-amber-500/20 p-2">
+                                        <Search className="size-5 text-amber-600 dark:text-amber-400" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-amber-900 dark:text-amber-100">
+                                            Evento bajo investigación
+                                        </CardTitle>
+                                        <CardDescription className="text-amber-700 dark:text-amber-300">
+                                            La AI está monitoreando este evento para obtener más contexto
+                                        </CardDescription>
+                                    </div>
+                                </div>
+                                <Badge className="bg-amber-500 text-white">
+                                    {event.investigation_metadata.count} de {event.investigation_metadata.max_investigations}
+                                </Badge>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                {event.investigation_metadata.last_check && (
+                                    <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                                        <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">
+                                            Última verificación
+                                        </p>
+                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                                            {event.investigation_metadata.last_check}
+                                        </p>
+                                    </div>
+                                )}
+                                {event.investigation_metadata.next_check_minutes && (
+                                    <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                                        <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">
+                                            Próxima verificación
+                                        </p>
+                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                                            En {event.investigation_metadata.next_check_minutes} minutos
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {event.investigation_metadata.history.length > 0 && (
+                                <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                                    <p className="mb-3 text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">
+                                        Historial de investigaciones
+                                    </p>
+                                    <div className="space-y-2">
+                                        {event.investigation_metadata.history.map((entry, idx) => (
+                                            <div
+                                                key={idx}
+                                                className="flex items-start gap-2 rounded border border-amber-100 bg-amber-50/50 p-2 text-xs dark:border-amber-900 dark:bg-amber-950/50"
+                                            >
+                                                <Badge variant="outline" className="shrink-0 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300">
+                                                    #{entry.count}
+                                                </Badge>
+                                                <div className="flex-1">
+                                                    <p className="font-medium text-amber-900 dark:text-amber-100">
+                                                        {entry.reason}
+                                                    </p>
+                                                    <p className="text-amber-600 dark:text-amber-400">
+                                                        {new Date(entry.timestamp).toLocaleString('es-MX', {
+                                                            dateStyle: 'medium',
+                                                            timeStyle: 'short',
+                                                        })}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="rounded-lg border border-amber-200 bg-amber-100/50 p-3 dark:border-amber-800 dark:bg-amber-900/30">
+                                <p className="text-xs text-amber-800 dark:text-amber-200">
+                                    <strong>Nota:</strong> Este evento será revalidado automáticamente. Si después de {event.investigation_metadata.max_investigations} intentos la AI no puede determinar un veredicto definitivo, se escalará para revisión humana.
+                                </p>
+                            </div>
+                        </CardContent>
+                    </Card>
                 )}
 
                 <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

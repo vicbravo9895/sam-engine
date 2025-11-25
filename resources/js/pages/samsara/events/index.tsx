@@ -16,6 +16,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { KanbanBoard } from '@/components/samsara/kanban-board';
+import { EventQuickViewModal } from '@/components/samsara/event-quick-view-modal';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
@@ -29,6 +31,8 @@ import {
     Camera,
     CheckCircle2,
     Filter,
+    LayoutGrid,
+    List,
     RefreshCcw,
     Search,
     ShieldAlert,
@@ -37,7 +41,7 @@ import {
     XCircle,
 } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface EventListItem {
     id: number;
@@ -117,6 +121,7 @@ interface IndexProps {
     stats: {
         total: number;
         critical: number;
+        investigating: number;
         completed: number;
         failed: number;
     };
@@ -145,6 +150,8 @@ const statusStyles: Record<string, string> = {
         'bg-slate-100 text-slate-800 dark:bg-slate-500/20 dark:text-slate-200',
     processing:
         'bg-sky-100 text-sky-800 dark:bg-sky-500/20 dark:text-sky-100 animate-pulse',
+    investigating:
+        'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-100 animate-pulse',
     completed:
         'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-100',
     failed:
@@ -158,6 +165,8 @@ export default function SamsaraAlertsIndex({
     stats,
 }: IndexProps) {
     const [localFilters, setLocalFilters] = useState<Filters>(filters);
+    const [viewMode, setViewMode] = useState<'list' | 'kanban'>('kanban');
+    const [quickViewId, setQuickViewId] = useState<number | null>(null);
 
     const sanitizedFilters = (values: Filters) =>
         Object.fromEntries(
@@ -168,6 +177,21 @@ export default function SamsaraAlertsIndex({
         () => Object.values(localFilters).some((value) => value),
         [localFilters],
     );
+
+    // Polling para eventos en processing o investigating
+    useEffect(() => {
+        const hasActiveEvents = events.data.some(
+            (e) => e.ai_status === 'processing' || e.ai_status === 'investigating'
+        );
+
+        if (hasActiveEvents) {
+            const interval = setInterval(() => {
+                router.reload({ only: ['events', 'stats'] });
+            }, 5000); // Cada 5 segundos
+
+            return () => clearInterval(interval);
+        }
+    }, [events.data]);
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -189,6 +213,18 @@ export default function SamsaraAlertsIndex({
         });
         router.get(ALERTS_INDEX_URL, {}, { replace: true });
     };
+
+    const openQuickView = (eventId: number) => {
+        setQuickViewId(eventId);
+    };
+
+    const closeQuickView = () => {
+        setQuickViewId(null);
+    };
+
+    const selectedEvent = quickViewId
+        ? events.data.find((e) => e.id === quickViewId) ?? null
+        : null;
 
     const formatDate = (value?: string | null) => {
         if (!value) return 'Sin fecha';
@@ -264,6 +300,26 @@ export default function SamsaraAlertsIndex({
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <div className="flex items-center rounded-lg border bg-background p-1">
+                            <Button
+                                variant={viewMode === 'kanban' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                onClick={() => setViewMode('kanban')}
+                                className="gap-2"
+                            >
+                                <LayoutGrid className="size-4" />
+                                Kanban
+                            </Button>
+                            <Button
+                                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                onClick={() => setViewMode('list')}
+                                className="gap-2"
+                            >
+                                <List className="size-4" />
+                                Lista
+                            </Button>
+                        </div>
                         <Button variant="outline" asChild>
                             <Link href={ALERTS_INDEX_URL} prefetch>
                                 Refrescar listado
@@ -280,7 +336,7 @@ export default function SamsaraAlertsIndex({
                     </div>
                 </header>
 
-                <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                     <StatsCard
                         icon={BarChart3}
                         label="Alertas totales"
@@ -293,6 +349,13 @@ export default function SamsaraAlertsIndex({
                         value={stats.critical}
                         description="Severidad marcada como crítica"
                         accent="text-red-600 dark:text-red-300"
+                    />
+                    <StatsCard
+                        icon={Search}
+                        label="Investigando"
+                        value={stats.investigating}
+                        description="Bajo monitoreo continuo de AI"
+                        accent="text-amber-600 dark:text-amber-300"
                     />
                     <StatsCard
                         icon={CheckCircle2}
@@ -429,156 +492,171 @@ export default function SamsaraAlertsIndex({
                     </form>
                 </section>
 
-                <section className="flex flex-col gap-4">
-                    {events.data.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-12 text-center text-muted-foreground">
-                            <p className="text-lg font-semibold">
-                                No encontramos alertas con esos criterios
-                            </p>
-                            <p className="text-sm">
-                                Ajusta los filtros o intenta con un término diferente.
-                            </p>
-                        </div>
-                    ) : (
-                        events.data.map((event) => (
-                            <Card key={event.id} className="border shadow-sm">
-                                <CardHeader className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
-                                    <div className="flex items-start gap-3">
-                                        {(() => {
-                                            const Icon = getEventIcon(event.event_icon);
-                                            return (
-                                                <div className="rounded-full bg-primary/10 p-2 text-primary">
-                                                    <Icon className="size-5" />
-                                                </div>
-                                            );
-                                        })()}
-                                        <div>
-                                            <p className="text-xs uppercase text-muted-foreground">
-                                                Tipo de alerta
-                                            </p>
-                                            <CardTitle className="text-xl">
-                                                {event.event_title ??
-                                                    formatEventType(event.event_type)}
-                                            </CardTitle>
-                                            <CardDescription>
-                                                {event.occurred_at_human
-                                                    ? `${event.occurred_at_human}`
-                                                    : 'Fecha no disponible'}
-                                            </CardDescription>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-2 text-sm text-muted-foreground">
-                                        <div className="flex gap-2">
-                                            <Badge
-                                                className={
-                                                    severityStyles[event.severity] ??
-                                                    severityStyles.info
-                                                }
-                                            >
-                                                {event.severity_label ?? 'Informativa'}
-                                            </Badge>
-                                            <Badge
-                                                className={
-                                                    statusStyles[event.ai_status] ??
-                                                    statusStyles.pending
-                                                }
-                                            >
-                                                {event.ai_status_label ?? 'Pendiente'}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="space-y-4 py-4">
-                                    {event.verdict_summary && (
-                                        <div
-                                            className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-semibold ${getUrgencyStyles(
-                                                event.verdict_summary.urgency,
-                                            )
-                                                }`}
-                                        >
-                                            <CheckCircle2 className="size-4" />
-                                            <span>
-                                                {event.verdict_summary.verdict}
-                                                {event.verdict_summary.likelihood && (
-                                                    <span className="ml-1 font-normal opacity-80">
-                                                        (Probabilidad:{' '}
-                                                        {event.verdict_summary.likelihood})
-                                                    </span>
-                                                )}
-                                            </span>
-                                        </div>
-                                    )}
-                                    <div className="grid gap-3 text-sm md:grid-cols-3">
-                                        <InfoItem
-                                            icon={Truck}
-                                            label="Unidad monitoreada"
-                                            value={
-                                                event.vehicle_name ??
-                                                'Unidad sin nombre asignado'
-                                            }
-                                        />
-                                        <InfoItem
-                                            icon={User}
-                                            label="Operador identificado"
-                                            value={
-                                                event.driver_name ??
-                                                'No se detectó conductor asignado'
-                                            }
-                                        />
-                                        <InfoItem
-                                            icon={Calendar}
-                                            label="Momento del evento"
-                                            value={formatDate(event.occurred_at)}
-                                        />
-                                    </div>
-                                    {event.investigation_summary &&
-                                        event.investigation_summary.length > 0 && (
-                                            <div className="rounded-lg border bg-muted/30 p-3">
-                                                <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
-                                                    Investigación realizada
+                {/* Kanban or List View */}
+                {viewMode === 'kanban' ? (
+                    <KanbanBoard
+                        events={events.data}
+                        onEventClick={openQuickView}
+                    />
+                ) : (
+                    <section className="flex flex-col gap-4">
+                        {events.data.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-12 text-center text-muted-foreground">
+                                <p className="text-lg font-semibold">
+                                    No encontramos alertas con esos criterios
+                                </p>
+                                <p className="text-sm">
+                                    Ajusta los filtros o intenta con un término diferente.
+                                </p>
+                            </div>
+                        ) : (
+                            events.data.map((event) => (
+                                <Card key={event.id} className="border shadow-sm">
+                                    <CardHeader className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="flex items-start gap-3">
+                                            {(() => {
+                                                const Icon = getEventIcon(event.event_icon);
+                                                return (
+                                                    <div className="rounded-full bg-primary/10 p-2 text-primary">
+                                                        <Icon className="size-5" />
+                                                    </div>
+                                                );
+                                            })()}
+                                            <div>
+                                                <p className="text-xs uppercase text-muted-foreground">
+                                                    Tipo de alerta
                                                 </p>
-                                                <div className="space-y-2">
-                                                    {event.investigation_summary.map(
-                                                        (category) => (
-                                                            <div
-                                                                key={category.label}
-                                                                className="flex items-start gap-2 text-xs"
-                                                            >
-                                                                <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-emerald-500" />
-                                                                <div>
-                                                                    <span className="font-medium">
-                                                                        {category.label}:
-                                                                    </span>{' '}
-                                                                    <span className="text-muted-foreground">
-                                                                        {category.items.join(
-                                                                            ', ',
-                                                                        )}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        ),
+                                                <CardTitle className="text-xl">
+                                                    {event.event_title ??
+                                                        formatEventType(event.event_type)}
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    {event.occurred_at_human
+                                                        ? `${event.occurred_at_human}`
+                                                        : 'Fecha no disponible'}
+                                                </CardDescription>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2 text-sm text-muted-foreground">
+                                            <div className="flex gap-2">
+                                                <Badge
+                                                    className={
+                                                        severityStyles[event.severity] ??
+                                                        severityStyles.info
+                                                    }
+                                                >
+                                                    {event.severity_label ?? 'Informativa'}
+                                                </Badge>
+                                                <Badge
+                                                    className={
+                                                        statusStyles[event.ai_status] ??
+                                                        statusStyles.pending
+                                                    }
+                                                >
+                                                    {event.ai_status_label ?? 'Pendiente'}
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4 py-4">
+                                        {event.verdict_summary && (
+                                            <div
+                                                className={`flex items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm font-semibold ${getUrgencyStyles(
+                                                    event.verdict_summary.urgency,
+                                                )
+                                                    }`}
+                                            >
+                                                <CheckCircle2 className="size-4" />
+                                                <span>
+                                                    {event.verdict_summary.verdict}
+                                                    {event.verdict_summary.likelihood && (
+                                                        <span className="ml-1 font-normal opacity-80">
+                                                            (Probabilidad:{' '}
+                                                            {event.verdict_summary.likelihood})
+                                                        </span>
                                                     )}
-                                                </div>
+                                                </span>
                                             </div>
                                         )}
-                                    <p className="text-sm text-muted-foreground">
-                                        {event.ai_message_preview ??
-                                            'Sin mensaje generado por la AI aún.'}
-                                    </p>
-                                    <div className="flex items-center justify-end">
-                                        <Button variant="outline" size="sm" asChild>
-                                            <Link href={getAlertShowUrl(event.id)} prefetch>
-                                                Ver análisis completo
-                                            </Link>
-                                        </Button>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))
-                    )}
-                </section>
+                                        <div className="grid gap-3 text-sm md:grid-cols-3">
+                                            <InfoItem
+                                                icon={Truck}
+                                                label="Unidad monitoreada"
+                                                value={
+                                                    event.vehicle_name ??
+                                                    'Unidad sin nombre asignado'
+                                                }
+                                            />
+                                            <InfoItem
+                                                icon={User}
+                                                label="Operador identificado"
+                                                value={
+                                                    event.driver_name ??
+                                                    'No se detectó conductor asignado'
+                                                }
+                                            />
+                                            <InfoItem
+                                                icon={Calendar}
+                                                label="Momento del evento"
+                                                value={formatDate(event.occurred_at)}
+                                            />
+                                        </div>
+                                        {event.investigation_summary &&
+                                            event.investigation_summary.length > 0 && (
+                                                <div className="rounded-lg border bg-muted/30 p-3">
+                                                    <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                                                        Investigación realizada
+                                                    </p>
+                                                    <div className="space-y-2">
+                                                        {event.investigation_summary.map(
+                                                            (category) => (
+                                                                <div
+                                                                    key={category.label}
+                                                                    className="flex items-start gap-2 text-xs"
+                                                                >
+                                                                    <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-emerald-500" />
+                                                                    <div>
+                                                                        <span className="font-medium">
+                                                                            {category.label}:
+                                                                        </span>{' '}
+                                                                        <span className="text-muted-foreground">
+                                                                            {category.items.join(
+                                                                                ', ',
+                                                                            )}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        <p className="text-sm text-muted-foreground">
+                                            {event.ai_message_preview ??
+                                                'Sin mensaje generado por la AI aún.'}
+                                        </p>
+                                        <div className="flex items-center justify-end">
+                                            <Button variant="outline" size="sm" asChild>
+                                                <Link href={getAlertShowUrl(event.id)} prefetch>
+                                                    Ver análisis completo
+                                                </Link>
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ))
+                        )}
+                    </section>
+                )}
 
-                {events.meta?.links?.length > 0 && (
+                {/* Quick View Modal */}
+                <EventQuickViewModal
+                    event={selectedEvent}
+                    open={quickViewId !== null}
+                    onClose={closeQuickView}
+                />
+
+                {events.meta?.links?.length > 0 && viewMode === 'list' && (
                     <nav className="flex flex-col items-center justify-between gap-4 rounded-xl border px-4 py-3 text-sm text-muted-foreground md:flex-row">
                         <p>
                             Mostrando {events.meta.from ?? 0} - {events.meta.to ?? 0} de{' '}

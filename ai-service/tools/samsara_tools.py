@@ -243,22 +243,42 @@ async def get_driver_assignment(
         end_time = (ts + timedelta(minutes=10)).isoformat()
         
         # Usamos get_driver_vehicle_assignments() según el SDK v4.1.0
-        # IMPORTANTE: No usar start_time/end_time ya que causan error de validación Pydantic
-        # El SDK espera que la respuesta tenga data como lista, pero puede ser None
-        response = await client.driver_vehicle_assignments.get_driver_vehicle_assignments(
-            filter_by='vehicles',
-            vehicle_ids=[vehicle_id]
-        )
-        
-        if hasattr(response, 'to_dict'):
-            return response.to_dict()
-        if hasattr(response, 'data'):
-            # Handle None data to prevent Pydantic validation error
-            if response.data is None:
-                return {"data": [], "vehicle_id": vehicle_id, "note": "No driver assignments found for this vehicle"}
-            return {"data": [item.to_dict() if hasattr(item, 'to_dict') else str(item) for item in response.data]}
+        # IMPORTANTE: El SDK puede retornar data con driver=None lo que causa error de validación Pydantic
+        # Manejamos esto capturando el error y retornando respuesta limpia
+        try:
+            response = await client.driver_vehicle_assignments.get_driver_vehicle_assignments(
+                filter_by='vehicles',
+                vehicle_ids=[vehicle_id]
+            )
             
-        return {"data": str(response)}
+            if hasattr(response, 'to_dict'):
+                return response.to_dict()
+            if hasattr(response, 'data'):
+                # Handle None data to prevent Pydantic validation error
+                if response.data is None:
+                    return {
+                        "data": [], 
+                        "vehicle_id": vehicle_id, 
+                        "note": "No driver assignments found for this vehicle"
+                    }
+                return {
+                    "data": [item.to_dict() if hasattr(item, 'to_dict') else str(item) for item in response.data]
+                }
+                
+            return {"data": str(response)}
+            
+        except Exception as validation_error:
+            # Si es un error de validación Pydantic (driver=None), retornar respuesta limpia
+            error_str = str(validation_error)
+            if "validation error" in error_str.lower() and "driver" in error_str.lower():
+                return {
+                    "data": [],
+                    "vehicle_id": vehicle_id,
+                    "note": "No driver information available for this vehicle at the specified time",
+                    "warning": "Driver field was null in API response"
+                }
+            # Si es otro tipo de error, re-lanzar
+            raise
         
     except Exception as e:
         return {"error": str(e), "vehicle_id": vehicle_id}

@@ -89,6 +89,7 @@ class SamsaraEventController extends Controller
         $stats = [
             'total' => SamsaraEvent::count(),
             'critical' => SamsaraEvent::where('severity', SamsaraEvent::SEVERITY_CRITICAL)->count(),
+            'investigating' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_INVESTIGATING)->count(),
             'completed' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_COMPLETED)->count(),
             'failed' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_FAILED)->count(),
         ];
@@ -113,6 +114,7 @@ class SamsaraEventController extends Controller
                 ['label' => 'Todos', 'value' => ''],
                 ['label' => 'Pendiente', 'value' => SamsaraEvent::STATUS_PENDING],
                 ['label' => 'En proceso', 'value' => SamsaraEvent::STATUS_PROCESSING],
+                ['label' => 'Investigando', 'value' => SamsaraEvent::STATUS_INVESTIGATING],
                 ['label' => 'Completado', 'value' => SamsaraEvent::STATUS_COMPLETED],
                 ['label' => 'Falló', 'value' => SamsaraEvent::STATUS_FAILED],
             ],
@@ -248,6 +250,13 @@ class SamsaraEventController extends Controller
                 'payload_summary' => $payloadSummary,
                 'timeline' => $timeline,
                 'media_insights' => $mediaInsights,
+                'investigation_metadata' => [
+                    'count' => $samsaraEvent->investigation_count,
+                    'last_check' => optional($samsaraEvent->last_investigation_at)?->diffForHumans(),
+                    'next_check_minutes' => $samsaraEvent->next_check_minutes,
+                    'history' => $samsaraEvent->investigation_history ?? [],
+                    'max_investigations' => SamsaraEvent::getMaxInvestigations(),
+                ],
                 'investigation_actions' => $investigationActions,
             ],
             'breadcrumbs' => [
@@ -327,6 +336,7 @@ class SamsaraEventController extends Controller
         return match ($status) {
             SamsaraEvent::STATUS_COMPLETED => 'Completada',
             SamsaraEvent::STATUS_PROCESSING => 'En proceso',
+            SamsaraEvent::STATUS_INVESTIGATING => 'Investigando',
             SamsaraEvent::STATUS_FAILED => 'Falló',
             default => 'Pendiente',
         };

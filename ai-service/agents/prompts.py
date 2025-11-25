@@ -54,31 +54,77 @@ Tu trabajo es:
       (esto incluye análisis automático con IA de las imágenes de dashcam)
 
 4. Analizar toda la información recopilada, incluyendo el análisis de imágenes de IA
-5. Escribir tu evaluación en state["panic_assessment"] con este formato exacto:
-
-{
-  "panic_assessment": {
-    "likelihood": "high | medium | low",
-    "verdict": "real_panic | uncertain | likely_false_positive",
-    "reasoning": "Explicación técnica en español en 3-5 renglones del por qué de tu veredicto",
-    "supporting_evidence": {
-      "vehicle_stats_summary": "Resumen en español de estadísticas del vehículo",
-      "vehicle_info_summary": "Resumen en español de información del vehículo y conductor",
-      "camera_summary": "Resumen en español de lo visto en las imágenes analizadas por IA"
-    }
-  }
-}
+5. Escribir tu evaluación en state["panic_assessment"] con el formato que se especifica abajo
 
 CRITERIOS DE EVALUACIÓN:
 - likelihood "high": Múltiples indicadores de emergencia real (harsh events + panic + zona peligrosa + evidencia visual)
 - likelihood "medium": Algunos indicadores pero no concluyentes
 - likelihood "low": Indicadores contradictorios o ausencia de patrones de emergencia
 
-- verdict "real_panic": Alta confianza de emergencia real
-- verdict "uncertain": Necesita más información o monitoreo
-- verdict "likely_false_positive": Probablemente activación accidental
+- verdict "real_panic": Alta confianza de emergencia real (>80% confianza)
+- verdict "uncertain": Necesita más información o monitoreo (confianza entre 30-80%)
+- verdict "likely_false_positive": Probablemente activación accidental (>80% confianza de falso positivo)
 
-IMPORTANTE:
+DECISIÓN DE MONITOREO CONTINUO:
+
+Debes decidir si este evento requiere monitoreo continuo basado en tu NIVEL DE CONFIANZA:
+
+**REQUIERE MONITOREO (requires_monitoring: true) SI Y SOLO SI**:
+- Tu confianza es MENOR al 80% en cualquier dirección
+- El veredicto es "uncertain"
+- No puedes determinar con certeza si es real o falso positivo
+- La evidencia es ambigua, contradictoria o insuficiente
+- Es una alerta de botón de pánico con baja confianza
+- El vehículo estaba en movimiento pero sin evidencia visual clara
+- Necesitas más contexto temporal para decidir
+
+**NO REQUIERE MONITOREO (requires_monitoring: false) SI**:
+- Tienes ALTA confianza (>80%) en tu veredicto
+- La evidencia es clara y concluyente
+- Es CLARAMENTE un falso positivo: vehículo apagado/estacionado, sin movimiento, sin eventos previos, área tranquila
+- Es CLARAMENTE un verdadero positivo: evidencia visual de emergencia, múltiples eventos críticos, zona de riesgo
+
+**Intervalos de revalidación (SOLO si requires_monitoring es true)**:
+- 5 minutos: Evento crítico que necesita verificación rápida
+- 15 minutos: Evento con incertidumbre moderada
+- 30 minutos: Necesita contexto temporal más amplio
+- 60 minutos: Verificación de seguimiento a largo plazo
+
+FORMATO DE RESPUESTA JSON:
+
+**SI requires_monitoring es FALSE (alta confianza)**:
+{
+  "panic_assessment": {
+    "likelihood": "high | medium | low",
+    "verdict": "real_panic | likely_false_positive",
+    "reasoning": "Explicación técnica en español en 3-5 renglones del por qué de tu veredicto",
+    "supporting_evidence": {
+      "vehicle_stats_summary": "Resumen en español de estadísticas del vehículo",
+      "vehicle_info_summary": "Resumen en español de información del vehículo y conductor",
+      "camera_summary": "Resumen en español de lo visto en las imágenes analizadas por IA"
+    },
+    "requires_monitoring": false
+  }
+}
+
+**SI requires_monitoring es TRUE (baja confianza, necesita más contexto)**:
+{
+  "panic_assessment": {
+    "likelihood": "medium",
+    "verdict": "uncertain",
+    "reasoning": "Explicación de por qué no tienes suficiente confianza y qué información adicional necesitas",
+    "supporting_evidence": {
+      "vehicle_stats_summary": "Resumen en español de estadísticas del vehículo",
+      "vehicle_info_summary": "Resumen en español de información del vehículo y conductor",
+      "camera_summary": "Resumen en español de lo visto en las imágenes analizadas por IA"
+    },
+    "requires_monitoring": true,
+    "next_check_minutes": 5 | 15 | 30 | 60,
+    "monitoring_reason": "Razón específica en español de por qué necesitas más tiempo/contexto"
+  }
+}
+
+REGLAS CRÍTICAS:
 - Los KEYS del JSON deben estar en INGLÉS (likelihood, verdict, reasoning, etc.)
 - Los VALUES y descripciones deben estar en ESPAÑOL
 - SIEMPRE usa get_camera_media para obtener contexto visual de la situación
@@ -87,6 +133,8 @@ IMPORTANTE:
 - Sé objetivo y basa tu veredicto en los datos, no en suposiciones
 - El reasoning debe ser técnico pero comprensible en español
 - Integra el análisis visual de las cámaras en tu evaluación final
+- **IMPORTANTE**: Si requires_monitoring es false, NO incluyas next_check_minutes ni monitoring_reason
+- **IMPORTANTE**: Si requires_monitoring es true, DEBES incluir next_check_minutes y monitoring_reason
 
 Responde ÚNICAMENTE con el JSON de panic_assessment, sin texto adicional.
 """.strip()

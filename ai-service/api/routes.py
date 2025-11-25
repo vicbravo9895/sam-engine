@@ -418,7 +418,10 @@ async def ingest_alert(request: AlertRequest):
             "event_id": event_id,
             "assessment": assessment or {},
             "message": message or "Procesamiento completado sin mensaje final",
-            "actions": ai_actions
+            "actions": ai_actions,
+            "requires_monitoring": assessment.get("requires_monitoring", False) if assessment else False,
+            "next_check_minutes": assessment.get("next_check_minutes", 15) if assessment else None,
+            "monitoring_reason": assessment.get("monitoring_reason", None) if assessment else None,
         }
         
     except Exception as e:
@@ -440,6 +443,286 @@ async def ingest_alert(request: AlertRequest):
         )
     finally:
         # Limpiar contexto compartido para tool tracking
+        current_tool_tracker.set(None)
+
+
+# ============================================================================
+# ENDPOINT: POST /alerts/revalidate
+# ============================================================================
+@router.post("/alerts/revalidate")
+async def revalidate_alert(request: dict):
+    """
+    Revalida una alerta existente con contexto temporal adicional.
+    
+    Este endpoint es llamado por RevalidateSamsaraEventJob para
+    reanalizar eventos que requieren monitoreo continuo.
+    
+    Args:
+        request: dict con event_id, payload y context (información temporal)
+        
+    Returns:
+        JSON con assessment actualizado y decisión de monitoreo
+    """
+    event_id = request.get("event_id")
+    alert_payload = request.get("payload")
+    context = request.get("context", {})
+    
+    # Extraer metadata del payload para Langfuse
+    alert_type = alert_payload.get("alertType", "unknown")
+    vehicle_id = alert_payload.get("vehicle", {}).get("id", "unknown")
+    
+    # Crear trace de Langfuse para esta revalidación
+    trace = None
+    if langfuse_client:
+        trace = langfuse_client.trace(
+            name="samsara_alert_revalidation",
+            user_id=ServiceConfig.DEFAULT_USER_ID,
+            metadata={
+                "event_id": event_id,
+                "alert_type": alert_type,
+                "vehicle_id": vehicle_id,
+                "investigation_count": context.get("investigation_count", 0),
+                "is_revalidation": True,
+            },
+            tags=["samsara", "revalidation", alert_type]
+        )
+    
+    # Crear sesión para este análisis
+    user_id = ServiceConfig.DEFAULT_USER_ID
+    session_id = str(uuid.uuid4())
+    
+    await session_service.create_session(
+        user_id=user_id,
+        session_id=session_id,
+        app_name=ServiceConfig.APP_NAME
+    )
+    
+    # Construir mensaje con contexto temporal
+    payload_json = json.dumps(alert_payload, ensure_ascii=False, indent=2)
+    
+    temporal_context = f"""
+CONTEXTO DE REVALIDACIÓN:
+- Evento original: {context.get('original_event_time', 'unknown')}
+- Primera investigación: {context.get('first_investigation_time', 'unknown')}
+- Última investigación: {context.get('last_investigation_time', 'unknown')}
+- Número de investigaciones: {context.get('investigation_count', 0)}
+
+ANÁLISIS PREVIO:
+{json.dumps(context.get('previous_assessment', {}), ensure_ascii=False, indent=2)}
+
+HISTORIAL DE INVESTIGACIONES:
+{json.dumps(context.get('investigation_history', []), ensure_ascii=False, indent=2)}
+
+Ahora tienes más contexto temporal. Revalida si puedes dar un veredicto definitivo o si aún necesitas más monitoreo.
+"""
+    
+    initial_message = types.Content(
+        parts=[types.Part(text=f"Revalida esta alerta de Samsara:\n\n{temporal_context}\n\nPAYLOAD:\n{payload_json}")]
+    )
+    
+    try:
+        assessment = None
+        message = None
+        
+        active_spans = {}
+        current_agent = None
+        current_input = f"Revalida esta alerta de Samsara:\n\n{temporal_context}\n\nPAYLOAD:\n{payload_json}"
+        agent_accumulated_output = {}
+        
+        pipeline_span = None
+        if trace:
+            pipeline_span = trace.span(
+                name="revalidation_pipeline_execution",
+                metadata={
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "investigation_count": context.get("investigation_count", 0)
+                },
+                input=current_input
+            )
+        
+        ai_actions = {
+            "agents": [],
+            "total_duration_ms": 0,
+            "total_tools_called": 0
+        }
+        
+        current_agent_actions = None
+        agent_start_time = None
+        pending_tool_calls = {}
+        
+        # Ejecutar el runner (mismo flujo que ingest_alert)
+        async for event in runner.run_async(
+            user_id=user_id,
+            session_id=session_id,
+            new_message=initial_message
+        ):
+            agent_name = getattr(event, 'author', None)
+            
+            if not agent_name and (hasattr(event, 'tool_requests') or (hasattr(event, 'content') and event.content)):
+                agent_name = current_agent or "unknown_agent"
+            
+            if agent_name:
+                if current_agent and current_agent != agent_name:
+                    if current_agent_actions and agent_start_time:
+                        duration_ms = int((datetime.utcnow() - agent_start_time).total_seconds() * 1000)
+                        current_agent_actions["completed_at"] = datetime.utcnow().isoformat() + "Z"
+                        current_agent_actions["duration_ms"] = duration_ms
+                        
+                        raw_summary = agent_accumulated_output.get(current_agent, "")
+                        clean_summary = raw_summary
+                        if "```" in clean_summary:
+                            import re
+                            clean_summary = re.sub(r'^```\w*\s*', '', clean_summary)
+                            clean_summary = re.sub(r'\s*```$', '', clean_summary)
+                            clean_summary = clean_summary.strip()
+                        
+                        current_agent_actions["output_summary"] = clean_summary[:500]
+                        ai_actions["total_duration_ms"] += duration_ms
+                    
+                    if current_agent in active_spans:
+                        last_output = agent_accumulated_output.get(current_agent, "")
+                        active_spans[current_agent].end(output=last_output)
+                        del active_spans[current_agent]
+                        
+                        if last_output:
+                            current_input = last_output
+                    
+                    current_tool_tracker.set(None)
+                
+                current_agent = agent_name
+                
+                if current_agent not in [a["name"] for a in ai_actions["agents"]]:
+                    agent_start_time = datetime.utcnow()
+                    current_agent_actions = {
+                        "name": current_agent,
+                        "started_at": agent_start_time.isoformat() + "Z",
+                        "completed_at": None,
+                        "duration_ms": 0,
+                        "output_summary": "",
+                        "tools_used": []
+                    }
+                    ai_actions["agents"].append(current_agent_actions)
+                
+                if trace and agent_name not in active_spans:
+                    available_tools = []
+                    agent_def = AGENTS_BY_NAME.get(agent_name)
+                    if agent_def and hasattr(agent_def, 'tools') and agent_def.tools:
+                        available_tools = [t.__name__ for t in agent_def.tools]
+
+                    span = trace.span(
+                        name=f"agent_{agent_name}",
+                        metadata={
+                            "agent_name": agent_name,
+                            "session_id": session_id,
+                            "available_tools": available_tools
+                        },
+                        parent_observation_id=pipeline_span.id if pipeline_span else None,
+                        input=current_input
+                    )
+                    active_spans[agent_name] = span
+                    current_langfuse_span.set(span)
+                
+                if current_agent_actions:
+                    current_tool_tracker.set({
+                        "agent_name": current_agent,
+                        "agent_actions": current_agent_actions,
+                        "ai_actions": ai_actions
+                    })
+            
+            # Capturar texto generado
+            text = None
+            if hasattr(event, 'content') and event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text = part.text
+                        break
+            
+            if text:
+                text = text.strip()
+                
+                if current_agent:
+                    agent_accumulated_output[current_agent] = text
+                
+                if current_agent and current_agent in active_spans:
+                    active_spans[current_agent].update(output=text)
+                
+                try:
+                    clean_text = text
+                    if "```" in clean_text:
+                        import re
+                        clean_text = re.sub(r'^```\w*\s*', '', clean_text)
+                        clean_text = re.sub(r'\s*```$', '', clean_text)
+                        clean_text = clean_text.strip()
+
+                    parsed = json.loads(clean_text)
+                    if 'panic_assessment' in parsed:
+                        assessment = parsed['panic_assessment']
+                    elif isinstance(parsed, dict) and 'likelihood' in parsed:
+                        assessment = parsed
+                except (json.JSONDecodeError, Exception):
+                    if not message:
+                        message = text
+        
+        # Finalizar último agente
+        if current_agent and current_agent_actions and agent_start_time:
+            if current_agent_actions["completed_at"] is None:
+                duration_ms = int((datetime.utcnow() - agent_start_time).total_seconds() * 1000)
+                current_agent_actions["completed_at"] = datetime.utcnow().isoformat() + "Z"
+                current_agent_actions["duration_ms"] = duration_ms
+                current_agent_actions["output_summary"] = agent_accumulated_output.get(current_agent, "")[:200]
+                ai_actions["total_duration_ms"] += duration_ms
+
+        # Cerrar spans
+        for agent_name, span in active_spans.items():
+            final_output = agent_accumulated_output.get(agent_name, "")
+            span.end(output=final_output)
+        
+        if pipeline_span:
+            pipeline_span.end(
+                output={
+                    "assessment": assessment,
+                    "message": message
+                }
+            )
+        
+        if trace:
+            trace.update(
+                output={
+                    "status": "success",
+                    "assessment": assessment,
+                    "message": message
+                }
+            )
+        
+        # Retornar resultados
+        return {
+            "status": "success",
+            "event_id": event_id,
+            "assessment": assessment or {},
+            "message": message or "Revalidación completada",
+            "actions": ai_actions,
+            "requires_monitoring": assessment.get("requires_monitoring", False) if assessment else False,
+            "next_check_minutes": assessment.get("next_check_minutes", 30) if assessment else None,
+            "monitoring_reason": assessment.get("monitoring_reason", None) if assessment else None,
+        }
+        
+    except Exception as e:
+        if trace:
+            trace.update(
+                level="ERROR",
+                status_message=str(e)
+            )
+        
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status": "error",
+                "event_id": event_id,
+                "error": str(e),
+            }
+        )
+    finally:
         current_tool_tracker.set(None)
 
 
