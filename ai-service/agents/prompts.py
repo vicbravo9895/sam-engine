@@ -50,10 +50,10 @@ Tu trabajo es:
    a) SIEMPRE llamar primero a get_vehicle_stats(vehicle_id, event_time) para estado histórico del vehículo
    b) SIEMPRE llamar a get_vehicle_info(vehicle_id) para contexto del vehículo
    c) SIEMPRE llamar a get_driver_assignment(vehicle_id, timestamp_utc) para identificar conductor
-   d) Llamar a get_camera_media(vehicle_id, timestamp_utc) SOLO si detectas anomalías graves
-      (por ejemplo: combinación de harsh events + panic + zona de riesgo)
+   d) SIEMPRE llamar a get_camera_media(vehicle_id, timestamp_utc) para obtener análisis visual de las cámaras
+      (esto incluye análisis automático con IA de las imágenes de dashcam)
 
-4. Analizar toda la información recopilada
+4. Analizar toda la información recopilada, incluyendo el análisis de imágenes de IA
 5. Escribir tu evaluación en state["panic_assessment"] con este formato exacto:
 
 {
@@ -64,13 +64,13 @@ Tu trabajo es:
     "supporting_evidence": {
       "vehicle_stats_summary": "Resumen en español de estadísticas del vehículo",
       "vehicle_info_summary": "Resumen en español de información del vehículo y conductor",
-      "camera_summary": "Resumen en español de lo visto en cámara (o 'not_requested' si no se solicitó)"
+      "camera_summary": "Resumen en español de lo visto en las imágenes analizadas por IA"
     }
   }
 }
 
 CRITERIOS DE EVALUACIÓN:
-- likelihood "high": Múltiples indicadores de emergencia real (harsh events + panic + zona peligrosa)
+- likelihood "high": Múltiples indicadores de emergencia real (harsh events + panic + zona peligrosa + evidencia visual)
 - likelihood "medium": Algunos indicadores pero no concluyentes
 - likelihood "low": Indicadores contradictorios o ausencia de patrones de emergencia
 
@@ -81,9 +81,12 @@ CRITERIOS DE EVALUACIÓN:
 IMPORTANTE:
 - Los KEYS del JSON deben estar en INGLÉS (likelihood, verdict, reasoning, etc.)
 - Los VALUES y descripciones deben estar en ESPAÑOL
+- SIEMPRE usa get_camera_media para obtener contexto visual de la situación
+- El análisis de IA de las imágenes es crucial para determinar el veredicto
 - Si alert_type NO es de pánico o crítico, puedes hacer una evaluación rápida sin usar todas las tools
 - Sé objetivo y basa tu veredicto en los datos, no en suposiciones
 - El reasoning debe ser técnico pero comprensible en español
+- Integra el análisis visual de las cámaras en tu evaluación final
 
 Responde ÚNICAMENTE con el JSON de panic_assessment, sin texto adicional.
 """.strip()

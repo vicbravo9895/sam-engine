@@ -236,25 +236,52 @@ async def get_camera_media(
         )
         
         result = {}
+        media_items = []
         
-        if hasattr(response, 'to_dict'):
-            result = response.to_dict()
-        elif hasattr(response, 'data'):
-            result = {"data": [item.to_dict() if hasattr(item, 'to_dict') else str(item) for item in response.data]}
+        # Extraer los objetos de media correctamente del SDK response
+        if hasattr(response, 'data') and response.data:
+            # response.data es un objeto con atributo 'media', no un dict
+            if hasattr(response.data, 'media'):
+                media_items = response.data.media
+            elif isinstance(response.data, dict):
+                # Buscar la key 'media' que contiene la lista de objetos
+                for key, value in response.data.items():
+                    if isinstance(value, list):
+                        media_items = value
+                        break
+            elif isinstance(response.data, list):
+                media_items = response.data
+        
+        # Convertir media_items a dict para el resultado
+        if media_items:
+            result['data'] = []
+            for item in media_items:
+                if hasattr(item, 'to_dict'):
+                    result['data'].append(item.to_dict())
+                elif isinstance(item, dict):
+                    result['data'].append(item)
+                else:
+                    result['data'].append(str(item))
         else:
-            result = {"data": str(response)}
+            result['data'] = []
         
         # Si analyze_images está habilitado, analizar las imágenes con AI
-        if analyze_images and 'data' in result:
-            media_items = result.get('data', [])
-            if isinstance(media_items, list):
-                image_analyses = await _analyze_media_images(media_items)
-                result['ai_analysis'] = image_analyses
+        # Pasar los objetos originales, no los dicts
+        if analyze_images and media_items:
+            image_analyses = await _analyze_media_images(media_items)
+            result['ai_analysis'] = image_analyses
         
         return result
         
     except Exception as e:
-        return {"error": str(e), "vehicle_id": vehicle_id}
+        import traceback
+        print(f"ERROR in get_camera_media: {str(e)}")
+        print(f"ERROR traceback: {traceback.format_exc()}")
+        return {
+            "error": str(e), 
+            "vehicle_id": vehicle_id,
+            "error_type": type(e).__name__
+        }
 
 
 async def _analyze_media_images(media_items: List[Any]) -> Dict[str, Any]:
@@ -286,140 +313,13 @@ async def _analyze_media_images(media_items: List[Any]) -> Dict[str, Any]:
         elif hasattr(item, 'media_type') and item.media_type == 'image':
             image_items.append(item)
     
-    # Si no hay span padre, proceder sin tracing manual (LiteLLM lo hará automáticamente)
-    if not parent_span:
-        return await _analyze_images_without_tracing(image_items)
+    # Si no hay imágenes, retornar vacío
+    if not image_items:
+        return {"total_images_analyzed": 0, "analyses": []}
     
-    # Crear span para el análisis de imágenes
-    analysis_span = parent_span.span(
-        name="image_analysis",
-        input={"total_images": len(image_items)},
-        metadata={
-            "type": "vision_analysis",
-            "model": OpenAIConfig.MODEL_GPT4O
-        }
-    )
-    
-    # Analizar cada imagen
-    async with httpx.AsyncClient(timeout=30.0) as http_client:
-        for idx, item in enumerate(image_items):
-            # Crear span para cada imagen individual
-            image_span = analysis_span.span(
-                name=f"analyze_image_{idx}",
-                metadata={
-                    "image_index": idx,
-                    "input_type": item.get('input') if isinstance(item, dict) else getattr(item, 'input', 'unknown'),
-                    "timestamp": item.get('start_time') if isinstance(item, dict) else getattr(item, 'start_time', 'unknown')
-                }
-            )
-            
-            try:
-                # Extraer URL de la imagen
-                url = None
-                if isinstance(item, dict):
-                    url_info = item.get('url_info', {})
-                    url = url_info.get('url') if isinstance(url_info, dict) else None
-                elif hasattr(item, 'url_info'):
-                    url = item.url_info.url if hasattr(item.url_info, 'url') else None
-                
-                if not url:
-                    image_span.end(
-                        level="WARNING",
-                        output={"error": "No URL found for image"}
-                    )
-                    continue
-                
-                # Descargar la imagen
-                response = await http_client.get(url)
-                if response.status_code != 200:
-                    image_span.end(
-                        level="WARNING",
-                        output={"error": f"Failed to download image: HTTP {response.status_code}"}
-                    )
-                    continue
-                
-                image_data = response.content
-                image_size_kb = len(image_data) / 1024
-                
-                # Convertir imagen a base64 para OpenAI
-                base64_image = base64.b64encode(image_data).decode('utf-8')
-                
-                # Analizar con OpenAI GPT-4o Vision vía LiteLLM
-                prompt = """Analiza esta imagen de dashcam y describe:
-1. ¿Qué se ve en la escena? (vehículos, personas, entorno)
-2. ¿Hay alguna situación de riesgo o anómala visible?
-3. ¿El conductor parece estar en peligro o en una situación de emergencia?
-4. ¿Hay evidencia visual de un incidente (colisión, frenado brusco, etc.)?
-
-Sé conciso y objetivo. Responde en español."""
-                
-                # Llamar a OpenAI Vision usando LiteLLM
-                # LiteLLM automáticamente trazará esto en Langfuse gracias a success_callback
-                vision_response = await acompletion(
-                    model=OpenAIConfig.MODEL_GPT4O,  # GPT-4o soporta visión
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{base64_image}"
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    api_key=OpenAIConfig.API_KEY,
-                    metadata={
-                        "image_index": idx,
-                        "image_size_kb": round(image_size_kb, 2),
-                        "camera_input": item.get('input') if isinstance(item, dict) else getattr(item, 'input', 'unknown')
-                    }
-                )
-                
-                analysis = {
-                    "input": item.get('input') if isinstance(item, dict) else getattr(item, 'input', 'unknown'),
-                    "timestamp": item.get('start_time') if isinstance(item, dict) else getattr(item, 'start_time', 'unknown'),
-                    "analysis": vision_response.choices[0].message.content,
-                    "url": url,
-                    "image_size_kb": round(image_size_kb, 2)
-                }
-                
-                analyses.append(analysis)
-                
-                # Finalizar span de imagen con éxito
-                image_span.end(
-                    output={
-                        "analysis_preview": analysis["analysis"][:100] + "..." if len(analysis["analysis"]) > 100 else analysis["analysis"],
-                        "image_size_kb": round(image_size_kb, 2)
-                    }
-                )
-                
-            except Exception as e:
-                error_msg = f"Error analyzing image: {str(e)}"
-                analyses.append({
-                    "error": error_msg,
-                    "item": str(item)
-                })
-                
-                # Finalizar span de imagen con error
-                image_span.end(
-                    level="ERROR",
-                    status_message=error_msg,
-                    output={"error": error_msg}
-                )
-    
-    result = {
-        "total_images_analyzed": len(analyses),
-        "analyses": analyses
-    }
-    
-    # Finalizar span de análisis
-    analysis_span.end(output=result)
-    
-    return result
+    # Proceder con análisis SIN crear spans manuales para evitar MinIO errors
+    # LiteLLM seguirá trazando las llamadas automáticamente
+    return await _analyze_images_without_tracing(image_items)
 
 
 async def _analyze_images_without_tracing(image_items: List[Any]) -> Dict[str, Any]:
@@ -430,7 +330,7 @@ async def _analyze_images_without_tracing(image_items: List[Any]) -> Dict[str, A
     analyses = []
     
     async with httpx.AsyncClient(timeout=30.0) as http_client:
-        for item in image_items:
+        for idx, item in enumerate(image_items):
             try:
                 # Extraer URL de la imagen
                 url = None
@@ -443,12 +343,16 @@ async def _analyze_images_without_tracing(image_items: List[Any]) -> Dict[str, A
                 if not url:
                     continue
                 
+                camera_input = item.get('input') if isinstance(item, dict) else getattr(item, 'input', 'unknown')
+                
                 # Descargar la imagen
                 response = await http_client.get(url)
                 if response.status_code != 200:
                     continue
                 
                 image_data = response.content
+                image_size_kb = len(image_data) / 1024
+                
                 base64_image = base64.b64encode(image_data).decode('utf-8')
                 
                 prompt = """Analiza esta imagen de dashcam y describe:
@@ -478,21 +382,33 @@ Sé conciso y objetivo. Responde en español."""
                     api_key=OpenAIConfig.API_KEY
                 )
                 
+                analysis_text = vision_response.choices[0].message.content
+                print(f"\n{'='*80}")
+                print(f"VISION ANALYSIS - {camera_input}")
+                print(f"{'='*80}")
+                print(analysis_text)
+                print(f"{'='*80}\n")
+                
                 analysis = {
-                    "input": item.get('input') if isinstance(item, dict) else getattr(item, 'input', 'unknown'),
+                    "input": camera_input,
                     "timestamp": item.get('start_time') if isinstance(item, dict) else getattr(item, 'start_time', 'unknown'),
-                    "analysis": vision_response.choices[0].message.content,
-                    "url": url
+                    "analysis": analysis_text,
+                    "url": url,
+                    "image_size_kb": round(image_size_kb, 2)
                 }
                 
                 analyses.append(analysis)
                 
             except Exception as e:
+                import traceback
+                error_msg = f"Error analyzing image: {str(e)}"
+                print(f"\nERROR - Vision Analysis Failed")
+                print(f"Error: {error_msg}")
+                print(f"Traceback: {traceback.format_exc()}\n")
                 analyses.append({
-                    "error": f"Error analyzing image: {str(e)}",
-                    "item": str(item)
+                    "error": error_msg,
+                    "item": str(item)[:200]
                 })
-    
     return {
         "total_images_analyzed": len(analyses),
         "analyses": analyses
