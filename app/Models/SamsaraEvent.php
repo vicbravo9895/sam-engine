@@ -11,6 +11,7 @@ class SamsaraEvent extends Model
 
     protected $fillable = [
         'event_type',
+        'event_description',
         'samsara_event_id',
         'vehicle_id',
         'vehicle_name',

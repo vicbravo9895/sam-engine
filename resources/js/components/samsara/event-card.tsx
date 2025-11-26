@@ -20,10 +20,12 @@ interface EventCardProps {
         id: number;
         event_title?: string | null;
         event_type?: string | null;
+        event_description?: string | null;
         event_icon?: string | null;
         vehicle_name?: string | null;
         occurred_at_human?: string | null;
         occurred_at?: string | null;
+        created_at?: string | null;
         severity: string;
         severity_label?: string | null;
         ai_status: string;
@@ -77,101 +79,148 @@ export function EventCard({ event, onClick, showProgress = false }: EventCardPro
         'Generando veredicto...'
     ];
 
-    // Simular progreso realista de 25 segundos
+    // Calcular progreso basado en created_at del evento (25 segundos desde creación)
     useEffect(() => {
-        if (!showProgress) {
+        if (!showProgress || !event.created_at) {
             setProgress(0);
             setCurrentTool(0);
             return;
         }
 
-        const startTime = Date.now();
         const duration = 25000; // 25 segundos
         const toolDuration = duration / tools.length; // ~5 segundos por tool
 
-        const progressInterval = setInterval(() => {
-            const elapsed = Date.now() - startTime;
+        // Calcular tiempo transcurrido desde que se creó el evento (ingesta)
+        const eventCreatedAt = new Date(event.created_at).getTime();
+
+        const updateProgress = () => {
+            const now = Date.now();
+            const elapsed = now - eventCreatedAt;
             const newProgress = Math.min((elapsed / duration) * 100, 100);
             setProgress(newProgress);
 
-            // Cambiar de tool cada ~5 segundos
+            // Cambiar de tool cada ~5 segundos desde la creación
             const newToolIndex = Math.min(
                 Math.floor(elapsed / toolDuration),
                 tools.length - 1
             );
             setCurrentTool(newToolIndex);
+        };
 
-            if (elapsed >= duration) {
-                clearInterval(progressInterval);
-            }
-        }, 100);
+        // Actualizar inmediatamente
+        updateProgress();
+
+        // Continuar actualizando cada 100ms
+        const progressInterval = setInterval(updateProgress, 100);
 
         return () => clearInterval(progressInterval);
-    }, [showProgress, event.id]);
+    }, [showProgress, event.id, event.created_at]);
+
+    // Determinar si el evento es urgente (crítico y pendiente/procesando)
+    const isUrgent = event.severity === 'critical' &&
+        (event.ai_status === 'pending' || event.ai_status === 'processing');
+
+    // Determinar color del borde según severidad
+    const getBorderColor = () => {
+        switch (event.severity) {
+            case 'critical':
+                return 'border-l-red-500 dark:border-l-red-400';
+            case 'warning':
+                return 'border-l-amber-500 dark:border-l-amber-400';
+            default:
+                return 'border-l-blue-500 dark:border-l-blue-400';
+        }
+    };
 
     return (
         <Card
-            className="cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] active:scale-[0.98] w-full"
+            className={`cursor-pointer transition-all hover:shadow-lg hover:scale-[1.01] active:scale-[0.99] border-l-4 ${getBorderColor()} overflow-hidden relative ${isUrgent ? 'animate-pulse-border' : ''
+                }`}
             onClick={onClick}
         >
-            <CardContent className="p-3 space-y-2.5">
-                {/* Header con icon y título */}
-                <div className="flex items-start gap-2 min-w-0">
-                    <div className="rounded-full bg-primary/10 p-1.5 shrink-0">
-                        <Icon className="size-4 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">
-                            {event.event_title ?? event.event_type ?? 'Evento sin título'}
-                        </p>
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5 min-w-0">
-                            <Truck className="size-3 shrink-0" />
-                            <span className="truncate">
-                                {event.vehicle_name ?? 'Sin vehículo'}
-                            </span>
-                        </div>
-                    </div>
+            {/* Indicador de urgencia - pulso sutil */}
+            {isUrgent && (
+                <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute inset-0 bg-red-500/5 dark:bg-red-400/10 animate-pulse-slow" />
                 </div>
+            )}
 
-                {/* Progress bar (solo si processing) */}
-                {showProgress && (
-                    <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
-                            <Loader2 className="size-3 animate-spin shrink-0" />
-                            <span className="truncate">{tools[currentTool]}</span>
+            <CardContent className="p-0 relative z-10">
+                {/* Header Section */}
+                <div className="p-3 pb-2 bg-gradient-to-br from-muted/30 to-muted/10">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className={`rounded-md p-1.5 shrink-0 ${isUrgent
+                                    ? 'bg-red-100 dark:bg-red-950/50'
+                                    : 'bg-primary/15'
+                                }`}>
+                                <Icon className={`size-4 ${isUrgent
+                                        ? 'text-red-600 dark:text-red-400'
+                                        : 'text-primary'
+                                    }`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h4 className="text-sm font-semibold leading-tight line-clamp-2">
+                                    {event.event_description ?? event.event_title ?? event.event_type ?? 'Evento sin título'}
+                                </h4>
+                            </div>
                         </div>
-                        <Progress value={progress} className="h-1" />
-                    </div>
-                )}
-
-                {/* Investigation badge (solo si investigating) */}
-                {event.ai_status === 'investigating' && event.investigation_metadata && (
-                    <div className="flex items-center gap-2 text-xs min-w-0">
-                        <Search className="size-3 text-amber-600 shrink-0" />
-                        <span className="text-amber-700 dark:text-amber-300 font-medium truncate">
-                            Investigación {event.investigation_metadata.count}/{event.investigation_metadata.max_investigations}
-                        </span>
-                    </div>
-                )}
-
-                {/* Footer con badges y tiempo */}
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                    <div className="flex gap-1.5 flex-wrap min-w-0">
                         <Badge
-                            className={`text-xs px-2 py-0 ${severityStyles[event.severity] ?? severityStyles.info}`}
+                            variant="secondary"
+                            className={`text-[10px] font-semibold px-2 py-0.5 shrink-0 ${severityStyles[event.severity] ?? severityStyles.info}`}
                         >
                             {event.severity_label ?? 'Info'}
                         </Badge>
-                        <Badge
-                            className={`text-xs px-2 py-0 ${statusStyles[event.ai_status] ?? statusStyles.pending}`}
-                        >
-                            {event.ai_status_label ?? 'Pendiente'}
-                        </Badge>
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                        <Clock className="size-3" />
-                        <span className="truncate max-w-[80px]">{event.occurred_at_human ?? 'Sin fecha'}</span>
+
+                    {/* Vehicle Info */}
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Truck className="size-3.5 shrink-0" />
+                        <span className="font-medium truncate">
+                            {event.vehicle_name ?? 'Sin vehículo'}
+                        </span>
                     </div>
+                </div>
+
+                {/* Progress Section (solo si processing) */}
+                {showProgress && (
+                    <div className="px-3 py-2 bg-sky-50/50 dark:bg-sky-950/20 border-y border-sky-200/50 dark:border-sky-800/50">
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <Loader2 className="size-3.5 animate-spin text-sky-600 dark:text-sky-400 shrink-0" />
+                            <span className="text-xs text-sky-700 dark:text-sky-300 font-medium truncate">
+                                {tools[currentTool]}
+                            </span>
+                        </div>
+                        <Progress value={progress} className="h-1.5 bg-sky-100 dark:bg-sky-900/50" />
+                    </div>
+                )}
+
+                {/* Investigation Section (solo si investigating) */}
+                {event.ai_status === 'investigating' && event.investigation_metadata && (
+                    <div className="px-3 py-2 bg-amber-50/50 dark:bg-amber-950/20 border-y border-amber-200/50 dark:border-amber-800/50">
+                        <div className="flex items-center gap-2">
+                            <Search className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                                Investigación {event.investigation_metadata.count}/{event.investigation_metadata.max_investigations}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
+                {/* Footer Section */}
+                <div className="px-3 py-2.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Clock className="size-3.5 shrink-0" />
+                        <span className="font-medium">
+                            {event.occurred_at_human ?? 'Sin fecha'}
+                        </span>
+                    </div>
+                    <Badge
+                        variant="outline"
+                        className={`text-[10px] font-medium px-2 py-0.5 ${statusStyles[event.ai_status] ?? statusStyles.pending}`}
+                    >
+                        {event.ai_status_label ?? 'Pendiente'}
+                    </Badge>
                 </div>
             </CardContent>
         </Card>

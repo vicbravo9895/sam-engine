@@ -66,9 +66,16 @@ class SamsaraWebhookController extends Controller
         // Determinar el tipo de evento
         $eventType = $this->determineEventType($payload);
         $vehicleInfo = $this->extractVehicleInfo($payload);
+        $eventDescription = $this->extractEventDescription($payload);
+
+        // Traducir description si es necesario
+        if ($eventDescription) {
+            $eventDescription = $this->translateEventDescription($eventDescription);
+        }
 
         return [
             'event_type' => $eventType,
+            'event_description' => $eventDescription,
             'samsara_event_id' => $payload['eventId'] ?? $payload['id'] ?? null,
             'vehicle_id' => $vehicleInfo['id'] ?? null,
             'vehicle_name' => $vehicleInfo['name'] ?? null,
@@ -135,23 +142,133 @@ class SamsaraWebhookController extends Controller
     }
 
     /**
+     * Extrae la descripción del evento desde conditions
+     */
+    private function extractEventDescription(array $payload): ?string
+    {
+        // Buscar en data.conditions[].description
+        if (isset($payload['data']['conditions']) && is_array($payload['data']['conditions'])) {
+            foreach ($payload['data']['conditions'] as $condition) {
+                if (isset($condition['description'])) {
+                    return $condition['description'];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Traduce descripciones de eventos comunes al español
+     */
+    private function translateEventDescription(string $description): string
+    {
+        $translations = [
+            'Panic Button' => 'Botón de pánico',
+            'panic button' => 'Botón de pánico',
+            'PANIC BUTTON' => 'Botón de pánico',
+            'Hard Braking' => 'Frenado brusco',
+            'hard braking' => 'Frenado brusco',
+            'Harsh Acceleration' => 'Aceleración brusca',
+            'harsh acceleration' => 'Aceleración brusca',
+            'Sharp Turn' => 'Giro brusco',
+            'sharp turn' => 'Giro brusco',
+            'Distracted Driving' => 'Conducción distraída',
+            'distracted driving' => 'Conducción distraída',
+            'Following Distance' => 'Distancia de seguimiento',
+            'following distance' => 'Distancia de seguimiento',
+            'Speeding' => 'Exceso de velocidad',
+            'speeding' => 'Exceso de velocidad',
+            'Stop Sign Violation' => 'Violación de señal de alto',
+            'stop sign violation' => 'Violación de señal de alto',
+        ];
+
+        return $translations[$description] ?? $description;
+    }
+
+    /**
      * Determina la severidad del evento
      */
     private function determineSeverity(array $payload): string
     {
-        $severity = $payload['severity'] ?? $payload['level'] ?? 'info';
+        // 1. Primero verificar si viene explícitamente en el payload
+        $severity = $payload['severity'] ?? $payload['level'] ?? null;
 
-        // Normalizar a nuestros valores
-        $severity = strtolower($severity);
+        if ($severity) {
+            // Normalizar a nuestros valores
+            $severity = strtolower($severity);
 
-        if (in_array($severity, ['critical', 'high', 'panic'])) {
+            if (in_array($severity, ['critical', 'high', 'panic'])) {
+                return SamsaraEvent::SEVERITY_CRITICAL;
+            }
+
+            if (in_array($severity, ['warning', 'medium'])) {
+                return SamsaraEvent::SEVERITY_WARNING;
+            }
+
+            return SamsaraEvent::SEVERITY_INFO;
+        }
+
+        // 2. Si no viene severity, determinar por el tipo de evento y descripción
+        $eventDescription = $this->extractEventDescription($payload);
+        $eventType = $this->determineEventType($payload);
+
+        // Eventos críticos por descripción
+        $criticalDescriptions = [
+            'panic button',
+            'botón de pánico',
+            'collision',
+            'colisión',
+            'crash',
+            'accidente',
+        ];
+
+        if ($eventDescription) {
+            $descriptionLower = strtolower($eventDescription);
+            foreach ($criticalDescriptions as $critical) {
+                if (str_contains($descriptionLower, $critical)) {
+                    return SamsaraEvent::SEVERITY_CRITICAL;
+                }
+            }
+        }
+
+        // Eventos críticos por tipo
+        $criticalTypes = [
+            'panic_button',
+            'panicbutton',
+            'collision',
+            'crash',
+        ];
+
+        $typeLower = strtolower($eventType);
+        if (in_array($typeLower, $criticalTypes)) {
             return SamsaraEvent::SEVERITY_CRITICAL;
         }
 
-        if (in_array($severity, ['warning', 'medium'])) {
-            return SamsaraEvent::SEVERITY_WARNING;
+        // Eventos de advertencia por descripción
+        $warningDescriptions = [
+            'hard braking',
+            'frenado brusco',
+            'harsh acceleration',
+            'aceleración brusca',
+            'sharp turn',
+            'giro brusco',
+            'distracted driving',
+            'conducción distraída',
+            'speeding',
+            'exceso de velocidad',
+        ];
+
+        if ($eventDescription) {
+            $descriptionLower = strtolower($eventDescription);
+            foreach ($warningDescriptions as $warning) {
+                if (str_contains($descriptionLower, $warning)) {
+                    return SamsaraEvent::SEVERITY_WARNING;
+                }
+            }
         }
 
+        // Por defecto: info
         return SamsaraEvent::SEVERITY_INFO;
     }
 }

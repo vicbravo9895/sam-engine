@@ -117,7 +117,9 @@ interface SamsaraEventPayload {
     investigation_metadata?: {
         count: number;
         last_check?: string | null;
+        last_check_at?: string | null;
         next_check_minutes?: number | null;
+        next_check_available_at?: string | null;
         history: {
             timestamp: string;
             reason: string;
@@ -159,6 +161,10 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
     const [isPolling, setIsPolling] = useState(false);
     const [previousStatus, setPreviousStatus] = useState(event.ai_status);
     const [simulatedTools, setSimulatedTools] = useState<string[]>([]);
+    const [nextInvestigationEtaMs, setNextInvestigationEtaMs] = useState<number | null>(null);
+
+    const isProcessing = event.ai_status === 'processing';
+    const isInvestigating = event.ai_status === 'investigating';
 
     const eventLabel =
         event.display_event_type ?? 'Alerta procesada por AI';
@@ -179,61 +185,113 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
 
     // Polling para eventos en processing o investigating
     useEffect(() => {
-        const shouldPoll = event.ai_status === 'processing' || event.ai_status === 'investigating';
+        const shouldPoll = isProcessing || isInvestigating;
+        let pollingInterval: ReturnType<typeof setInterval> | undefined;
+        let toolInterval: ReturnType<typeof setInterval> | undefined;
 
         if (shouldPoll) {
             setIsPolling(true);
 
-            // Simular herramientas siendo usadas
-            const tools = [
-                'Obteniendo estadísticas del vehículo...',
-                'Consultando información del vehículo...',
-                'Identificando conductor asignado...',
-                'Analizando imágenes de cámaras con IA...',
-                'Generando veredicto final...'
-            ];
+            if (isProcessing) {
+                setSimulatedTools([]);
+                const tools = [
+                    'Obteniendo estadísticas del vehículo...',
+                    'Consultando información del vehículo...',
+                    'Identificando conductor asignado...',
+                    'Analizando imágenes de cámaras con IA...',
+                    'Generando veredicto final...'
+                ];
 
-            let currentToolIndex = 0;
-            const toolInterval = setInterval(() => {
-                if (currentToolIndex < tools.length) {
-                    setSimulatedTools(prev => [...prev, tools[currentToolIndex]]);
-                    currentToolIndex++;
-                } else {
-                    clearInterval(toolInterval);
-                }
-            }, 5000); // Cada 5 segundos muestra una nueva herramienta
+                let currentToolIndex = 0;
+                toolInterval = setInterval(() => {
+                    if (currentToolIndex < tools.length) {
+                        setSimulatedTools((prev) => [...prev, tools[currentToolIndex]]);
+                        currentToolIndex++;
+                    } else if (toolInterval) {
+                        clearInterval(toolInterval);
+                        toolInterval = undefined;
+                    }
+                }, 5000);
+            } else {
+                setSimulatedTools([]);
+            }
 
-            // Polling cada 3 segundos
-            const pollingInterval = setInterval(() => {
+            pollingInterval = setInterval(() => {
                 router.reload({
                     only: ['event'],
                 });
             }, 3000);
-
-            return () => {
-                clearInterval(pollingInterval);
-                clearInterval(toolInterval);
-            };
         } else {
             setIsPolling(false);
+            setSimulatedTools([]);
+        }
 
-            // Detectar si cambió de processing/investigating a completed
-            if ((previousStatus === 'processing' || previousStatus === 'investigating') &&
-                event.ai_status === 'completed') {
-                // Mostrar notificación de completado
-                if (typeof window !== 'undefined' && 'Notification' in window) {
-                    if (Notification.permission === 'granted') {
-                        new Notification('Análisis completado', {
-                            body: `El evento "${eventLabel}" ha sido procesado por la AI`,
-                            icon: '/favicon.ico'
-                        });
-                    }
+        if ((previousStatus === 'processing' || previousStatus === 'investigating') &&
+            event.ai_status === 'completed') {
+            if (typeof window !== 'undefined' && 'Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    new Notification('Análisis completado', {
+                        body: `El evento "${eventLabel}" ha sido procesado por la AI`,
+                        icon: '/favicon.ico',
+                    });
                 }
             }
-
-            setPreviousStatus(event.ai_status);
         }
-    }, [event.ai_status, event.id, previousStatus, eventLabel]);
+
+        setPreviousStatus(event.ai_status);
+
+        return () => {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            if (toolInterval) {
+                clearInterval(toolInterval);
+            }
+        };
+    }, [event.ai_status, event.id, eventLabel, isInvestigating, isProcessing, previousStatus]);
+
+    useEffect(() => {
+        if (!isInvestigating) {
+            setNextInvestigationEtaMs(null);
+            return;
+        }
+
+        const nextCheckAt = event.investigation_metadata?.next_check_available_at;
+        if (!nextCheckAt) {
+            setNextInvestigationEtaMs(null);
+            return;
+        }
+
+        const targetTime = new Date(nextCheckAt).getTime();
+        if (!Number.isFinite(targetTime)) {
+            setNextInvestigationEtaMs(null);
+            return;
+        }
+
+        let timer: ReturnType<typeof setInterval> | undefined;
+
+        const tick = () => {
+            const diff = targetTime - Date.now();
+            if (diff <= 0) {
+                setNextInvestigationEtaMs(0);
+                if (timer) {
+                    clearInterval(timer);
+                    timer = undefined;
+                }
+                return;
+            }
+            setNextInvestigationEtaMs(diff);
+        };
+
+        tick();
+        timer = setInterval(tick, 1000);
+
+        return () => {
+            if (timer) {
+                clearInterval(timer);
+            }
+        };
+    }, [event.investigation_metadata?.next_check_available_at, isInvestigating]);
 
     const summaryChips = useMemo(
         () => [
@@ -255,6 +313,30 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
         ],
         [event],
     );
+
+    const nextInvestigationCountdownText = useMemo(() => {
+        if (!isInvestigating) {
+            return null;
+        }
+
+        if (nextInvestigationEtaMs === null) {
+            const fallbackMinutes = event.investigation_metadata?.next_check_minutes;
+            return fallbackMinutes ? `En ${fallbackMinutes} minutos` : null;
+        }
+
+        if (nextInvestigationEtaMs === 0) {
+            return 'Disponible ahora';
+        }
+
+        const totalSeconds = Math.ceil(nextInvestigationEtaMs / 1000);
+        if (totalSeconds >= 60) {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `En ${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+        }
+
+        return `En ${totalSeconds} segundos`;
+    }, [event.investigation_metadata?.next_check_minutes, isInvestigating, nextInvestigationEtaMs]);
 
     const formatFullDate = (value?: string | null) => {
         if (!value) return 'Sin registro';
@@ -381,7 +463,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                     </div>
                 </div>
 
-                {(event.ai_status === 'processing' || event.ai_status === 'investigating') && isPolling && (
+                {isProcessing && isPolling && (
                     <Card className="border-2 border-sky-500/30 bg-sky-50/50 dark:bg-sky-950/20">
                         <CardHeader>
                             <div className="flex items-center gap-3">
@@ -493,14 +575,25 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                                         </p>
                                     </div>
                                 )}
-                                {event.investigation_metadata.next_check_minutes && (
+                                {(nextInvestigationCountdownText ||
+                                    event.investigation_metadata.next_check_minutes ||
+                                    event.investigation_metadata.next_check_available_at) && (
                                     <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
                                         <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">
                                             Próxima verificación
                                         </p>
                                         <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                                            En {event.investigation_metadata.next_check_minutes} minutos
+                                            {nextInvestigationCountdownText ??
+                                                (event.investigation_metadata.next_check_minutes
+                                                    ? `En ${event.investigation_metadata.next_check_minutes} minutos`
+                                                    : 'Sin programación definida')}
                                         </p>
+                                        {event.investigation_metadata.next_check_available_at && (
+                                            <p className="text-xs text-amber-600 dark:text-amber-300">
+                                                Programada para{' '}
+                                                {formatDateTime(event.investigation_metadata.next_check_available_at)}
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>

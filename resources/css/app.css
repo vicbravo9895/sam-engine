@@ -141,3 +141,33 @@
         @apply bg-background text-foreground;
     }
 }
+
+@layer utilities {
+    /* Animación de pulso lento para eventos urgentes */
+    @keyframes pulse-slow {
+        0%, 100% {
+            opacity: 0.3;
+        }
+        50% {
+            opacity: 0.6;
+        }
+    }
+
+    .animate-pulse-slow {
+        animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* Animación sutil para el borde de eventos urgentes */
+    @keyframes pulse-border {
+        0%, 100% {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+        }
+        50% {
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1);
+        }
+    }
+
+    .animate-pulse-border {
+        animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+}

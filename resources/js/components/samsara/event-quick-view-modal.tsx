@@ -48,7 +48,9 @@ interface EventQuickViewModalProps {
         investigation_metadata?: {
             count: number;
             last_check?: string | null;
+            last_check_at?: string | null;
             next_check_minutes?: number | null;
+            next_check_available_at?: string | null;
             max_investigations: number;
         };
     } | null;

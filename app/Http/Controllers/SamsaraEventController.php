@@ -69,6 +69,7 @@ class SamsaraEventController extends Controller
                     'id' => $event->id,
                     'samsara_event_id' => $event->samsara_event_id,
                     'event_type' => $event->event_type,
+                    'event_description' => $event->event_description,
                     'event_title' => $this->alertTypeLabel($alertType),
                     'event_icon' => $this->getEventIcon($alertType),
                     'severity' => $event->severity,
@@ -79,10 +80,17 @@ class SamsaraEventController extends Controller
                     'driver_name' => $event->driver_name,
                     'occurred_at' => optional($event->occurred_at)?->toIso8601String(),
                     'occurred_at_human' => optional($event->occurred_at)?->diffForHumans(),
+                    'created_at' => $event->created_at->toIso8601String(),
                     'ai_message_preview' => Str::limit((string) $event->ai_message, 180),
                     'ai_assessment_view' => $assessment,
                     'verdict_summary' => $this->getVerdictSummary($assessment),
                     'investigation_summary' => $this->getInvestigationSummary($event->ai_actions),
+                    'investigation_metadata' => $event->ai_status === SamsaraEvent::STATUS_INVESTIGATING
+                        ? [
+                            'count' => $event->investigation_count,
+                            'max_investigations' => SamsaraEvent::getMaxInvestigations(),
+                        ]
+                        : null,
                 ];
             });
 
@@ -253,7 +261,14 @@ class SamsaraEventController extends Controller
                 'investigation_metadata' => [
                     'count' => $samsaraEvent->investigation_count,
                     'last_check' => optional($samsaraEvent->last_investigation_at)?->diffForHumans(),
+                    'last_check_at' => optional($samsaraEvent->last_investigation_at)?->toIso8601String(),
                     'next_check_minutes' => $samsaraEvent->next_check_minutes,
+                    'next_check_available_at' => $samsaraEvent->last_investigation_at && $samsaraEvent->next_check_minutes
+                        ? $samsaraEvent->last_investigation_at
+                            ->copy()
+                            ->addMinutes($samsaraEvent->next_check_minutes)
+                            ->toIso8601String()
+                        : null,
                     'history' => $samsaraEvent->investigation_history ?? [],
                     'max_investigations' => SamsaraEvent::getMaxInvestigations(),
                 ],

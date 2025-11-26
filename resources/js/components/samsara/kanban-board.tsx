@@ -45,19 +45,21 @@ export function KanbanBoard({ events, onEventClick }: KanbanBoardProps) {
     }, {} as Record<string, Event[]>);
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 h-[calc(100vh-300px)] min-h-[600px]">
-            {columns.map((column) => (
-                <KanbanColumn
-                    key={column.status}
-                    title={column.label}
-                    status={column.status}
-                    icon={column.icon}
-                    color={column.color}
-                    events={groupedEvents[column.status] || []}
-                    onEventClick={onEventClick}
-                    maxVisible={10}
-                />
-            ))}
+        <div className="w-full overflow-x-auto">
+            <div className="flex gap-4 min-w-max pb-4">
+                {columns.map((column) => (
+                    <KanbanColumn
+                        key={column.status}
+                        title={column.label}
+                        status={column.status}
+                        icon={column.icon}
+                        color={column.color}
+                        events={groupedEvents[column.status] || []}
+                        onEventClick={onEventClick}
+                        maxVisible={10}
+                    />
+                ))}
+            </div>
         </div>
     );
 }

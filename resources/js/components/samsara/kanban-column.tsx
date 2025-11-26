@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { type LucideIcon } from 'lucide-react';
 import { EventCard } from './event-card';
+import { useState, useEffect } from 'react';
 
 interface Event {
     id: number;
@@ -69,11 +70,23 @@ export function KanbanColumn({
     maxVisible = 10,
 }: KanbanColumnProps) {
     const styles = colorStyles[color] || colorStyles.slate;
-    const visibleEvents = events.slice(0, maxVisible);
-    const hasMore = events.length > maxVisible;
+    const [visibleCount, setVisibleCount] = useState(maxVisible);
+
+    // Reset visible count when events change (e.g., filters applied)
+    useEffect(() => {
+        setVisibleCount(maxVisible);
+    }, [events.length, maxVisible]);
+
+    const visibleEvents = events.slice(0, visibleCount);
+    const hasMore = events.length > visibleCount;
+    const remainingCount = events.length - visibleCount;
+
+    const loadMore = () => {
+        setVisibleCount(prev => Math.min(prev + maxVisible, events.length));
+    };
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col w-80 h-[calc(100vh-320px)] min-h-[600px] max-h-[800px]">
             {/* Column Header */}
             <div className={`sticky top-0 z-10 rounded-t-lg border-b ${styles.border} ${styles.bg} p-3`}>
                 <div className="flex items-center justify-between">
@@ -87,7 +100,7 @@ export function KanbanColumn({
                 </div>
             </div>
 
-            {/* Column Content */}
+            {/* Column Content with Scroll */}
             <div className={`flex-1 overflow-y-auto p-2 space-y-2 ${styles.bg} rounded-b-lg border-x border-b ${styles.border}`}>
                 {visibleEvents.length === 0 ? (
                     <div className="flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
@@ -108,9 +121,10 @@ export function KanbanColumn({
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="w-full text-xs"
+                                className="w-full text-xs hover:bg-primary/10"
+                                onClick={loadMore}
                             >
-                                Ver {events.length - maxVisible} más...
+                                Cargar {Math.min(remainingCount, maxVisible)} más... ({remainingCount} restantes)
                             </Button>
                         )}
                     </>
