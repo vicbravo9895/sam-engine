@@ -12,13 +12,15 @@ from tools import (
     get_vehicle_stats,
     get_vehicle_info,
     get_driver_assignment,
-    get_camera_media
+    get_camera_media,
+    get_safety_events
 )
 from .prompts import (
     INGESTION_AGENT_PROMPT,
     PANIC_INVESTIGATOR_PROMPT,
     FINAL_AGENT_PROMPT
 )
+from .schemas import CaseData, PanicAssessment
 
 # ============================================================================
 # INGESTION AGENT
@@ -28,7 +30,9 @@ ingestion_agent = LlmAgent(
     name="ingestion_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
     instruction=INGESTION_AGENT_PROMPT,
-    description="Extrae y estructura información básica del payload de alerta de Samsara"
+    description="Extrae y estructura información básica del payload de alerta de Samsara",
+    output_key="case",  # Stores structured case data in state['case']
+    output_schema=CaseData
 )
 
 
@@ -43,10 +47,13 @@ panic_investigator = LlmAgent(
         get_vehicle_stats,
         get_vehicle_info,
         get_driver_assignment,
-        get_camera_media
+        get_camera_media,
+        get_safety_events
     ],
     instruction=PANIC_INVESTIGATOR_PROMPT,
-    description="Investiga alertas de pánico usando tools y genera evaluación técnica"
+    description="Investiga alertas de pánico usando tools y genera evaluación técnica",
+    output_key="panic_assessment",  # Stores assessment in state['panic_assessment']
+    output_schema=PanicAssessment
 )
 
 
@@ -58,7 +65,8 @@ final_agent = LlmAgent(
     name="final_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
     instruction=FINAL_AGENT_PROMPT,
-    description="Genera mensaje final en español para el equipo de monitoreo"
+    description="Genera mensaje final en español para el equipo de monitoreo",
+    output_key="human_message"  # Stores final message in state['human_message']
 )
 
 

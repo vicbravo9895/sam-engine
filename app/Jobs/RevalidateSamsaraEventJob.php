@@ -99,19 +99,38 @@ class RevalidateSamsaraEventJob implements ShouldQueue
 
             $result = $response->json();
 
-            // Verificar si aún requiere monitoreo
-            if ($result['requires_monitoring'] ?? false) {
-                $nextCheckMinutes = $result['next_check_minutes'] ?? 30;
+            // Extraer información de monitoreo desde la nueva estructura
+            $requiresMonitoring = false;
+            $nextCheckMinutes = 30;
+            $monitoringReason = null;
 
+            // Nueva estructura: assessment.monitoring.required
+            if (isset($result['assessment']['monitoring']['required'])) {
+                $requiresMonitoring = $result['assessment']['monitoring']['required'];
+                $nextCheckMinutes = $result['assessment']['monitoring']['next_check_minutes'] ?? 30;
+                $monitoringReason = $result['assessment']['monitoring']['reason'] ?? null;
+            }
+            // Fallback: estructura anterior (backward compatibility)
+            elseif (isset($result['requires_monitoring'])) {
+                $requiresMonitoring = $result['requires_monitoring'];
+                $nextCheckMinutes = $result['next_check_minutes'] ?? 30;
+                $monitoringReason = $result['monitoring_reason'] ?? null;
+            }
+
+            // Nueva estructura: execution en lugar de actions
+            $actions = $result['execution'] ?? $result['actions'] ?? $this->event->ai_actions;
+
+            // Verificar si aún requiere monitoreo
+            if ($requiresMonitoring) {
                 $this->event->markAsInvestigating(
                     assessment: $result['assessment'] ?? $this->event->ai_assessment ?? [],
                     message: $result['message'] ?? 'Evento bajo investigación continua',
                     nextCheckMinutes: $nextCheckMinutes,
-                    actions: $result['actions'] ?? $this->event->ai_actions
+                    actions: $actions
                 );
 
                 $this->event->addInvestigationRecord(
-                    reason: $result['monitoring_reason'] ?? 'Requiere más tiempo para contexto'
+                    reason: $monitoringReason ?? 'Requiere más tiempo para contexto'
                 );
 
                 // Programar siguiente revalidación
@@ -129,7 +148,7 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 $this->event->markAsCompleted(
                     assessment: $result['assessment'] ?? [],
                     message: $result['message'] ?? 'Investigación completada',
-                    actions: $result['actions'] ?? null
+                    actions: $actions
                 );
 
                 Log::info("Event investigation completed", [

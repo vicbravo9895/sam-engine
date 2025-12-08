@@ -6,12 +6,14 @@ from .samsara_tools import (
     get_vehicle_stats,
     get_vehicle_info,
     get_driver_assignment,
-    get_camera_media
+    get_camera_media,
+    get_safety_events
 )
 
 __all__ = [
     "get_vehicle_stats",
     "get_vehicle_info",
     "get_driver_assignment",
-    "get_camera_media"
+    "get_camera_media",
+    "get_safety_events"
 ]

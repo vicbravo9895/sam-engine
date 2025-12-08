@@ -72,6 +72,7 @@ interface EventListItem {
         label: string;
         items: string[];
     }[];
+    has_images?: boolean;
 }
 
 interface PaginationLink {

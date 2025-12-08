@@ -70,19 +70,65 @@ class ProcessSamsaraEventJob implements ShouldQueue
 
             $result = $response->json();
 
-            // Verificar si la AI requiere monitoreo continuo
-            if ($result['requires_monitoring'] ?? false) {
-                $nextCheckMinutes = $result['next_check_minutes'] ?? 15;
+            // Log detallado del response para debugging
+            Log::info("AI service response received", [
+                'event_id' => $this->event->id,
+                'status' => $result['status'] ?? 'unknown',
+                'has_assessment' => isset($result['assessment']),
+                'has_execution' => isset($result['execution']),
+                'execution_agents_count' => isset($result['execution']['agents']) ? count($result['execution']['agents']) : 0,
+                'raw_result' => $result,
+            ]);
 
+            // Extraer información de monitoreo desde la nueva estructura
+            // La nueva estructura tiene monitoring anidado en assessment
+            $requiresMonitoring = false;
+            $nextCheckMinutes = 15;
+            $monitoringReason = null;
+
+            // Nueva estructura: assessment.monitoring.required
+            if (isset($result['assessment']['monitoring']['required'])) {
+                $requiresMonitoring = $result['assessment']['monitoring']['required'];
+                $nextCheckMinutes = $result['assessment']['monitoring']['next_check_minutes'] ?? 15;
+                $monitoringReason = $result['assessment']['monitoring']['reason'] ?? null;
+            }
+            // Fallback: estructura anterior (backward compatibility)
+            elseif (isset($result['requires_monitoring'])) {
+                $requiresMonitoring = $result['requires_monitoring'];
+                $nextCheckMinutes = $result['next_check_minutes'] ?? 15;
+                $monitoringReason = $result['monitoring_reason'] ?? null;
+            }
+
+            // Nueva estructura: execution en lugar de actions
+            $actions = $result['execution'] ?? $result['actions'] ?? null;
+
+            // Log del contenido de execution/actions
+            Log::info("Extracted actions from AI response", [
+                'event_id' => $this->event->id,
+                'actions_is_null' => $actions === null,
+                'actions_keys' => $actions ? array_keys($actions) : [],
+                'agents_count' => isset($actions['agents']) ? count($actions['agents']) : 0,
+            ]);
+
+            // Persistir imágenes de evidencia si existen (en AMBOS flujos)
+            $actions = $this->persistEvidenceImages($actions);
+
+            Log::info("Actions after persisting evidence images", [
+                'event_id' => $this->event->id,
+                'actions_is_null' => $actions === null,
+            ]);
+
+            // Verificar si la AI requiere monitoreo continuo
+            if ($requiresMonitoring) {
                 $this->event->markAsInvestigating(
                     assessment: $result['assessment'] ?? [],
                     message: $result['message'] ?? 'Evento bajo investigación',
                     nextCheckMinutes: $nextCheckMinutes,
-                    actions: $result['actions'] ?? null
+                    actions: $actions
                 );
 
                 $this->event->addInvestigationRecord(
-                    reason: $result['monitoring_reason'] ?? 'Confianza insuficiente para veredicto final'
+                    reason: $monitoringReason ?? 'Confianza insuficiente para veredicto final'
                 );
 
                 // Programar revalidación
@@ -93,17 +139,19 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 Log::info("Event marked for investigation", [
                     'event_id' => $this->event->id,
                     'next_check_minutes' => $nextCheckMinutes,
+                    'actions_saved' => $actions !== null,
                 ]);
             } else {
                 // Flujo normal - completar
                 $this->event->markAsCompleted(
                     assessment: $result['assessment'] ?? [],
                     message: $result['message'] ?? 'No message provided',
-                    actions: $result['actions'] ?? null
+                    actions: $actions
                 );
 
                 Log::info("Samsara event processed successfully", [
                     'event_id' => $this->event->id,
+                    'actions_saved' => $actions !== null,
                 ]);
             }
 
@@ -135,5 +183,134 @@ class ProcessSamsaraEventJob implements ShouldQueue
         ]);
 
         $this->event->markAsFailed($exception->getMessage());
+    }
+
+    /**
+     * Persiste las imágenes de evidencia desde las URLs de Samsara
+     * 
+     * @param array|null $actions Los actions/execution del resultado de AI
+     * @return array|null Los actions actualizados con las URLs locales
+     */
+    private function persistEvidenceImages(?array $actions): ?array
+    {
+        if (!$actions) {
+            Log::info("persistEvidenceImages: actions is null, returning null");
+            return null;
+        }
+
+        Log::info("persistEvidenceImages: Starting to process actions", [
+            'event_id' => $this->event->id,
+            'agents_count' => count($actions['agents'] ?? []),
+            'actions_keys' => array_keys($actions),
+        ]);
+
+        try {
+            $totalMediaUrlsFound = 0;
+            $totalDownloaded = 0;
+
+            // Buscar media_urls en los agents (nueva estructura: execution.agents[].tools[].media_urls)
+            foreach ($actions['agents'] ?? [] as $agentIndex => $agent) {
+                $agentName = $agent['name'] ?? "agent_{$agentIndex}";
+                $toolsCount = count($agent['tools'] ?? []);
+
+                Log::info("persistEvidenceImages: Processing agent", [
+                    'event_id' => $this->event->id,
+                    'agent_name' => $agentName,
+                    'tools_count' => $toolsCount,
+                ]);
+
+                foreach ($agent['tools'] ?? [] as $toolIndex => $tool) {
+                    $toolName = $tool['name'] ?? "tool_{$toolIndex}";
+                    $mediaUrlsCount = count($tool['media_urls'] ?? []);
+
+                    if (!empty($tool['media_urls'])) {
+                        $totalMediaUrlsFound += $mediaUrlsCount;
+
+                        Log::info("persistEvidenceImages: Found media_urls in tool", [
+                            'event_id' => $this->event->id,
+                            'agent_name' => $agentName,
+                            'tool_name' => $toolName,
+                            'media_urls_count' => $mediaUrlsCount,
+                        ]);
+
+                        $localUrls = [];
+                        foreach ($tool['media_urls'] as $urlIndex => $samsaraUrl) {
+                            Log::info("persistEvidenceImages: Downloading image", [
+                                'event_id' => $this->event->id,
+                                'url_index' => $urlIndex,
+                                'url_prefix' => substr($samsaraUrl, 0, 100) . '...',
+                            ]);
+
+                            $localUrl = $this->downloadAndStoreImage($samsaraUrl);
+                            if ($localUrl) {
+                                $localUrls[] = $localUrl;
+                                $totalDownloaded++;
+                                Log::info("persistEvidenceImages: Image downloaded successfully", [
+                                    'event_id' => $this->event->id,
+                                    'local_url' => $localUrl,
+                                ]);
+                            }
+                        }
+                        // Reemplazar con URLs locales
+                        if (!empty($localUrls)) {
+                            $actions['agents'][$agentIndex]['tools'][$toolIndex]['media_urls'] = $localUrls;
+                        }
+                    }
+                }
+            }
+
+            Log::info("persistEvidenceImages: Completed", [
+                'event_id' => $this->event->id,
+                'total_media_urls_found' => $totalMediaUrlsFound,
+                'total_downloaded' => $totalDownloaded,
+            ]);
+        } catch (\Exception $e) {
+            Log::warning("Failed to persist evidence images", [
+                'event_id' => $this->event->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $actions;
+    }
+
+    /**
+     * Descarga una imagen de una URL y la guarda localmente
+     * 
+     * @param string $url URL de la imagen (S3 de Samsara)
+     * @return string|null URL local de la imagen guardada
+     */
+    private function downloadAndStoreImage(string $url): ?string
+    {
+        try {
+            // Descargar imagen
+            $response = Http::timeout(30)->get($url);
+
+            if (!$response->successful()) {
+                Log::warning("Failed to download image", ['url' => $url]);
+                return null;
+            }
+
+            // Generar nombre único
+            $filename = \Illuminate\Support\Str::uuid() . '.jpg';
+            $path = "evidence/{$filename}";
+
+            // Guardar usando Storage (public disk)
+            \Illuminate\Support\Facades\Storage::disk('public')->put($path, $response->body());
+
+            Log::info("Evidence image saved", [
+                'event_id' => $this->event->id,
+                'path' => $path,
+            ]);
+
+            // Retornar URL pública
+            return "/storage/{$path}";
+        } catch (\Exception $e) {
+            Log::warning("Error storing image", [
+                'url' => $url,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 }

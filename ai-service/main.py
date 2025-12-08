@@ -15,7 +15,7 @@ from api import router
 app = FastAPI(
     title="Samsara Alert AI Service",
     description="Microservicio que procesa alertas de Samsara usando Google ADK",
-    version="1.0.0"
+    version=ServiceConfig.APP_VERSION
 )
 
 # Registrar rutas

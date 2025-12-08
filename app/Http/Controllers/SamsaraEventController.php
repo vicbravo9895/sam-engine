@@ -81,10 +81,11 @@ class SamsaraEventController extends Controller
                     'occurred_at' => optional($event->occurred_at)?->toIso8601String(),
                     'occurred_at_human' => optional($event->occurred_at)?->diffForHumans(),
                     'created_at' => $event->created_at->toIso8601String(),
-                    'ai_message_preview' => Str::limit((string) $event->ai_message, 180),
+                    'ai_message_preview' => $assessment['reasoning'] ?? Str::limit((string) $event->ai_message, 180),
                     'ai_assessment_view' => $assessment,
                     'verdict_summary' => $this->getVerdictSummary($assessment),
                     'investigation_summary' => $this->getInvestigationSummary($event->ai_actions),
+                    'has_images' => $this->eventHasImages($event->ai_actions),
                     'investigation_metadata' => $event->ai_status === SamsaraEvent::STATUS_INVESTIGATING
                         ? [
                             'count' => $event->investigation_count,
@@ -168,6 +169,7 @@ class SamsaraEventController extends Controller
                             'status_label' => $this->toolStatusLabel($tool['status'] ?? null),
                             'result_summary' => $this->summarizeToolResult($toolName, $tool),
                             'details' => $tool['details'] ?? null,
+                            'media_urls' => $tool['media_urls'] ?? [], // Preserve persisted image URLs
                         ];
                     })
                     ->values()
@@ -193,15 +195,37 @@ class SamsaraEventController extends Controller
 
         $timeline = $timelineCollection->values()->all();
 
+        // Extract media insights with persisted image URLs
         $mediaInsights = $timelineCollection
             ->flatMap(fn($agent) => collect($agent['tools_used']))
             ->filter(fn($tool) => ($tool['raw_tool_name'] ?? '') === 'get_camera_media')
-            ->flatMap(fn($tool) => collect($tool['details']['analyses'] ?? []))
-            ->map(fn($analysis) => [
-                'camera' => $this->cameraLabel($analysis['camera'] ?? null),
-                'analysis' => $analysis['analysis_preview'] ?? $analysis['analysis'] ?? null,
-                'analysis_preview' => $analysis['analysis_preview'] ?? $analysis['analysis'] ?? null,
-            ])
+            ->flatMap(function ($tool) {
+                $mediaUrls = $tool['media_urls'] ?? [];
+                $analyses = $tool['details']['analyses'] ?? [];
+
+                // If we have persisted URLs but no analyses, create entries from URLs
+                if (!empty($mediaUrls) && empty($analyses)) {
+                    return collect($mediaUrls)->map(fn($url, $idx) => [
+                        'camera' => 'Cámara ' . ($idx + 1),
+                        'analysis' => null,
+                        'analysis_preview' => null,
+                        'url' => $url,
+                        'download_url' => $url,
+                    ]);
+                }
+
+                // Combine analyses with their corresponding persisted URLs
+                return collect($analyses)->map(function ($analysis, $idx) use ($mediaUrls) {
+                    $persistedUrl = $mediaUrls[$idx] ?? null;
+                    return [
+                        'camera' => $this->cameraLabel($analysis['camera'] ?? $analysis['input'] ?? null),
+                        'analysis' => $analysis['analysis_preview'] ?? $analysis['analysis'] ?? null,
+                        'analysis_preview' => $analysis['analysis_preview'] ?? $analysis['analysis'] ?? null,
+                        'url' => $persistedUrl ?? $analysis['url'] ?? null,
+                        'download_url' => $persistedUrl ?? $analysis['download_url'] ?? $analysis['url'] ?? null,
+                    ];
+                });
+            })
             ->values()
             ->all();
 
@@ -238,6 +262,7 @@ class SamsaraEventController extends Controller
                 'id' => $samsaraEvent->id,
                 'samsara_event_id' => $samsaraEvent->samsara_event_id,
                 'event_type' => $samsaraEvent->event_type,
+                'event_description' => $samsaraEvent->event_description,
                 'display_event_type' => $this->alertTypeLabel($samsaraEvent->event_type),
                 'event_icon' => $this->getEventIcon($samsaraEvent->event_type),
                 'severity' => $samsaraEvent->severity,
@@ -303,7 +328,22 @@ class SamsaraEventController extends Controller
 
         return [
             'agents' => collect($actions['agents'] ?? [])->map(function ($agent) {
-                $agent['tools_used'] = array_values($agent['tools_used'] ?? []);
+                // Support both 'tools' (new format) and 'tools_used' (old format)
+                $rawTools = $agent['tools'] ?? $agent['tools_used'] ?? [];
+
+                $agent['tools_used'] = collect($rawTools)->map(function ($tool) {
+                    // Normalize tool structure: support both 'name' and 'tool_name'
+                    return [
+                        'tool_name' => $tool['name'] ?? $tool['tool_name'] ?? null,
+                        'duration_ms' => $tool['duration_ms'] ?? null,
+                        'status' => $tool['status'] ?? 'success',
+                        'called_at' => $tool['called_at'] ?? null,
+                        'result_summary' => $tool['summary'] ?? $tool['result_summary'] ?? null,
+                        'details' => $tool['details'] ?? null,
+                        'media_urls' => $tool['media_urls'] ?? [], // Preserve media_urls
+                    ];
+                })->values()->all();
+
                 return $agent;
             })->values()->all(),
             'total_duration_ms' => $actions['total_duration_ms'] ?? 0,
@@ -387,6 +427,7 @@ class SamsaraEventController extends Controller
             'get_vehicle_info' => 'Ficha del vehículo',
             'get_driver_assignment' => 'Conductor asignado',
             'get_camera_media' => 'Material de cámaras',
+            'get_safety_events' => 'Eventos de seguridad',
             default => $name ? Str::headline($name) : 'Tool',
         };
     }
@@ -433,8 +474,15 @@ class SamsaraEventController extends Controller
     private function mapAssessmentEvidence(array $evidence): array
     {
         $labels = [
+            // New short keys from AI assessment
+            'vehicle' => 'Datos del vehículo',
+            'info' => 'Información general',
+            'safety' => 'Eventos de seguridad',
+            'camera' => 'Análisis de cámaras',
+            // Legacy keys
             'vehicle_stats_summary' => 'Resumen de estadísticas del vehículo',
             'vehicle_info_summary' => 'Ficha del vehículo',
+            'safety_events_summary' => 'Eventos de seguridad detectados',
             'camera_summary' => 'Hallazgos de cámaras',
         ];
 
@@ -557,6 +605,7 @@ class SamsaraEventController extends Controller
             'get_vehicle_info' => 'Revisó la ficha técnica del vehículo.',
             'get_driver_assignment' => 'Buscó asignaciones de conductor cercanas al evento.',
             'get_camera_media' => 'Descargó material de cámaras para análisis visual.',
+            'get_safety_events' => 'Revisó eventos de seguridad en la ventana de tiempo del evento.',
             default => 'Ejecución de tool.',
         };
 
@@ -701,6 +750,11 @@ class SamsaraEventController extends Controller
                 'icon' => 'camera',
                 'items' => [],
             ],
+            'safety_data' => [
+                'label' => 'Eventos de Seguridad',
+                'icon' => 'shield-alert',
+                'items' => [],
+            ],
         ];
 
         $timelineCollection
@@ -712,6 +766,7 @@ class SamsaraEventController extends Controller
                     'get_vehicle_stats', 'get_vehicle_info' => 'vehicle_data',
                     'get_driver_assignment' => 'driver_data',
                     'get_camera_media' => 'visual_analysis',
+                    'get_safety_events' => 'safety_data',
                     default => null,
                 };
 
@@ -760,5 +815,24 @@ class SamsaraEventController extends Controller
             'urgency' => $urgency,
             'color' => $color,
         ];
+    }
+
+    private function eventHasImages(?array $aiActions): bool
+    {
+        if (!is_array($aiActions) || empty($aiActions['agents'])) {
+            return false;
+        }
+
+        foreach ($aiActions['agents'] as $agent) {
+            $tools = $agent['tools'] ?? $agent['tools_used'] ?? [];
+            foreach ($tools as $tool) {
+                $mediaUrls = $tool['media_urls'] ?? [];
+                if (!empty($mediaUrls)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

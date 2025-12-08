@@ -7,9 +7,13 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { Disclosure } from '@headlessui/react';
 import { Head, Link, router } from '@inertiajs/react';
 import {
     AlertCircle,
@@ -21,17 +25,26 @@ import {
     CheckCircle2,
     ChevronDown,
     Clock,
+    ExternalLink,
+    Image as ImageIcon,
     Loader2,
     MapPin,
     Radar,
     Search,
     ShieldAlert,
+    ShieldCheck,
     Sparkles,
     Truck,
     User,
+    XCircle,
+    Zap,
 } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
 
 interface ToolUsage {
     tool_name?: string;
@@ -39,6 +52,7 @@ interface ToolUsage {
     called_at?: string;
     duration_ms?: number;
     result_summary?: string;
+    media_urls?: string[];
     details?: {
         images_analyzed?: number;
         analyses?: {
@@ -79,9 +93,18 @@ interface AssessmentView {
     evidence?: AssessmentEvidenceItem[];
 }
 
+interface MediaInsight {
+    camera?: string;
+    analysis?: string;
+    analysis_preview?: string;
+    url?: string | null;
+    download_url?: string | null;
+}
+
 interface SamsaraEventPayload {
     id: number;
     event_type?: string | null;
+    event_description?: string | null;
     display_event_type?: string | null;
     severity: string;
     severity_label?: string | null;
@@ -99,11 +122,7 @@ interface SamsaraEventPayload {
     };
     payload_summary: PayloadSummaryItem[];
     timeline: TimelineStep[];
-    media_insights: {
-        camera?: string;
-        analysis?: string;
-        analysis_preview?: string;
-    }[];
+    media_insights: MediaInsight[];
     event_icon?: string | null;
     investigation_actions?: {
         label: string;
@@ -140,50 +159,101 @@ interface ShowProps {
     breadcrumbs?: BreadcrumbItem[];
 }
 
+// ============================================================================
+// CONSTANTS & HELPERS
+// ============================================================================
+
 const ALERTS_INDEX_URL = '/samsara/alerts';
 const getAlertShowUrl = (id: number) => `/samsara/alerts/${id}`;
 
-const severityPalette: Record<string, string> = {
-    info: 'bg-blue-500/10 text-blue-500',
-    warning: 'bg-amber-500/10 text-amber-500',
-    critical: 'bg-red-500/15 text-red-500 font-semibold',
+const severityConfig: Record<string, { bg: string; text: string; icon: LucideIcon }> = {
+    info: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', icon: AlertCircle },
+    warning: { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', icon: AlertTriangle },
+    critical: { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400', icon: ShieldAlert },
 };
 
-const statusPalette: Record<string, string> = {
-    pending: 'bg-slate-500/10 text-slate-500',
-    processing: 'bg-sky-500/10 text-sky-500',
-    investigating: 'bg-amber-500/10 text-amber-500',
-    completed: 'bg-emerald-500/15 text-emerald-400',
-    failed: 'bg-rose-500/15 text-rose-400',
+const verdictConfig: Record<string, { bg: string; border: string; text: string; icon: LucideIcon }> = {
+    low: {
+        bg: 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/50 dark:to-emerald-900/30',
+        border: 'border-emerald-200 dark:border-emerald-800',
+        text: 'text-emerald-800 dark:text-emerald-200',
+        icon: ShieldCheck,
+    },
+    medium: {
+        bg: 'bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/50 dark:to-amber-900/30',
+        border: 'border-amber-200 dark:border-amber-800',
+        text: 'text-amber-800 dark:text-amber-200',
+        icon: AlertTriangle,
+    },
+    high: {
+        bg: 'bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/50 dark:to-red-900/30',
+        border: 'border-red-200 dark:border-red-800',
+        text: 'text-red-800 dark:text-red-200',
+        icon: XCircle,
+    },
+    unknown: {
+        bg: 'bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/50 dark:to-slate-900/30',
+        border: 'border-slate-200 dark:border-slate-800',
+        text: 'text-slate-800 dark:text-slate-200',
+        icon: Search,
+    },
 };
+
+const getEventIcon = (iconName?: string | null): LucideIcon => {
+    switch (iconName) {
+        case 'alert-circle': return AlertCircle;
+        case 'alert-triangle': return AlertTriangle;
+        case 'shield-alert': return ShieldAlert;
+        default: return Bell;
+    }
+};
+
+const formatFullDate = (value?: string | null) => {
+    if (!value) return 'Sin registro';
+    return new Intl.DateTimeFormat('es-MX', {
+        dateStyle: 'full',
+        timeStyle: 'short',
+    }).format(new Date(value));
+};
+
+const formatDateTime = (value?: string | null) => {
+    if (!value) return 'Sin determinar';
+    return new Intl.DateTimeFormat('es-MX', {
+        dateStyle: 'long',
+        timeStyle: 'medium',
+    }).format(new Date(value));
+};
+
+const formatDuration = (value?: number | null) => {
+    if (!value) return '—';
+    if (value < 1000) return `${value} ms`;
+    return `${(value / 1000).toFixed(1)} s`;
+};
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
     const [isPolling, setIsPolling] = useState(false);
     const [previousStatus, setPreviousStatus] = useState(event.ai_status);
     const [simulatedTools, setSimulatedTools] = useState<string[]>([]);
     const [nextInvestigationEtaMs, setNextInvestigationEtaMs] = useState<number | null>(null);
+    const [selectedImage, setSelectedImage] = useState<MediaInsight | null>(null);
 
     const isProcessing = event.ai_status === 'processing';
     const isInvestigating = event.ai_status === 'investigating';
+    const isCompleted = event.ai_status === 'completed';
+    const eventLabel = event.display_event_type ?? 'Alerta procesada por AI';
 
-    const eventLabel =
-        event.display_event_type ?? 'Alerta procesada por AI';
+    const computedBreadcrumbs: BreadcrumbItem[] = breadcrumbs?.length
+        ? breadcrumbs
+        : [
+            { title: 'Alertas Samsara', href: ALERTS_INDEX_URL },
+            { title: eventLabel, href: getAlertShowUrl(event.id) },
+        ];
 
-    const computedBreadcrumbs: BreadcrumbItem[] =
-        breadcrumbs && breadcrumbs.length > 0
-            ? breadcrumbs
-            : [
-                {
-                    title: 'Alertas Samsara',
-                    href: ALERTS_INDEX_URL,
-                },
-                {
-                    title: eventLabel,
-                    href: getAlertShowUrl(event.id),
-                },
-            ];
-
-    // Polling para eventos en processing o investigating
+    // Polling effect for processing/investigating states
     useEffect(() => {
         const shouldPoll = isProcessing || isInvestigating;
         let pollingInterval: ReturnType<typeof setInterval> | undefined;
@@ -198,6 +268,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                     'Obteniendo estadísticas del vehículo...',
                     'Consultando información del vehículo...',
                     'Identificando conductor asignado...',
+                    'Revisando eventos de seguridad...',
                     'Analizando imágenes de cámaras con IA...',
                     'Generando veredicto final...'
                 ];
@@ -209,7 +280,6 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                         currentToolIndex++;
                     } else if (toolInterval) {
                         clearInterval(toolInterval);
-                        toolInterval = undefined;
                     }
                 }, 5000);
             } else {
@@ -217,9 +287,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
             }
 
             pollingInterval = setInterval(() => {
-                router.reload({
-                    only: ['event'],
-                });
+                router.reload({ only: ['event'] });
             }, 3000);
         } else {
             setIsPolling(false);
@@ -241,15 +309,12 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
         setPreviousStatus(event.ai_status);
 
         return () => {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-            }
-            if (toolInterval) {
-                clearInterval(toolInterval);
-            }
+            if (pollingInterval) clearInterval(pollingInterval);
+            if (toolInterval) clearInterval(toolInterval);
         };
     }, [event.ai_status, event.id, eventLabel, isInvestigating, isProcessing, previousStatus]);
 
+    // Countdown for next investigation
     useEffect(() => {
         if (!isInvestigating) {
             setNextInvestigationEtaMs(null);
@@ -268,65 +333,26 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
             return;
         }
 
-        let timer: ReturnType<typeof setInterval> | undefined;
-
         const tick = () => {
             const diff = targetTime - Date.now();
-            if (diff <= 0) {
-                setNextInvestigationEtaMs(0);
-                if (timer) {
-                    clearInterval(timer);
-                    timer = undefined;
-                }
-                return;
-            }
-            setNextInvestigationEtaMs(diff);
+            setNextInvestigationEtaMs(diff <= 0 ? 0 : diff);
         };
 
         tick();
-        timer = setInterval(tick, 1000);
+        const timer = setInterval(tick, 1000);
 
-        return () => {
-            if (timer) {
-                clearInterval(timer);
-            }
-        };
+        return () => clearInterval(timer);
     }, [event.investigation_metadata?.next_check_available_at, isInvestigating]);
 
-    const summaryChips = useMemo(
-        () => [
-            {
-                label: 'Severidad',
-                value: event.severity_label ?? 'Informativa',
-                className: severityPalette[event.severity] ?? severityPalette.info,
-            },
-            {
-                label: 'Estado AI',
-                value: event.ai_status_label ?? 'Pendiente',
-                className: statusPalette[event.ai_status] ?? statusPalette.pending,
-            },
-            {
-                label: 'Tipo',
-                value: event.display_event_type ?? 'No especificado',
-                className: 'bg-muted text-muted-foreground',
-            },
-        ],
-        [event],
-    );
-
     const nextInvestigationCountdownText = useMemo(() => {
-        if (!isInvestigating) {
-            return null;
-        }
+        if (!isInvestigating) return null;
 
         if (nextInvestigationEtaMs === null) {
             const fallbackMinutes = event.investigation_metadata?.next_check_minutes;
             return fallbackMinutes ? `En ${fallbackMinutes} minutos` : null;
         }
 
-        if (nextInvestigationEtaMs === 0) {
-            return 'Disponible ahora';
-        }
+        if (nextInvestigationEtaMs === 0) return 'Disponible ahora';
 
         const totalSeconds = Math.ceil(nextInvestigationEtaMs / 1000);
         if (totalSeconds >= 60) {
@@ -338,131 +364,91 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
         return `En ${totalSeconds} segundos`;
     }, [event.investigation_metadata?.next_check_minutes, isInvestigating, nextInvestigationEtaMs]);
 
-    const formatFullDate = (value?: string | null) => {
-        if (!value) return 'Sin registro';
-        return new Intl.DateTimeFormat('es-MX', {
-            dateStyle: 'full',
-            timeStyle: 'short',
-        }).format(new Date(value));
-    };
-
-    const formatDateTime = (value?: string | null) => {
-        if (!value) return 'Sin determinar';
-        return new Intl.DateTimeFormat('es-MX', {
-            dateStyle: 'long',
-            timeStyle: 'medium',
-        }).format(new Date(value));
-    };
-
-    const formatDuration = (value?: number | null) => {
-        if (!value) return '—';
-        if (value < 1000) {
-            return `${value} ms`;
-        }
-        return `${(value / 1000).toFixed(1)} s`;
-    };
-
-    const getEventIcon = (iconName?: string | null) => {
-        switch (iconName) {
-            case 'alert-circle':
-                return AlertCircle;
-            case 'alert-triangle':
-                return AlertTriangle;
-            case 'shield-alert':
-                return ShieldAlert;
-            default:
-                return Bell;
-        }
-    };
-
-    const getCategoryIcon = (iconName?: string) => {
-        switch (iconName) {
-            case 'truck':
-                return Truck;
-            case 'user':
-                return User;
-            case 'camera':
-                return Camera;
-            default:
-                return CheckCircle2;
-        }
-    };
-
-    const getVerdictStyles = (color?: string) => {
-        switch (color) {
-            case 'red':
-                return 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-200 border-red-300 dark:border-red-500/30';
-            case 'amber':
-                return 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200 border-amber-300 dark:border-amber-500/30';
-            case 'emerald':
-                return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200 border-emerald-300 dark:border-emerald-500/30';
-            default:
-                return 'bg-slate-100 text-slate-800 dark:bg-slate-500/20 dark:text-slate-200';
-        }
-    };
-
-    const getPayloadIcon = (label: string) => {
-        const normalized = label.toLowerCase();
-        if (normalized.includes('ubicación') || normalized.includes('location')) {
-            return MapPin;
-        }
-        if (normalized.includes('alerta') || normalized.includes('tipo')) {
-            return Bell;
-        }
-        if (normalized.includes('hora') || normalized.includes('evento') || normalized.includes('time')) {
-            return Clock;
-        }
-        if (normalized.includes('cámara') || normalized.includes('camera')) {
-            return Camera;
-        }
-        return null;
-    };
+    const hasImages = event.media_insights.some(m => m.download_url);
+    const verdictStyle = verdictConfig[event.verdict_badge?.urgency ?? 'unknown'];
+    const VerdictIcon = verdictStyle.icon;
+    const EventIcon = getEventIcon(event.event_icon);
+    const severityStyle = severityConfig[event.severity] ?? severityConfig.info;
 
     return (
         <AppLayout breadcrumbs={computedBreadcrumbs}>
             <Head title={`Detalle ${eventLabel}`} />
-            <div className="flex flex-1 flex-col gap-6 p-4">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex items-start gap-3">
-                        {(() => {
-                            const Icon = getEventIcon(event.event_icon);
-                            return (
-                                <div className="rounded-full bg-primary/10 p-3 text-primary">
-                                    <Icon className="size-6" />
+
+            <div className="flex flex-1 flex-col gap-6 p-4 max-w-7xl mx-auto">
+                {/* ============================================================
+                    SECTION 1: HEADER + BACK BUTTON
+                ============================================================ */}
+                <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <Button variant="outline" asChild className="gap-2 w-fit">
+                        <Link href={ALERTS_INDEX_URL}>
+                            <ArrowLeft className="size-4" />
+                            Regresar al listado
+                        </Link>
+                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge className={`${severityStyle.bg} ${severityStyle.text} px-3 py-1`}>
+                            {event.severity_label ?? 'Informativa'}
+                        </Badge>
+                        <Badge
+                            className={`px-3 py-1 ${isProcessing
+                                ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 animate-pulse'
+                                : isInvestigating
+                                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 animate-pulse'
+                                    : isCompleted
+                                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                        : 'bg-slate-500/10 text-slate-600 dark:text-slate-400'
+                                }`}
+                        >
+                            {event.ai_status_label ?? 'Pendiente'}
+                        </Badge>
+                    </div>
+                </header>
+
+                {/* ============================================================
+                    SECTION 2: HERO - EVENT IDENTITY
+                ============================================================ */}
+                <section className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-background via-background to-muted/30 p-6 sm:p-8">
+                    <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
+                        <div className={`shrink-0 rounded-2xl p-4 ${severityStyle.bg}`}>
+                            <EventIcon className={`size-10 ${severityStyle.text}`} />
+                        </div>
+                        <div className="flex-1 space-y-4">
+                            <div>
+                                <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                                    {event.display_event_type ?? 'Alerta de Samsara'}
+                                </p>
+                                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
+                                    {event.event_description ?? event.vehicle_name ?? 'Evento sin descripción'}
+                                </h1>
+                                {event.event_description && event.vehicle_name && (
+                                    <p className="text-base text-muted-foreground mt-1">
+                                        {event.vehicle_name}
+                                    </p>
+                                )}
+                            </div>
+                            <div className="flex flex-wrap gap-4 text-sm">
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                    <User className="size-4" />
+                                    <span>{event.driver_name ?? 'Sin conductor identificado'}</span>
                                 </div>
-                            );
-                        })()}
-                        <div>
-                            <p className="text-sm uppercase text-muted-foreground">
-                                Panel de monitoreo AI
-                            </p>
-                            <h1 className="text-3xl font-semibold tracking-tight">
-                                {eventLabel}
-                            </h1>
-                            <p className="text-sm text-muted-foreground">
-                                {event.ai_message ??
-                                    'Seguimiento del pipeline de análisis para esta alerta.'}
-                            </p>
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                    <Calendar className="size-4" />
+                                    <span>{formatFullDate(event.occurred_at)}</span>
+                                </div>
+                                {hasImages && (
+                                    <div className="flex items-center gap-2 text-muted-foreground">
+                                        <ImageIcon className="size-4" />
+                                        <span>{event.media_insights.filter(m => m.download_url).length} imágenes capturadas</span>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Button variant="outline" asChild className="gap-2">
-                            <Link href={ALERTS_INDEX_URL}>
-                                <ArrowLeft className="size-4" />
-                                Regresar al listado
-                            </Link>
-                        </Button>
-                        {summaryChips.map((chip) => (
-                            <Badge
-                                key={chip.label}
-                                className={`px-3 py-1 text-xs font-semibold ${chip.className}`}
-                            >
-                                {chip.value}
-                            </Badge>
-                        ))}
-                    </div>
-                </div>
+                </section>
 
+                {/* ============================================================
+                    SECTION 3: PROCESSING STATE (if applicable)
+                ============================================================ */}
                 {isProcessing && isPolling && (
                     <Card className="border-2 border-sky-500/30 bg-sky-50/50 dark:bg-sky-950/20">
                         <CardHeader>
@@ -470,78 +456,40 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                                 <Loader2 className="size-6 animate-spin text-sky-600 dark:text-sky-400" />
                                 <div className="flex-1">
                                     <CardTitle className="text-sky-900 dark:text-sky-100">
-                                        {event.ai_status === 'processing' ? 'Procesando evento...' : 'Revalidando evento...'}
+                                        Procesando evento...
                                     </CardTitle>
                                     <CardDescription className="text-sky-700 dark:text-sky-300">
-                                        La AI está analizando el evento. Esto tomará aproximadamente 25 segundos.
+                                        La AI está analizando el evento. Esto tomará ~25 segundos.
                                     </CardDescription>
                                 </div>
-                                <Badge className="bg-sky-500 text-white animate-pulse">
-                                    En progreso
-                                </Badge>
+                                <Badge className="bg-sky-500 text-white animate-pulse">En progreso</Badge>
                             </div>
                         </CardHeader>
                         <CardContent>
                             <div className="space-y-2">
-                                <p className="text-xs font-semibold uppercase text-sky-700 dark:text-sky-400">
-                                    Herramientas ejecutándose
-                                </p>
-                                <div className="space-y-2">
-                                    {simulatedTools.map((tool, idx) => (
-                                        <div
-                                            key={idx}
-                                            className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30"
-                                        >
-                                            <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
-                                            <span className="text-sky-900 dark:text-sky-100">{tool}</span>
-                                        </div>
-                                    ))}
-                                    {simulatedTools.length < 5 && (
-                                        <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30">
-                                            <Loader2 className="size-4 shrink-0 animate-spin text-sky-500" />
-                                            <span className="text-sky-700 dark:text-sky-300">
-                                                {simulatedTools.length === 0 && 'Iniciando análisis...'}
-                                                {simulatedTools.length === 1 && 'Consultando información del vehículo...'}
-                                                {simulatedTools.length === 2 && 'Identificando conductor asignado...'}
-                                                {simulatedTools.length === 3 && 'Analizando imágenes de cámaras con IA...'}
-                                                {simulatedTools.length === 4 && 'Generando veredicto final...'}
-                                            </span>
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="mt-3 rounded-lg border border-sky-200 bg-sky-100/50 p-2 dark:border-sky-900/30">
-                                    <p className="text-xs text-sky-800 dark:text-sky-200">
-                                        <strong>Actualizando automáticamente:</strong> Esta página se refrescará cada 3 segundos hasta que el análisis se complete.
-                                    </p>
-                                </div>
+                                {simulatedTools.map((tool, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30">
+                                        <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+                                        <span className="text-sky-900 dark:text-sky-100">{tool}</span>
+                                    </div>
+                                ))}
+                                {simulatedTools.length < 6 && (
+                                    <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30">
+                                        <Loader2 className="size-4 shrink-0 animate-spin text-sky-500" />
+                                        <span className="text-sky-700 dark:text-sky-300">
+                                            {['Iniciando análisis...', 'Consultando información del vehículo...', 'Identificando conductor asignado...', 'Revisando eventos de seguridad...', 'Analizando imágenes de cámaras con IA...', 'Generando veredicto final...'][simulatedTools.length]}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </CardContent>
                     </Card>
                 )}
 
-                {event.verdict_badge && (
-                    <div
-                        className={`flex items-center gap-3 rounded-xl border-2 p-4 ${getVerdictStyles(event.verdict_badge.color)
-                            }`}
-                    >
-                        <CheckCircle2 className="size-6 shrink-0" />
-                        <div>
-                            <p className="text-sm font-semibold uppercase opacity-75">
-                                Veredicto de la AI
-                            </p>
-                            <p className="text-lg font-bold">
-                                {event.verdict_badge.verdict}
-                            </p>
-                            {event.verdict_badge.likelihood && (
-                                <p className="text-sm opacity-80">
-                                    Probabilidad: {event.verdict_badge.likelihood}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {event.ai_status === 'investigating' && event.investigation_metadata && (
+                {/* ============================================================
+                    SECTION 4: INVESTIGATING STATE (if applicable)
+                ============================================================ */}
+                {isInvestigating && event.investigation_metadata && (
                     <Card className="border-2 border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20">
                         <CardHeader>
                             <div className="flex items-center justify-between">
@@ -554,7 +502,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                                             Evento bajo investigación
                                         </CardTitle>
                                         <CardDescription className="text-amber-700 dark:text-amber-300">
-                                            La AI está monitoreando este evento para obtener más contexto
+                                            La AI continúa monitoreando este evento
                                         </CardDescription>
                                     </div>
                                 </div>
@@ -567,423 +515,235 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                             <div className="grid gap-3 sm:grid-cols-2">
                                 {event.investigation_metadata.last_check && (
                                     <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-                                        <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">
-                                            Última verificación
-                                        </p>
-                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                                            {event.investigation_metadata.last_check}
-                                        </p>
+                                        <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">Última verificación</p>
+                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{event.investigation_metadata.last_check}</p>
                                     </div>
                                 )}
-                                {(nextInvestigationCountdownText ||
-                                    event.investigation_metadata.next_check_minutes ||
-                                    event.investigation_metadata.next_check_available_at) && (
+                                {nextInvestigationCountdownText && (
                                     <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-                                        <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">
-                                            Próxima verificación
-                                        </p>
-                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                                            {nextInvestigationCountdownText ??
-                                                (event.investigation_metadata.next_check_minutes
-                                                    ? `En ${event.investigation_metadata.next_check_minutes} minutos`
-                                                    : 'Sin programación definida')}
-                                        </p>
-                                        {event.investigation_metadata.next_check_available_at && (
-                                            <p className="text-xs text-amber-600 dark:text-amber-300">
-                                                Programada para{' '}
-                                                {formatDateTime(event.investigation_metadata.next_check_available_at)}
-                                            </p>
-                                        )}
+                                        <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">Próxima verificación</p>
+                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{nextInvestigationCountdownText}</p>
                                     </div>
                                 )}
-                            </div>
-
-                            {event.investigation_metadata.history.length > 0 && (
-                                <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-                                    <p className="mb-3 text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">
-                                        Historial de investigaciones
-                                    </p>
-                                    <div className="space-y-2">
-                                        {event.investigation_metadata.history.map((entry, idx) => (
-                                            <div
-                                                key={idx}
-                                                className="flex items-start gap-2 rounded border border-amber-100 bg-amber-50/50 p-2 text-xs dark:border-amber-900 dark:bg-amber-950/50"
-                                            >
-                                                <Badge variant="outline" className="shrink-0 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-300">
-                                                    #{entry.count}
-                                                </Badge>
-                                                <div className="flex-1">
-                                                    <p className="font-medium text-amber-900 dark:text-amber-100">
-                                                        {entry.reason}
-                                                    </p>
-                                                    <p className="text-amber-600 dark:text-amber-400">
-                                                        {new Date(entry.timestamp).toLocaleString('es-MX', {
-                                                            dateStyle: 'medium',
-                                                            timeStyle: 'short',
-                                                        })}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="rounded-lg border border-amber-200 bg-amber-100/50 p-3 dark:border-amber-800 dark:bg-amber-900/30">
-                                <p className="text-xs text-amber-800 dark:text-amber-200">
-                                    <strong>Nota:</strong> Este evento será revalidado automáticamente. Si después de {event.investigation_metadata.max_investigations} intentos la AI no puede determinar un veredicto definitivo, se escalará para revisión humana.
-                                </p>
                             </div>
                         </CardContent>
                     </Card>
                 )}
 
-                <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    <QuickStat
-                        icon={Radar}
-                        label="Unidad monitoreada"
-                        primary={event.vehicle_name ?? 'Sin información de la unidad'}
-                        secondary="Dato provisto por Samsara"
-                    />
-                    <QuickStat
-                        icon={Sparkles}
-                        label="Operador detectado"
-                        primary={event.driver_name ?? 'Sin conductor identificado'}
-                        secondary="Última asignación conocida"
-                    />
-                    <QuickStat
-                        icon={Clock}
-                        label="Momento del evento"
-                        primary={formatFullDate(event.occurred_at)}
-                        secondary="Horario reportado por Samsara"
-                    />
-                </section>
-
-                <section className="grid gap-4 lg:grid-cols-3">
-                    <Card className="lg:col-span-2">
-                        <CardHeader>
-                            <CardTitle>Evaluación de la AI</CardTitle>
-                            <CardDescription>
-                                Basada en el assessment estructurado retornado por el pipeline.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            {event.ai_assessment_view ? (
-                                <>
-                                    <div className="flex flex-wrap gap-3">
-                                        <Badge className="bg-emerald-500/15 text-emerald-500">
-                                            Veredicto:{' '}
-                                            {event.ai_assessment_view.verdict ?? 'Sin veredicto'}
-                                        </Badge>
-                                        <Badge className="bg-blue-500/15 text-blue-500">
-                                            Probabilidad:{' '}
-                                            {event.ai_assessment_view.likelihood ?? 'Sin dato'}
-                                        </Badge>
-                                    </div>
-                                    <p className="text-base leading-relaxed text-foreground">
-                                        {event.ai_assessment_view.reasoning ??
-                                            'La AI no generó razonamiento para esta alerta.'}
+                {/* ============================================================
+                    SECTION 5: AI VERDICT (the hero of storytelling)
+                ============================================================ */}
+                {event.verdict_badge && isCompleted && (
+                    <section className={`rounded-2xl border-2 ${verdictStyle.border} ${verdictStyle.bg} p-6 sm:p-8`}>
+                        <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+                            <div className={`shrink-0 rounded-2xl bg-white/50 dark:bg-black/20 p-4`}>
+                                <VerdictIcon className={`size-10 ${verdictStyle.text}`} />
+                            </div>
+                            <div className="flex-1 space-y-4">
+                                <div>
+                                    <p className={`text-sm font-semibold uppercase tracking-wide ${verdictStyle.text} opacity-75`}>
+                                        Veredicto de la AI
                                     </p>
-                                    {event.ai_assessment_view.evidence?.length ? (
-                                        <div className="space-y-2 rounded-lg border bg-muted/30 p-4 text-sm">
-                                            <p className="font-semibold uppercase text-muted-foreground">
-                                                Evidencia usada
-                                            </p>
-                                            {event.ai_assessment_view.evidence.map((item) => (
-                                                <div key={item.label}>
-                                                    <p className="text-xs font-semibold uppercase text-muted-foreground">
-                                                        {item.label}
-                                                    </p>
-                                                    <p>{item.value}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : null}
-                                </>
-                            ) : (
-                                <p className="text-sm text-muted-foreground">
-                                    La AI no dejó registro del análisis para esta alerta.
-                                </p>
-                            )}
-                        </CardContent>
-                    </Card>
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Resumen del payload</CardTitle>
-                            <CardDescription>
-                                Datos clave recibidos desde Samsara.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-3 text-sm">
-                            {event.payload_summary.length === 0 && (
-                                <p className="text-sm text-muted-foreground">
-                                    No se recibieron más datos del webhook.
-                                </p>
-                            )}
-                            {event.payload_summary.map((item) => {
-                                const icon = getPayloadIcon(item.label);
-                                const Icon = icon;
-                                return (
-                                    <div key={item.label} className="flex items-start gap-2">
-                                        {Icon && (
-                                            <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                                        )}
-                                        <div className="flex-1">
-                                            <p className="text-xs uppercase text-muted-foreground">
-                                                {item.label}
-                                            </p>
-                                            <p className="font-medium">{item.value}</p>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </CardContent>
-                    </Card>
-                </section>
-
-                {event.investigation_actions &&
-                    event.investigation_actions.length > 0 && (
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Acciones de Investigación</CardTitle>
-                                <CardDescription>
-                                    Resumen de las herramientas ejecutadas durante el
-                                    análisis.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                {event.investigation_actions.map((category) => {
-                                    const Icon = getCategoryIcon(category.icon);
-                                    return (
-                                        <div
-                                            key={category.label}
-                                            className="rounded-lg border bg-muted/30 p-4"
-                                        >
-                                            <div className="mb-3 flex items-center gap-2">
-                                                <div className="rounded-full bg-primary/10 p-1.5 text-primary">
-                                                    <Icon className="size-4" />
-                                                </div>
-                                                <p className="font-semibold">
-                                                    {category.label}
-                                                </p>
-                                            </div>
-                                            <div className="space-y-2">
-                                                {category.items.map((item, idx) => (
-                                                    <div
-                                                        key={idx}
-                                                        className="flex items-start gap-2 text-sm"
-                                                    >
-                                                        <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-emerald-500" />
-                                                        <div>
-                                                            <span className="font-medium">
-                                                                {item.name}:
-                                                            </span>{' '}
-                                                            <span className="text-muted-foreground">
-                                                                {item.summary}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </CardContent>
-                        </Card>
-                    )}
-
-                <section className="grid gap-4 lg:grid-cols-5">
-                    <Card className="lg:col-span-3">
-                        <CardHeader>
-                            <CardTitle>Recorrido de la AI</CardTitle>
-                            <CardDescription>
-                                Visualiza paso a paso lo que ejecutó cada agente automatizado.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            {event.timeline.length === 0 && (
-                                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                                    No se recibieron métricas del pipeline para esta alerta.
+                                    <h2 className={`text-2xl sm:text-3xl font-bold ${verdictStyle.text}`}>
+                                        {event.verdict_badge.verdict}
+                                    </h2>
+                                    {event.verdict_badge.likelihood && (
+                                        <p className={`text-base mt-1 ${verdictStyle.text} opacity-80`}>
+                                            Probabilidad: {event.verdict_badge.likelihood}
+                                        </p>
+                                    )}
                                 </div>
-                            )}
-                            <div className="relative space-y-10">
-                                <span className="absolute left-4 top-0 bottom-0 w-px bg-border" aria-hidden />
-                                {event.timeline.map((step) => (
-                                    <div key={`${step.step}-${step.name}`} className="relative pl-10">
-                                        <span className="absolute left-3 top-1 flex h-4 w-4 items-center justify-center rounded-full border bg-background text-xs font-semibold">
-                                            {step.step}
-                                        </span>
-                                        <div className="rounded-lg border p-4">
-                                            <div className="flex flex-col gap-1">
-                                                <p className="text-xs uppercase text-muted-foreground">
-                                                    Paso {step.step}
-                                                </p>
-                                                <p className="text-base font-semibold text-foreground">
-                                                    {step.title}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {step.description}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {formatDateTime(step.started_at)} •{' '}
-                                                    {formatDuration(step.duration_ms)}
-                                                </p>
-                                            </div>
-                                            <div className="mt-3 space-y-2 text-sm text-foreground/90">
-                                                <p>{step.summary || 'Sin resumen para este agente.'}</p>
-                                                {step.summary_details?.length ? (
-                                                    <ul className="grid gap-1 text-sm text-muted-foreground">
-                                                        {step.summary_details.map((detail) => (
-                                                            <li key={`${detail.label}-${detail.value}`}>
-                                                                <span className="font-medium text-foreground">
-                                                                    {detail.label}:
-                                                                </span>{' '}
-                                                                {detail.value}
-                                                            </li>
-                                                        ))}
-                                                    </ul>
-                                                ) : null}
-                                            </div>
-                                            {step.tools_used.length > 0 && (
-                                                <div className="mt-4 space-y-2 rounded-lg border bg-muted/30 p-3">
-                                                    <p className="text-xs font-semibold uppercase text-muted-foreground">
-                                                        Acciones ejecutadas
-                                                    </p>
-                                                    {step.tools_used.map((tool, index) => (
-                                                        <div
-                                                            key={`${tool.tool_name}-${index}`}
-                                                            className="rounded border bg-background/60 p-3"
-                                                        >
-                                                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                                                <p className="font-semibold">
-                                                                    {tool.tool_name}
-                                                                </p>
-                                                                <Badge
-                                                                    className={`${tool.status_label === 'Completada'
-                                                                        ? 'bg-emerald-500/10 text-emerald-500'
-                                                                        : 'bg-rose-500/10 text-rose-500'
-                                                                        }`}
-                                                                >
-                                                                    {tool.status_label ?? 'Sin estado'}
-                                                                </Badge>
-                                                            </div>
-                                                            <p className="mt-1 text-xs text-muted-foreground">
-                                                                {tool.called_at
-                                                                    ? formatDateTime(tool.called_at)
-                                                                    : 'Sin timestamp'}{' '}
-                                                                • {formatDuration(tool.duration_ms)}
-                                                            </p>
-                                                            <p className="mt-2 text-sm">
-                                                                {tool.result_summary ?? 'Sin resultado'}
-                                                            </p>
-                                                            {tool.details?.analyses?.length ? (
-                                                                <div className="mt-2 space-y-2 rounded border bg-muted/40 p-2 text-xs">
-                                                                    {tool.details.analyses.map((analysis, idx) => (
-                                                                        <div key={idx}>
-                                                                            <p className="font-semibold">
-                                                                                {analysis.camera ?? 'Cámara'}
-                                                                            </p>
-                                                                            <p>
-                                                                                {analysis.analysis_preview ??
-                                                                                    analysis.analysis}
-                                                                            </p>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            ) : null}
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
+                                {event.ai_assessment_view?.reasoning && (
+                                    <p className={`text-base leading-relaxed ${verdictStyle.text} opacity-90`}>
+                                        {event.ai_assessment_view.reasoning}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+                )}
+
+                {/* ============================================================
+                    SECTION 6: VISUAL EVIDENCE (Images Gallery)
+                ============================================================ */}
+                {hasImages && (
+                    <section>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="rounded-lg bg-primary/10 p-2">
+                                <Camera className="size-5 text-primary" />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-semibold">Evidencia Visual</h2>
+                                <p className="text-sm text-muted-foreground">Imágenes capturadas durante el evento</p>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            {event.media_insights.filter(m => m.download_url).map((insight, idx) => (
+                                <Card key={idx} className="overflow-hidden group">
+                                    <div className="relative aspect-video bg-muted">
+                                        <img
+                                            src={insight.download_url!}
+                                            alt={`Evidencia ${insight.camera ?? idx + 1}`}
+                                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                            loading="lazy"
+                                        />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        <div className="absolute bottom-3 left-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Badge className="bg-black/50 text-white backdrop-blur-sm">
+                                                {insight.camera ?? `Cámara ${idx + 1}`}
+                                            </Badge>
                                         </div>
                                     </div>
-                                ))}
+                                    {insight.analysis && (
+                                        <CardContent className="p-4">
+                                            <p className="text-sm font-medium mb-1">{insight.camera ?? `Cámara ${idx + 1}`}</p>
+                                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                                {insight.analysis}
+                                            </p>
+                                        </CardContent>
+                                    )}
+                                </Card>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                {/* ============================================================
+                    SECTION 7: SUPPORTING EVIDENCE (from AI assessment)
+                ============================================================ */}
+                {event.ai_assessment_view?.evidence && event.ai_assessment_view.evidence.length > 0 && (
+                    <section>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="rounded-lg bg-primary/10 p-2">
+                                <Sparkles className="size-5 text-primary" />
                             </div>
-                        </CardContent>
-                    </Card>
-                    <Card className="lg:col-span-2">
-                        <CardHeader>
-                            <CardTitle>Salud del pipeline</CardTitle>
-                            <CardDescription>
-                                Tiempo total y herramientas utilizadas durante el análisis.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="space-y-2 rounded border bg-muted/30 p-4 text-sm">
-                                <p className="text-xs uppercase text-muted-foreground">
-                                    Duración total
-                                </p>
-                                <p className="text-2xl font-semibold">
-                                    {formatDuration(event.ai_actions.total_duration_ms)}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                    Herramientas llamadas:{' '}
-                                    <strong>
-                                        {event.ai_actions.total_tools_called ?? 0}
-                                    </strong>
-                                </p>
+                            <div>
+                                <h2 className="text-xl font-semibold">Análisis Detallado</h2>
+                                <p className="text-sm text-muted-foreground">Evidencia recopilada durante la investigación</p>
                             </div>
-                            {event.media_insights.length > 0 && (
-                                <div className="space-y-2 text-sm">
-                                    <p className="text-xs uppercase text-muted-foreground">
-                                        Insights de cámaras
-                                    </p>
-                                    <div className="space-y-2">
-                                        {event.media_insights.map((analysis, idx) => (
-                                            <div
-                                                key={`${analysis.camera}-${idx}`}
-                                                className="rounded-lg border bg-background/70 p-3"
-                                            >
-                                                <p className="text-xs uppercase text-muted-foreground">
-                                                    {analysis.camera ?? 'Cámara'}
-                                                </p>
-                                                <p>{analysis.analysis ?? analysis.analysis_preview}</p>
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            {event.ai_assessment_view.evidence.map((item, idx) => (
+                                <Card key={idx}>
+                                    <CardHeader className="pb-2">
+                                        <CardTitle className="text-base">{item.label}</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <p className="text-sm text-muted-foreground leading-relaxed">{item.value}</p>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                {/* ============================================================
+                    SECTION 8: INVESTIGATION TIMELINE (collapsible)
+                ============================================================ */}
+                <Collapsible defaultOpen={false}>
+                    <Card>
+                        <CollapsibleTrigger asChild>
+                            <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="rounded-lg bg-primary/10 p-2">
+                                            <Zap className="size-5 text-primary" />
+                                        </div>
+                                        <div>
+                                            <CardTitle>Recorrido de la AI</CardTitle>
+                                            <CardDescription>
+                                                {event.ai_actions.total_tools_called} herramientas ejecutadas en {formatDuration(event.ai_actions.total_duration_ms)}
+                                            </CardDescription>
+                                        </div>
+                                    </div>
+                                    <ChevronDown className="size-5 text-muted-foreground transition-transform [[data-state=open]_&]:rotate-180" />
+                                </div>
+                            </CardHeader>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                            <CardContent className="pt-0">
+                                {event.timeline.length === 0 ? (
+                                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                                        No se recibieron métricas del pipeline para esta alerta.
+                                    </div>
+                                ) : (
+                                    <div className="relative space-y-6">
+                                        <span className="absolute left-4 top-0 bottom-0 w-px bg-border" aria-hidden />
+                                        {event.timeline.map((step) => (
+                                            <div key={`${step.step}-${step.name}`} className="relative pl-10">
+                                                <span className="absolute left-2 top-1 flex h-5 w-5 items-center justify-center rounded-full border bg-background text-xs font-semibold">
+                                                    {step.step}
+                                                </span>
+                                                <div className="rounded-lg border p-4 space-y-3">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                                        <div>
+                                                            <p className="font-semibold">{step.title}</p>
+                                                            <p className="text-xs text-muted-foreground">{step.description}</p>
+                                                        </div>
+                                                        <Badge variant="outline" className="w-fit">
+                                                            {formatDuration(step.duration_ms)}
+                                                        </Badge>
+                                                    </div>
+                                                    <p className="text-sm text-muted-foreground">{step.summary}</p>
+                                                    {step.tools_used.length > 0 && (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {step.tools_used.map((tool, idx) => (
+                                                                <Badge key={idx} variant="secondary" className="text-xs">
+                                                                    {tool.tool_name}
+                                                                </Badge>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         ))}
                                     </div>
-                                </div>
-                            )}
-                            {event.ai_message && (
-                                <div className="rounded-xl border bg-gradient-to-br from-primary/5 via-background to-background p-4 text-sm">
-                                    <p className="text-xs uppercase text-muted-foreground">
-                                        Mensaje final
-                                    </p>
-                                    <p className="mt-2 whitespace-pre-line">
-                                        {event.ai_message}
-                                    </p>
-                                </div>
-                            )}
-                        </CardContent>
+                                )}
+                            </CardContent>
+                        </CollapsibleContent>
                     </Card>
-                </section>
+                </Collapsible>
+
+                {/* ============================================================
+                    SECTION 9: TECHNICAL DATA (payload summary)
+                ============================================================ */}
+                {event.payload_summary.length > 0 && (
+                    <Collapsible defaultOpen={false}>
+                        <Card>
+                            <CollapsibleTrigger asChild>
+                                <CardHeader className="cursor-pointer hover:bg-muted/30 transition-colors">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="rounded-lg bg-muted p-2">
+                                                <Radar className="size-5 text-muted-foreground" />
+                                            </div>
+                                            <div>
+                                                <CardTitle>Datos del Webhook</CardTitle>
+                                                <CardDescription>Información técnica recibida de Samsara</CardDescription>
+                                            </div>
+                                        </div>
+                                        <ChevronDown className="size-5 text-muted-foreground transition-transform [[data-state=open]_&]:rotate-180" />
+                                    </div>
+                                </CardHeader>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                                <CardContent className="pt-0">
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        {event.payload_summary.map((item, idx) => (
+                                            <div key={idx} className="rounded-lg border bg-muted/20 p-3">
+                                                <p className="text-xs uppercase text-muted-foreground font-medium">{item.label}</p>
+                                                <p className="text-sm font-medium mt-0.5">{item.value}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </CollapsibleContent>
+                        </Card>
+                    </Collapsible>
+                )}
             </div>
         </AppLayout>
-    );
-}
-
-function QuickStat({
-    icon: Icon,
-    label,
-    primary,
-    secondary,
-}: {
-    icon: LucideIcon;
-    label: string;
-    primary: string;
-    secondary: string;
-}) {
-    return (
-        <Card>
-            <CardContent className="flex items-center gap-3 py-6">
-                <span className="rounded-full bg-primary/10 p-2 text-primary">
-                    <Icon className="size-5" />
-                </span>
-                <div>
-                    <p className="text-xs uppercase text-muted-foreground">{label}</p>
-                    <p className="text-lg font-semibold leading-tight">{primary}</p>
-                    <p className="text-xs text-muted-foreground">{secondary}</p>
-                </div>
-            </CardContent>
-        </Card>
     );
 }

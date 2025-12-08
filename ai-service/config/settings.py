@@ -49,6 +49,8 @@ class ServiceConfig:
     # Usuario por defecto para sesiones
     DEFAULT_USER_ID = "monitor"
 
+    APP_VERSION = "0.1.0"
+
 
 # ============================================================================
 # CONFIGURACIÓN DE BREADCRUMBS

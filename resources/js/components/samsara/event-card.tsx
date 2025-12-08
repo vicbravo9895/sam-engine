@@ -5,6 +5,7 @@ import {
     AlertCircle,
     AlertTriangle,
     Bell,
+    Camera,
     CheckCircle2,
     Clock,
     Loader2,
@@ -30,6 +31,7 @@ interface EventCardProps {
         severity_label?: string | null;
         ai_status: string;
         ai_status_label?: string | null;
+        has_images?: boolean;
         investigation_metadata?: {
             count: number;
             max_investigations: number;
@@ -151,12 +153,12 @@ export function EventCard({ event, onClick, showProgress = false }: EventCardPro
                     <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-1 min-w-0">
                             <div className={`rounded-md p-1.5 shrink-0 ${isUrgent
-                                    ? 'bg-red-100 dark:bg-red-950/50'
-                                    : 'bg-primary/15'
+                                ? 'bg-red-100 dark:bg-red-950/50'
+                                : 'bg-primary/15'
                                 }`}>
                                 <Icon className={`size-4 ${isUrgent
-                                        ? 'text-red-600 dark:text-red-400'
-                                        : 'text-primary'
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-primary'
                                     }`} />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -209,11 +211,19 @@ export function EventCard({ event, onClick, showProgress = false }: EventCardPro
 
                 {/* Footer Section */}
                 <div className="px-3 py-2.5 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Clock className="size-3.5 shrink-0" />
-                        <span className="font-medium">
-                            {event.occurred_at_human ?? 'Sin fecha'}
-                        </span>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1.5">
+                            <Clock className="size-3.5 shrink-0" />
+                            <span className="font-medium">
+                                {event.occurred_at_human ?? 'Sin fecha'}
+                            </span>
+                        </div>
+                        {event.has_images && (
+                            <div className="flex items-center gap-1 text-primary">
+                                <Camera className="size-3.5" />
+                                <span className="text-[10px] font-medium">Evidencia</span>
+                            </div>
+                        )}
                     </div>
                     <Badge
                         variant="outline"
