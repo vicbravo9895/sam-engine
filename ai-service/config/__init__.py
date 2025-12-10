@@ -6,7 +6,8 @@ from .settings import (
     SamsaraConfig,
     OpenAIConfig,
     ServiceConfig,
-    BreadcrumbConfig
+    BreadcrumbConfig,
+    TwilioConfig
 )
 from .langfuse import LangfuseConfig, langfuse_client
 
@@ -15,7 +16,9 @@ __all__ = [
     "OpenAIConfig",
     "ServiceConfig",
     "BreadcrumbConfig",
+    "TwilioConfig",
     "LangfuseConfig",
     "langfuse_client"
 ]
+
 

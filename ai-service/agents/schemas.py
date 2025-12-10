@@ -71,3 +71,25 @@ class AIActions(BaseModel):
     agents: List[AgentExecution] = Field(..., description="Lista de agentes ejecutados en orden")
     total_duration_ms: int = Field(..., description="Duración total del pipeline")
     total_tools_called: int = Field(..., description="Número total de tools ejecutadas")
+
+
+# ============================================================================
+# NOTIFICATION DECISION OUTPUT
+# ============================================================================
+class NotificationResult(BaseModel):
+    """Resultado de una notificación individual."""
+    channel: Literal["sms", "whatsapp", "call_simple", "call_callback"] = Field(..., description="Canal usado")
+    to: str = Field(..., description="Número de teléfono destino")
+    success: bool = Field(..., description="Si la notificación se envió correctamente")
+    error: Optional[str] = Field(None, description="Mensaje de error si falló")
+    sid: Optional[str] = Field(None, description="SID de Twilio (para tracking)")
+
+
+class NotificationDecision(BaseModel):
+    """Decisión y resultados de notificación del agente."""
+    should_notify: bool = Field(..., description="Si se decidió enviar notificaciones")
+    escalation_level: Literal["critical", "high", "low", "none"] = Field(..., description="Nivel de escalación")
+    channels_used: List[str] = Field(default_factory=list, description="Canales utilizados")
+    notifications: List[NotificationResult] = Field(default_factory=list, description="Resultados de cada notificación")
+    reason: str = Field(..., description="Explicación de la decisión")
+

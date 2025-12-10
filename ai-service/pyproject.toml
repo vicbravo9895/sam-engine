@@ -18,6 +18,7 @@ google-adk = "^1.18.0"
 litellm = "^1.80.0"
 langfuse = "^2.0.0"
 samsara-api = "^4.1.0"
+twilio = "^9.0.0"
 
 
 [tool.poetry.group.dev.dependencies]

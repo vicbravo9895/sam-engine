@@ -2,12 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Variables de entorno para Poetry
+# Variables de entorno para Poetry y pip (con timeouts extendidos para evitar errores de red)
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=300 \
+    PIP_RETRIES=5 \
     POETRY_NO_INTERACTION=1 \
     POETRY_VENV_IN_PROJECT=1 \
     POETRY_CACHE_DIR=/tmp/poetry_cache \
+    POETRY_HTTP_TIMEOUT=300 \
+    POETRY_REQUESTS_TIMEOUT=300 \
+    POETRY_INSTALLER_PARALLEL=false \
+    POETRY_INSTALLER_MAX_WORKERS=1 \
     POETRY_VERSION=1.8.0
 
 # Instalar dependencias del sistema y Poetry

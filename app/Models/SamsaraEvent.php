@@ -30,6 +30,12 @@ class SamsaraEvent extends Model
         'investigation_count',
         'next_check_minutes',
         'investigation_history',
+        // Notification tracking
+        'notification_status',
+        'notification_channels',
+        'notification_sent_at',
+        'twilio_call_sid',
+        'call_response',
     ];
 
     protected $casts = [
@@ -40,6 +46,10 @@ class SamsaraEvent extends Model
         'occurred_at' => 'datetime',
         'ai_processed_at' => 'datetime',
         'last_investigation_at' => 'datetime',
+        // Notification fields
+        'notification_channels' => 'array',
+        'notification_sent_at' => 'datetime',
+        'call_response' => 'array',
     ];
 
     // Constantes de estado

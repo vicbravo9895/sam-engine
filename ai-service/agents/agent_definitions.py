@@ -13,14 +13,19 @@ from tools import (
     get_vehicle_info,
     get_driver_assignment,
     get_camera_media,
-    get_safety_events
+    get_safety_events,
+    send_sms,
+    send_whatsapp,
+    make_call_simple,
+    make_call_with_callback
 )
 from .prompts import (
     INGESTION_AGENT_PROMPT,
     PANIC_INVESTIGATOR_PROMPT,
-    FINAL_AGENT_PROMPT
+    FINAL_AGENT_PROMPT,
+    NOTIFICATION_DECISION_PROMPT
 )
-from .schemas import CaseData, PanicAssessment
+from .schemas import CaseData, PanicAssessment, NotificationDecision
 
 # ============================================================================
 # INGESTION AGENT
@@ -71,6 +76,26 @@ final_agent = LlmAgent(
 
 
 # ============================================================================
+# NOTIFICATION DECISION AGENT
+# ============================================================================
+# Usa GPT-4o-mini para decisión de notificación y ejecución de envíos
+notification_decision_agent = LlmAgent(
+    name="notification_decision_agent",
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
+    tools=[
+        send_sms,
+        send_whatsapp,
+        make_call_simple,
+        make_call_with_callback
+    ],
+    instruction=NOTIFICATION_DECISION_PROMPT,
+    description="Decide y ejecuta notificaciones SMS, WhatsApp y llamadas según nivel de escalación",
+    output_key="notification_decision",  # Stores decision in state['notification_decision']
+    output_schema=NotificationDecision
+)
+
+
+# ============================================================================
 # ROOT AGENT (Sequential Pipeline)
 # ============================================================================
 root_agent = SequentialAgent(
@@ -78,7 +103,8 @@ root_agent = SequentialAgent(
     sub_agents=[
         ingestion_agent,
         panic_investigator,
-        final_agent
+        final_agent,
+        notification_decision_agent
     ],
     description="Pipeline secuencial para procesar alertas de Samsara"
 )
@@ -90,5 +116,7 @@ root_agent = SequentialAgent(
 AGENTS_BY_NAME = {
     "ingestion_agent": ingestion_agent,
     "panic_investigator": panic_investigator,
-    "final_agent": final_agent
+    "final_agent": final_agent,
+    "notification_decision_agent": notification_decision_agent
 }
+

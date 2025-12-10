@@ -69,3 +69,26 @@ class BreadcrumbConfig:
     EMOJI_TOOL_RESULT = "✅"
     EMOJI_COMPLETE = "✅"
     EMOJI_ERROR = "❌"
+
+
+# ============================================================================
+# CONFIGURACIÓN DE TWILIO
+# ============================================================================
+class TwilioConfig:
+    """Configuración para Twilio SMS, WhatsApp y Voice."""
+    
+    # Autenticación estándar (Account SID + Auth Token)
+    ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+    AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+    
+    # Phone numbers (E.164 format)
+    PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "")
+    WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "")
+    
+    # Callback URL for voice calls (Laravel endpoint)
+    CALLBACK_BASE_URL = os.getenv("TWILIO_CALLBACK_URL", "")
+    
+    @classmethod
+    def is_configured(cls) -> bool:
+        """Check if Twilio credentials are configured."""
+        return bool(cls.ACCOUNT_SID and cls.AUTH_TOKEN and cls.PHONE_NUMBER)
