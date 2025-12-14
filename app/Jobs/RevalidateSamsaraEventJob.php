@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\SamsaraEvent;
+use App\Services\ContactResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -37,7 +38,7 @@ class RevalidateSamsaraEventJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(ContactResolver $contactResolver): void
     {
         // Verificar que el evento aún esté en investigating
         if ($this->event->ai_status !== SamsaraEvent::STATUS_INVESTIGATING) {
@@ -73,6 +74,13 @@ class RevalidateSamsaraEventJob implements ShouldQueue
         ]);
 
         try {
+            // Resolver contactos para notificaciones
+            $contacts = $contactResolver->resolveForEvent($this->event);
+            $contactPayload = $contactResolver->formatForPayload($contacts);
+
+            // Enriquecer el payload con los contactos
+            $enrichedPayload = array_merge($this->event->raw_payload, $contactPayload);
+
             $aiServiceUrl = config('services.ai_engine.url');
 
             // Construir contexto de revalidación
@@ -89,7 +97,7 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             $response = Http::timeout(120)
                 ->post("{$aiServiceUrl}/alerts/revalidate", [
                     'event_id' => $this->event->id,
-                    'payload' => $this->event->raw_payload,
+                    'payload' => $enrichedPayload,
                     'context' => $revalidationContext,
                 ]);
 

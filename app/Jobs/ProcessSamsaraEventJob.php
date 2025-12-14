@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\SamsaraEvent;
+use App\Services\ContactResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -43,7 +44,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(): void
+    public function handle(ContactResolver $contactResolver): void
     {
         Log::info("Processing Samsara event", [
             'event_id' => $this->event->id,
@@ -55,13 +56,27 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Marcar como procesando
             $this->event->markAsProcessing();
 
+            // Resolver contactos para notificaciones
+            $contacts = $contactResolver->resolveForEvent($this->event);
+            $contactPayload = $contactResolver->formatForPayload($contacts);
+
+            Log::info("Contacts resolved for event", [
+                'event_id' => $this->event->id,
+                'contacts_types' => array_keys($contacts),
+                'has_operator' => isset($contacts['operator']),
+                'has_monitoring_team' => isset($contacts['monitoring_team']),
+            ]);
+
+            // Enriquecer el payload con los contactos
+            $enrichedPayload = array_merge($this->event->raw_payload, $contactPayload);
+
             // Llamar al servicio de IA (FastAPI)
             $aiServiceUrl = config('services.ai_engine.url');
 
             $response = Http::timeout(120)
                 ->post("{$aiServiceUrl}/alerts/ingest", [
                     'event_id' => $this->event->id,
-                    'payload' => $this->event->raw_payload,
+                    'payload' => $enrichedPayload,
                 ]);
 
             if ($response->failed()) {

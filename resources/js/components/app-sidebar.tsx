@@ -13,10 +13,11 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
-import { AlertTriangle, BookOpen, Folder, LayoutGrid } from 'lucide-react';
+import { AlertTriangle, BookOpen, Folder, LayoutGrid, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const SAMSARA_ALERTS_URL = '/samsara/alerts';
+const CONTACTS_URL = '/contacts';
 
 const mainNavItems: NavItem[] = [
     {
@@ -28,6 +29,11 @@ const mainNavItems: NavItem[] = [
         title: 'Alertas Samsara',
         href: SAMSARA_ALERTS_URL,
         icon: AlertTriangle,
+    },
+    {
+        title: 'Contactos',
+        href: CONTACTS_URL,
+        icon: Users,
     },
 ];
 
