@@ -81,7 +81,9 @@ class SamsaraEventController extends Controller
                     'occurred_at' => optional($event->occurred_at)?->toIso8601String(),
                     'occurred_at_human' => optional($event->occurred_at)?->diffForHumans(),
                     'created_at' => $event->created_at->toIso8601String(),
-                    'ai_message_preview' => $assessment['reasoning'] ?? Str::limit((string) $event->ai_message, 180),
+                    'ai_message_preview' => is_string($assessment['reasoning'] ?? null) 
+                        ? $assessment['reasoning'] 
+                        : Str::limit((string) $event->ai_message, 180),
                     'ai_assessment_view' => $assessment,
                     'verdict_summary' => $this->getVerdictSummary($assessment),
                     'investigation_summary' => $this->getInvestigationSummary($event->ai_actions),
@@ -174,8 +176,6 @@ class SamsaraEventController extends Controller
                     })
                     ->values()
                     ->all();
-
-                $outputSummary = $this->summarizeAgentOutput($agentKey, $agent['output_summary'] ?? null);
 
                 $outputSummary = $this->summarizeAgentOutput($agentKey, $agent['output_summary'] ?? null);
 
@@ -357,10 +357,16 @@ class SamsaraEventController extends Controller
             return null;
         }
 
+        // Normalizar reasoning a string
+        $reasoning = $assessment['reasoning'] ?? null;
+        if (is_array($reasoning)) {
+            $reasoning = json_encode($reasoning, JSON_UNESCAPED_UNICODE);
+        }
+
         return [
-            'verdict' => $this->assessmentVerdictLabel($assessment['verdict'] ?? null),
-            'likelihood' => $this->assessmentLikelihoodLabel($assessment['likelihood'] ?? null),
-            'reasoning' => $assessment['reasoning'] ?? null,
+            'verdict' => $this->assessmentVerdictLabel($this->extractStringValue($assessment['verdict'] ?? null)),
+            'likelihood' => $this->assessmentLikelihoodLabel($this->extractStringValue($assessment['likelihood'] ?? null)),
+            'reasoning' => $reasoning,
             'evidence' => $this->mapAssessmentEvidence($assessment['supporting_evidence'] ?? []),
         ];
     }
@@ -400,17 +406,31 @@ class SamsaraEventController extends Controller
     private function agentMetadata(string $name): array
     {
         $dictionary = [
-            'ingestion_agent' => [
-                'title' => 'Resumen del evento',
-                'description' => 'Identificando los datos clave del aviso.',
+            // Nuevos nombres de agentes (contrato actualizado)
+            'triage_agent' => [
+                'title' => 'Triaje de alerta',
+                'description' => 'Clasificando el tipo de alerta y extrayendo datos clave.',
             ],
-            'panic_investigator' => [
+            'investigator_agent' => [
                 'title' => 'Investigación técnica',
-                'description' => 'Consultando historial, sensores y cámaras.',
+                'description' => 'Analizando evidencia con herramientas de Samsara y Vision AI.',
             ],
             'final_agent' => [
                 'title' => 'Mensaje operativo',
-                'description' => 'Preparando la comunicación para monitoreo.',
+                'description' => 'Preparando la comunicación para el equipo de monitoreo.',
+            ],
+            'notification_decision_agent' => [
+                'title' => 'Decisión de notificación',
+                'description' => 'Determinando canales y destinatarios según nivel de riesgo.',
+            ],
+            // Aliases legacy para compatibilidad
+            'ingestion_agent' => [
+                'title' => 'Triaje de alerta',
+                'description' => 'Clasificando el tipo de alerta y extrayendo datos clave.',
+            ],
+            'panic_investigator' => [
+                'title' => 'Investigación técnica',
+                'description' => 'Analizando evidencia con herramientas de Samsara y Vision AI.',
             ],
         ];
 
@@ -486,19 +506,121 @@ class SamsaraEventController extends Controller
             'camera_summary' => 'Hallazgos de cámaras',
         ];
 
+        // Keys que contienen objetos complejos y deben ser omitidos o procesados especialmente
+        $complexKeys = [
+            'payload_driver',
+            'assignment_driver', 
+            'data_consistency',
+            'camera',
+        ];
+
         $items = [];
         foreach ($evidence as $key => $value) {
             if (!filled($value)) {
                 continue;
             }
 
+            // Omitir keys complejas que tienen objetos anidados
+            if (in_array($key, $complexKeys)) {
+                // Procesar camera especialmente para extraer visual_summary
+                if ($key === 'camera' && is_array($value)) {
+                    $visualSummary = $value['visual_summary'] ?? null;
+                    if (filled($visualSummary)) {
+                        $items[] = [
+                            'label' => 'Análisis de cámaras',
+                            'value' => $this->normalizeEvidenceValue($visualSummary),
+                        ];
+                    }
+                }
+                continue;
+            }
+
             $items[] = [
                 'label' => $labels[$key] ?? Str::headline((string) $key),
-                'value' => $value,
+                'value' => $this->normalizeEvidenceValue($value),
             ];
         }
 
         return $items;
+    }
+
+    /**
+     * Extrae un valor string de un campo que puede ser string u objeto {id, name}.
+     */
+    private function extractStringValue(mixed $value): string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_array($value)) {
+            // Si tiene 'name', usar ese valor
+            if (isset($value['name'])) {
+                return (string) $value['name'];
+            }
+            // Si solo tiene 'id', usar ese
+            if (isset($value['id'])) {
+                return (string) $value['id'];
+            }
+        }
+
+        if (is_numeric($value)) {
+            return (string) $value;
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'Sí' : 'No';
+        }
+
+        return '';
+    }
+
+    /**
+     * Normaliza un valor de evidencia a string para renderizar en React.
+     * Convierte objetos y arrays a strings legibles.
+     */
+    private function normalizeEvidenceValue(mixed $value): string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_bool($value)) {
+            return $value ? 'Sí' : 'No';
+        }
+
+        if (is_numeric($value)) {
+            return (string) $value;
+        }
+
+        if (is_array($value)) {
+            // Si es un objeto con 'name', usar el name
+            if (isset($value['name'])) {
+                return (string) $value['name'];
+            }
+            
+            // Si es un objeto con 'id' y 'name', formatear
+            if (isset($value['id']) && isset($value['name'])) {
+                return (string) $value['name'];
+            }
+
+            // Si es un array de strings, unir con comas
+            if (array_is_list($value)) {
+                $stringItems = array_filter($value, fn($v) => is_string($v) || is_numeric($v));
+                if (count($stringItems) === count($value)) {
+                    return implode(', ', $value);
+                }
+            }
+
+            // Fallback: convertir a JSON legible
+            return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) ?: 'Datos complejos';
+        }
+
+        if (is_null($value)) {
+            return 'Sin información';
+        }
+
+        return (string) $value;
     }
 
     private function summarizeAgentOutput(string $agentName, ?string $raw): array
@@ -526,27 +648,43 @@ class SamsaraEventController extends Controller
             };
         }
 
-        if ($agentName === 'ingestion_agent') {
+        // Triage agent (nuevo nombre) o ingestion_agent (legacy)
+        if (in_array($agentName, ['triage_agent', 'ingestion_agent'])) {
             $details = [];
             if (!empty($data['alert_type'])) {
                 $details[] = [
                     'label' => 'Tipo detectado',
-                    'value' => $this->alertTypeLabel($data['alert_type']),
+                    'value' => $this->alertTypeLabel($this->extractStringValue($data['alert_type'])),
+                ];
+            }
+            if (!empty($data['alert_kind'])) {
+                $details[] = [
+                    'label' => 'Categoría',
+                    'value' => ucfirst($this->extractStringValue($data['alert_kind'])),
                 ];
             }
             if (!empty($data['vehicle_name'])) {
-                $details[] = ['label' => 'Unidad', 'value' => $data['vehicle_name']];
+                $details[] = ['label' => 'Unidad', 'value' => $this->extractStringValue($data['vehicle_name'])];
             }
+            
+            $driverName = $this->extractStringValue($data['driver_name'] ?? null);
             $details[] = [
                 'label' => 'Operador',
-                'value' => (!empty($data['driver_name']) && $data['driver_name'] !== 'unknown')
-                    ? $data['driver_name']
+                'value' => (filled($driverName) && $driverName !== 'unknown')
+                    ? $driverName
                     : 'No identificado',
             ];
+            
             if (!empty($data['severity_level'])) {
                 $details[] = [
                     'label' => 'Severidad',
-                    'value' => ucfirst((string) $data['severity_level']),
+                    'value' => ucfirst($this->extractStringValue($data['severity_level'])),
+                ];
+            }
+            if (!empty($data['proactive_flag'])) {
+                $details[] = [
+                    'label' => 'Tipo',
+                    'value' => 'Alerta proactiva',
                 ];
             }
 
@@ -556,11 +694,21 @@ class SamsaraEventController extends Controller
             ];
         }
 
-        if ($agentName === 'panic_investigator' && isset($data['panic_assessment'])) {
-            $assessment = $data['panic_assessment'];
+        // Investigator agent (nuevo nombre) o panic_investigator (legacy)
+        if (in_array($agentName, ['investigator_agent', 'panic_investigator'])) {
+            // Nuevo formato: datos directos en el root
+            $assessment = $data['panic_assessment'] ?? $data;
             $verdict = $this->assessmentVerdictLabel($assessment['verdict'] ?? null);
             $likelihood = $this->assessmentLikelihoodLabel($assessment['likelihood'] ?? null);
             $details = $this->mapAssessmentEvidence($assessment['supporting_evidence'] ?? []);
+
+            // Agregar información de riesgo si existe
+            if (!empty($assessment['risk_escalation'])) {
+                $details[] = [
+                    'label' => 'Nivel de escalación',
+                    'value' => ucfirst((string) $assessment['risk_escalation']),
+                ];
+            }
 
             return [
                 'summary' => "Veredicto: {$verdict}. Probabilidad: {$likelihood}. " .
@@ -572,6 +720,21 @@ class SamsaraEventController extends Controller
         if ($agentName === 'final_agent') {
             return [
                 'summary' => $data['message'] ?? $raw,
+                'details' => [],
+            ];
+        }
+
+        // Notification decision agent
+        if ($agentName === 'notification_decision_agent') {
+            $shouldNotify = $data['should_notify'] ?? false;
+            $escalation = $data['escalation_level'] ?? 'none';
+            $channels = $data['channels_to_use'] ?? [];
+            $reason = $data['reason'] ?? 'nivel monitor';
+
+            return [
+                'summary' => $shouldNotify 
+                    ? "Notificación decidida: {$escalation} via " . implode(', ', $channels)
+                    : "Sin notificación necesaria ({$reason})",
                 'details' => [],
             ];
         }

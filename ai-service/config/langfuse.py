@@ -17,7 +17,8 @@ class LangfuseConfig:
     # Credenciales de Langfuse (self-hosted)
     PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
     SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
-    HOST = os.getenv("LANGFUSE_HOST", "http://langfuse-web:3000")
+    # Support both LANGFUSE_HOST and LANGFUSE_BASE_URL for compatibility
+    HOST = os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL", "http://langfuse-web:3000")
     
     # Cliente singleton
     _client: Optional[Langfuse] = None

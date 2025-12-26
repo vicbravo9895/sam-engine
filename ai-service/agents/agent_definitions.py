@@ -1,7 +1,14 @@
 """
 Definición de los agentes ADK.
-Cada agente está configurado con su modelo, tools y system instruction.
-Usa OpenAI GPT-4o a través de LiteLLM integrado en ADK.
+Arquitectura refactorizada para manejar múltiples tipos de alertas:
+- Botones de pánico
+- Safety events (comportamiento, cámara, pasajeros)
+- Tampering/interferencia
+- Conectividad
+
+ACTUALIZADO: Nuevo contrato de respuesta.
+- notification_decision_agent ya NO tiene tools (solo decide)
+- La ejecución de notificaciones la hace código determinista
 """
 
 from google.adk.agents import LlmAgent, SequentialAgent
@@ -14,39 +21,54 @@ from tools import (
     get_driver_assignment,
     get_camera_media,
     get_safety_events,
-    send_sms,
-    send_whatsapp,
-    make_call_simple,
-    make_call_with_callback
 )
 from .prompts import (
-    INGESTION_AGENT_PROMPT,
-    PANIC_INVESTIGATOR_PROMPT,
+    TRIAGE_AGENT_PROMPT,
+    INVESTIGATOR_AGENT_PROMPT,
     FINAL_AGENT_PROMPT,
-    NOTIFICATION_DECISION_PROMPT
+    NOTIFICATION_DECISION_PROMPT,
 )
-from .schemas import CaseData, PanicAssessment, NotificationDecision
+from .schemas import TriageResult, AlertAssessment, NotificationDecision
+
+# Compatibilidad con imports existentes
+from .schemas.investigation import PanicAssessment
 
 # ============================================================================
-# INGESTION AGENT
+# MODELOS DISPONIBLES
 # ============================================================================
-# Usa GPT-4o-mini para extracción rápida de datos
-ingestion_agent = LlmAgent(
-    name="ingestion_agent",
+# GPT-4o: Modelo principal para tareas complejas con tools
+# GPT-4o-mini: Modelo rápido y económico para tareas simples
+# ============================================================================
+
+
+# ============================================================================
+# TRIAGE AGENT (antes: ingestion_agent)
+# ============================================================================
+# Propósito: Clasificar la alerta y preparar instrucciones para el investigador
+# Modelo: GPT-4o-mini (task simple: extracción y clasificación)
+# Tools: Ninguna (solo analiza el payload)
+# Output: alert_context (JSON estructurado)
+# ============================================================================
+triage_agent = LlmAgent(
+    name="triage_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
-    instruction=INGESTION_AGENT_PROMPT,
-    description="Extrae y estructura información básica del payload de alerta de Samsara",
-    output_key="case",  # Stores structured case data in state['case']
-    output_schema=CaseData
+    instruction=TRIAGE_AGENT_PROMPT,
+    description="Clasifica alertas de Samsara, extrae datos y genera estrategia de investigación",
+    output_key="alert_context",  # Stores structured triage data in state['alert_context']
+    output_schema=TriageResult
 )
 
 
 # ============================================================================
-# PANIC INVESTIGATOR AGENT
+# INVESTIGATOR AGENT (antes: panic_investigator)
 # ============================================================================
-# Usa GPT-4o para análisis complejo con tools
-panic_investigator = LlmAgent(
-    name="panic_investigator",
+# Propósito: Investigar alertas usando tools y generar evaluación técnica
+# Modelo: GPT-4o (reasoning complejo, coordinación de tools)
+# Tools: Todas las herramientas de investigación
+# Output: assessment (JSON estructurado)
+# ============================================================================
+investigator_agent = LlmAgent(
+    name="investigator_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O),
     tools=[
         get_vehicle_stats,
@@ -55,41 +77,45 @@ panic_investigator = LlmAgent(
         get_camera_media,
         get_safety_events
     ],
-    instruction=PANIC_INVESTIGATOR_PROMPT,
-    description="Investiga alertas de pánico usando tools y genera evaluación técnica",
-    output_key="panic_assessment",  # Stores assessment in state['panic_assessment']
-    output_schema=PanicAssessment
+    instruction=INVESTIGATOR_AGENT_PROMPT,
+    description="Investiga alertas usando tools y genera evaluación técnica basada en evidencia",
+    output_key="assessment",  # Stores assessment in state['assessment']
+    output_schema=AlertAssessment
 )
 
 
 # ============================================================================
 # FINAL AGENT
 # ============================================================================
-# Usa GPT-4o-mini para generación rápida de mensajes
+# Propósito: Generar mensaje en español para operadores
+# Modelo: GPT-4o-mini (síntesis de texto, no requiere reasoning complejo)
+# Tools: Ninguna
+# Output: human_message (STRING, no JSON)
+# ============================================================================
 final_agent = LlmAgent(
     name="final_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
     instruction=FINAL_AGENT_PROMPT,
     description="Genera mensaje final en español para el equipo de monitoreo",
     output_key="human_message"  # Stores final message in state['human_message']
+    # Sin output_schema porque es texto libre
 )
 
 
 # ============================================================================
 # NOTIFICATION DECISION AGENT
 # ============================================================================
-# Usa GPT-4o-mini para decisión de notificación y ejecución de envíos
+# Propósito: Decidir qué notificaciones enviar (SIN ejecutar)
+# Modelo: GPT-4o-mini (reglas claras, decisión estructurada)
+# Tools: NINGUNA - Solo decide, la ejecución la hace código
+# Output: notification_decision (JSON estructurado)
+# ============================================================================
 notification_decision_agent = LlmAgent(
     name="notification_decision_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
-    tools=[
-        send_sms,
-        send_whatsapp,
-        make_call_simple,
-        make_call_with_callback
-    ],
+    tools=[],  # SIN TOOLS - Solo decide
     instruction=NOTIFICATION_DECISION_PROMPT,
-    description="Decide y ejecuta notificaciones SMS, WhatsApp y llamadas según nivel de escalación",
+    description="Decide qué notificaciones enviar según nivel de escalación (no ejecuta)",
     output_key="notification_decision",  # Stores decision in state['notification_decision']
     output_schema=NotificationDecision
 )
@@ -98,15 +124,24 @@ notification_decision_agent = LlmAgent(
 # ============================================================================
 # ROOT AGENT (Sequential Pipeline)
 # ============================================================================
+# Flujo de ejecución:
+# 1. triage_agent → Clasifica la alerta y genera alert_context
+# 2. investigator_agent → Ejecuta investigación y genera assessment
+# 3. final_agent → Genera human_message (string)
+# 4. notification_decision_agent → Genera notification_decision (sin ejecutar)
+# 
+# La ejecución de notificaciones (notification_execution) la hace código
+# después del pipeline con idempotencia y throttling.
+# ============================================================================
 root_agent = SequentialAgent(
     name="alert_pipeline",
     sub_agents=[
-        ingestion_agent,
-        panic_investigator,
+        triage_agent,
+        investigator_agent,
         final_agent,
         notification_decision_agent
     ],
-    description="Pipeline secuencial para procesar alertas de Samsara"
+    description="Pipeline secuencial para procesar alertas de Samsara de todos los tipos"
 )
 
 
@@ -114,9 +149,43 @@ root_agent = SequentialAgent(
 # AGENT REGISTRY
 # ============================================================================
 AGENTS_BY_NAME = {
-    "ingestion_agent": ingestion_agent,
-    "panic_investigator": panic_investigator,
+    "triage_agent": triage_agent,
+    "investigator_agent": investigator_agent,
     "final_agent": final_agent,
-    "notification_decision_agent": notification_decision_agent
+    "notification_decision_agent": notification_decision_agent,
+    # Aliases para compatibilidad
+    "ingestion_agent": triage_agent,
+    "panic_investigator": investigator_agent,
 }
+
+
+# ============================================================================
+# LEGACY EXPORTS (Compatibilidad)
+# ============================================================================
+# Para mantener compatibilidad con código existente
+ingestion_agent = triage_agent
+panic_investigator = investigator_agent
+
+
+# ============================================================================
+# HELPER: Selección de modelo por contexto
+# ============================================================================
+def get_recommended_model(task_type: str) -> str:
+    """
+    Recomienda el modelo adecuado según el tipo de tarea.
+    
+    Args:
+        task_type: Tipo de tarea ('classification', 'investigation', 
+                   'synthesis', 'tool_execution')
+    
+    Returns:
+        Nombre del modelo recomendado para LiteLLM
+    """
+    model_map = {
+        "classification": OpenAIConfig.MODEL_GPT4O_MINI,  # Triage
+        "investigation": OpenAIConfig.MODEL_GPT4O,         # Reasoning con tools
+        "synthesis": OpenAIConfig.MODEL_GPT4O_MINI,        # Generación de mensajes
+        "decision": OpenAIConfig.MODEL_GPT4O_MINI,         # Decisiones estructuradas
+    }
+    return model_map.get(task_type, OpenAIConfig.MODEL_GPT4O_MINI)
 

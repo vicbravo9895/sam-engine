@@ -83,8 +83,35 @@ interface PayloadSummaryItem {
 
 interface AssessmentEvidenceItem {
     label: string;
-    value: string;
+    value: string | Record<string, unknown>;
 }
+
+/**
+ * Safely renders a value that might be a string or an object.
+ * If it's an object with a 'name' property, returns that.
+ * Otherwise converts to string.
+ */
+const renderSafeValue = (value: string | Record<string, unknown> | null | undefined): string => {
+    if (value === null || value === undefined) {
+        return 'Sin información';
+    }
+    if (typeof value === 'string') {
+        return value;
+    }
+    if (typeof value === 'object') {
+        // If it's an object with 'name', use that
+        if ('name' in value && typeof value.name === 'string') {
+            return value.name;
+        }
+        // Otherwise, try to stringify it nicely
+        try {
+            return JSON.stringify(value);
+        } catch {
+            return 'Datos complejos';
+        }
+    }
+    return String(value);
+};
 
 interface AssessmentView {
     verdict?: string | null;
@@ -631,7 +658,9 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                                         <CardTitle className="text-base">{item.label}</CardTitle>
                                     </CardHeader>
                                     <CardContent>
-                                        <p className="text-sm text-muted-foreground leading-relaxed">{item.value}</p>
+                                        <p className="text-sm text-muted-foreground leading-relaxed">
+                                            {renderSafeValue(item.value)}
+                                        </p>
                                     </CardContent>
                                 </Card>
                             ))}

@@ -1,12 +1,18 @@
 """
 PipelineExecutor: Servicio que ejecuta el pipeline de agentes ADK.
 Encapsula toda la lógica de ejecución, tracking y captura de resultados.
+
+ACTUALIZADO: Nuevo contrato de respuesta.
+- alert_context (antes: triage)
+- assessment 
+- human_message (string, no JSON)
+- notification_decision (decisión sin side effects)
+- notification_execution (ejecutado por código)
 """
 
 import json
 import re
 import uuid
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -16,42 +22,8 @@ from config import ServiceConfig, langfuse_client
 from core import runner, session_service
 from core.context import current_langfuse_span, current_tool_tracker
 from agents.agent_definitions import AGENTS_BY_NAME
-
-
-# ============================================================================
-# DATA CLASSES
-# ============================================================================
-@dataclass
-class ToolResult:
-    """Resultado de ejecución de una tool."""
-    name: str
-    status: str = "success"
-    duration_ms: int = 0
-    summary: str = ""
-    media_urls: Optional[List[str]] = None
-
-
-@dataclass
-class AgentResult:
-    """Resultado de ejecución de un agente."""
-    name: str
-    started_at: str = ""
-    completed_at: str = ""
-    duration_ms: int = 0
-    summary: str = ""
-    tools: List[ToolResult] = field(default_factory=list)
-
-
-@dataclass
-class PipelineResult:
-    """Resultado completo de la ejecución del pipeline."""
-    success: bool = True
-    assessment: Optional[Dict[str, Any]] = None
-    message: Optional[str] = None
-    agents: List[AgentResult] = field(default_factory=list)
-    total_duration_ms: int = 0
-    total_tools_called: int = 0
-    error: Optional[str] = None
+from agents.schemas import ToolResult, AgentResult, PipelineResult
+from .notification_executor import execute_notifications
 
 
 # ============================================================================
@@ -109,38 +81,30 @@ def _extract_media_urls(response: Any) -> List[str]:
                 try:
                     response = ast.literal_eval(response)
                 except:
-                    print(f"[DEBUG] _extract_media_urls: Could not parse string response")
                     return []
         
         if not isinstance(response, dict):
-            print(f"[DEBUG] _extract_media_urls: Response is not a dict, type={type(response)}")
             return []
         
         urls = []
         ai_analysis = response.get('ai_analysis', {})
-        print(f"[DEBUG] _extract_media_urls: ai_analysis keys = {ai_analysis.keys() if ai_analysis else 'None'}")
         
         if ai_analysis and 'analyses' in ai_analysis:
             for analysis in ai_analysis['analyses']:
-                # Priorizar samsara_url (nueva estructura)
                 url = analysis.get('samsara_url') or analysis.get('download_url') or analysis.get('url')
-                print(f"[DEBUG] _extract_media_urls: Found URL = {url[:50] if url else 'None'}...")
                 if url:
                     urls.append(url)
         
         if not urls:
             data = response.get('data', [])
-            print(f"[DEBUG] _extract_media_urls: Checking data array, length = {len(data)}")
             for item in data:
                 if isinstance(item, dict):
                     url = item.get('samsara_url') or item.get('download_url') or item.get('url')
                     if url:
                         urls.append(url)
         
-        print(f"[DEBUG] _extract_media_urls: Returning {len(urls)} URLs")
         return urls
-    except Exception as e:
-        print(f"[DEBUG] _extract_media_urls: Exception = {e}")
+    except Exception:
         return []
 
 
@@ -159,24 +123,33 @@ def _generate_agent_summary(agent_name: str, raw_output: str) -> str:
     try:
         data = json.loads(clean_text)
         
-        if agent_name == "ingestion_agent":
+        # Triage agent
+        if agent_name == "triage_agent":
             alert_type = data.get("alert_type", "unknown")
-            vehicle_name = data.get("vehicle_name", "unknown")
-            return f"Alerta de {alert_type} procesada para {vehicle_name}"
+            alert_kind = data.get("alert_kind", "unknown")
+            severity = data.get("severity_level", "unknown")
+            return f"Triaje: {alert_type} ({alert_kind}, {severity})"
         
-        elif agent_name == "panic_investigator":
+        # Investigator agent
+        elif agent_name == "investigator_agent":
             verdict = data.get("verdict", "unknown")
-            likelihood = data.get("likelihood", "unknown")
-            verdict_map = {
-                "real_panic": "pánico real",
-                "uncertain": "incierto",
-                "likely_false_positive": "probable falso positivo"
-            }
-            likelihood_map = {"high": "alta", "medium": "media", "low": "baja"}
-            return f"Evaluación: {verdict_map.get(verdict, verdict)} (probabilidad {likelihood_map.get(likelihood, likelihood)})"
+            confidence = data.get("confidence", 0)
+            confidence_pct = int(confidence * 100) if isinstance(confidence, float) else confidence
+            risk = data.get("risk_escalation", "monitor")
+            return f"Evaluación: {verdict} ({confidence_pct}% confianza, {risk})"
         
+        # Final agent - returns string, not JSON
         elif agent_name == "final_agent":
             return clean_text[:150] + "..." if len(clean_text) > 150 else clean_text
+        
+        # Notification decision agent
+        elif agent_name == "notification_decision_agent":
+            should_notify = data.get("should_notify", False)
+            escalation = data.get("escalation_level", "none")
+            channels = data.get("channels_to_use", [])
+            if should_notify:
+                return f"Notificación: {escalation} via {', '.join(channels)}"
+            return f"Sin notificación ({escalation})"
             
     except (json.JSONDecodeError, Exception):
         pass
@@ -196,7 +169,7 @@ class PipelineExecutor:
     - Creación de sesiones ADK
     - Tracking de spans en Langfuse
     - Captura de resultados de agentes y tools
-    - Parsing del assessment y mensaje final
+    - Ejecución de notificaciones post-pipeline
     """
     
     def __init__(self):
@@ -228,12 +201,13 @@ class PipelineExecutor:
             context: Contexto adicional para revalidaciones
             
         Returns:
-            PipelineResult con assessment, mensaje y metadata de ejecución
+            PipelineResult con alert_context, assessment, human_message, etc.
         """
         # Extraer metadata
         alert_type = payload.get("alertType", "unknown")
         vehicle_id = payload.get("vehicle", {}).get("id", "unknown")
         driver_name = payload.get("driver", {}).get("name", "unknown")
+        driver_id = payload.get("driver", {}).get("id")
         
         # Crear trace de Langfuse
         self._create_trace(
@@ -261,8 +235,10 @@ class PipelineExecutor:
         self._create_pipeline_span(session_id, current_input, context)
         
         try:
+            alert_context = None
             assessment = None
-            message = None
+            human_message = None
+            notification_decision = None
             
             # Ejecutar pipeline
             async for event in runner.run_async(
@@ -286,26 +262,61 @@ class PipelineExecutor:
                     self._agent_outputs[self._current_agent] = text
                     self._update_span_output(text)
                     
-                    # Intentar parsear assessment
-                    parsed = self._try_parse_assessment(text)
-                    if parsed:
-                        assessment = parsed
-                    elif not message:
-                        message = text
+                    # Parsear según el agente actual
+                    if self._current_agent == "triage_agent":
+                        parsed = self._try_parse_json(text, ["alert_type", "alert_kind"])
+                        if parsed:
+                            alert_context = parsed
+                    
+                    elif self._current_agent == "investigator_agent":
+                        parsed = self._try_parse_json(text, ["likelihood", "verdict"])
+                        if parsed:
+                            assessment = parsed
+                    
+                    elif self._current_agent == "final_agent":
+                        # human_message es STRING, no JSON
+                        human_message = text.strip()
+                    
+                    elif self._current_agent == "notification_decision_agent":
+                        parsed = self._try_parse_json(text, ["should_notify"])
+                        if parsed:
+                            notification_decision = parsed
             
             # Finalizar último agente
             self._finalize_current_agent()
+            
+            # Ejecutar notificaciones (código determinista, no LLM)
+            notification_execution = None
+            if notification_decision and notification_decision.get("should_notify"):
+                notification_execution = await execute_notifications(
+                    decision=notification_decision,
+                    event_id=event_id,
+                    vehicle_id=vehicle_id if vehicle_id != "unknown" else None,
+                    driver_id=driver_id
+                )
+            else:
+                notification_execution = {
+                    "attempted": False,
+                    "results": [],
+                    "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+                    "dedupe_key": notification_decision.get("dedupe_key", "") if notification_decision else "",
+                    "throttled": False,
+                    "throttle_reason": None
+                }
             
             # Cerrar spans
             self._close_all_spans()
             
             # Actualizar trace
-            self._finalize_trace(assessment, message)
+            self._finalize_trace(assessment, human_message)
             
             return PipelineResult(
                 success=True,
+                alert_context=alert_context,
                 assessment=assessment,
-                message=message or "Procesamiento completado",
+                human_message=human_message or "Procesamiento completado",
+                notification_decision=notification_decision,
+                notification_execution=notification_execution,
                 agents=self._agent_results,
                 total_duration_ms=sum(a.duration_ms for a in self._agent_results),
                 total_tools_called=self._total_tools
@@ -405,7 +416,7 @@ class PipelineExecutor:
         if self._pipeline_span:
             self._pipeline_span.end()
     
-    def _finalize_trace(self, assessment: Optional[Dict], message: Optional[str]):
+    def _finalize_trace(self, assessment: Optional[Dict], human_message: Optional[str]):
         """Finaliza el trace de Langfuse."""
         if not self._trace:
             return
@@ -414,9 +425,13 @@ class PipelineExecutor:
             output={
                 "status": "success",
                 "assessment": assessment,
-                "message": message
+                "human_message": human_message
             }
         )
+        
+        # Flush to ensure traces are sent
+        if langfuse_client:
+            langfuse_client.flush()
     
     def _handle_error(self, error: Exception):
         """Maneja errores y actualiza el trace."""
@@ -425,6 +440,10 @@ class PipelineExecutor:
                 level="ERROR",
                 status_message=str(error)
             )
+        
+        # Flush to ensure error traces are sent
+        if langfuse_client:
+            langfuse_client.flush()
     
     # =========================================================================
     # PRIVATE: Message Building
@@ -514,8 +533,6 @@ Ahora tienes más contexto temporal. Revalida si puedes dar un veredicto definit
         self._create_agent_span(agent_name, session_id, current_input)
         
         # Configurar tracker para tools
-        # El decorador trace_tool en samsara_tools.py usará agent_result y executor
-        # para crear ToolResult y actualizar el contador
         if self._current_agent_result:
             current_tool_tracker.set({
                 "agent_name": self._current_agent,
@@ -614,17 +631,19 @@ Ahora tienes más contexto temporal. Revalida si puedes dar un veredicto definit
         if self._current_agent and self._current_agent in self._active_spans:
             self._active_spans[self._current_agent].update(output=text)
     
-    def _try_parse_assessment(self, text: str) -> Optional[Dict[str, Any]]:
-        """Intenta parsear el texto como assessment."""
+    def _try_parse_json(self, text: str, required_keys: List[str]) -> Optional[Dict[str, Any]]:
+        """Intenta parsear el texto como JSON y verificar keys requeridas."""
         try:
             clean_text = _clean_markdown(text)
             parsed = json.loads(clean_text)
             
-            if 'panic_assessment' in parsed:
-                return parsed['panic_assessment']
-            elif isinstance(parsed, dict) and 'likelihood' in parsed:
-                return parsed
+            if isinstance(parsed, dict):
+                # Verificar que tiene al menos una de las keys requeridas
+                for key in required_keys:
+                    if key in parsed:
+                        return parsed
         except (json.JSONDecodeError, Exception):
             pass
         
         return None
+

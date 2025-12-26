@@ -39,4 +39,9 @@ return [
         'url' => env('AI_SERVICE_BASE_URL', 'http://ai-service:8000'),
     ],
 
+    'samsara' => [
+        'api_token' => env('SAMSARA_API_TOKEN'),
+        'base_url' => env('SAMSARA_BASE_URL', 'https://api.samsara.com'),
+    ],
+
 ];

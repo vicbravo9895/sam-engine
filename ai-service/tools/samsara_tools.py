@@ -593,17 +593,26 @@ async def get_safety_events(
     vehicle_id: str,
     event_time: str,
     time_window_minutes_before: int = 30,
-    time_window_minutes_after: int = 10
+    time_window_minutes_after: int = 10,
+    time_window_seconds_before: Optional[int] = None,
+    time_window_seconds_after: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Obtiene eventos de seguridad reportados en una ventana de tiempo alrededor del evento principal.
     Esto permite identificar si hubo otros incidentes de seguridad en el mismo periodo.
+    
+    IMPORTANTE: Para obtener el detalle de un safety event específico (comportamiento del conductor,
+    cámara obstruida, etc.), usa una ventana MUY CORTA de ±5 segundos pasando:
+    - time_window_seconds_before=5
+    - time_window_seconds_after=5
     
     Args:
         vehicle_id: ID del vehículo en Samsara
         event_time: Timestamp ISO 8601 del evento principal (happenedAtTime de la alerta)
         time_window_minutes_before: Minutos antes del evento a consultar (default: 30)
         time_window_minutes_after: Minutos después del evento a consultar (default: 10)
+        time_window_seconds_before: Segundos antes del evento (para búsqueda precisa, ignora minutos si se usa)
+        time_window_seconds_after: Segundos después del evento (para búsqueda precisa, ignora minutos si se usa)
         
     Returns:
         Dict con eventos de seguridad encontrados en la ventana de tiempo, incluyendo:
@@ -615,8 +624,17 @@ async def get_safety_events(
     try:
         # Parsear el event_time y crear ventana de tiempo
         event_dt = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
-        start_time = event_dt - timedelta(minutes=time_window_minutes_before)
-        end_time = event_dt + timedelta(minutes=time_window_minutes_after)
+        
+        # Si se especifican segundos, usar esos (para búsqueda precisa de safety events)
+        if time_window_seconds_before is not None or time_window_seconds_after is not None:
+            seconds_before = time_window_seconds_before if time_window_seconds_before is not None else 5
+            seconds_after = time_window_seconds_after if time_window_seconds_after is not None else 5
+            start_time = event_dt - timedelta(seconds=seconds_before)
+            end_time = event_dt + timedelta(seconds=seconds_after)
+        else:
+            # Usar minutos (comportamiento original)
+            start_time = event_dt - timedelta(minutes=time_window_minutes_before)
+            end_time = event_dt + timedelta(minutes=time_window_minutes_after)
         
         # Llamar al SDK para obtener safety events
         response = await client.safety.get_safety_events(
@@ -625,14 +643,20 @@ async def get_safety_events(
             vehicle_ids=vehicle_id
         )
         
+        # Determinar si fue búsqueda precisa
+        is_precise_search = time_window_seconds_before is not None or time_window_seconds_after is not None
+        
         # Procesar la respuesta
         result = {
             "time_window": {
                 "start": start_time.isoformat(),
                 "end": end_time.isoformat(),
                 "event_time": event_time,
-                "minutes_before": time_window_minutes_before,
-                "minutes_after": time_window_minutes_after
+                "is_precise_search": is_precise_search,
+                "seconds_before": time_window_seconds_before if is_precise_search else None,
+                "seconds_after": time_window_seconds_after if is_precise_search else None,
+                "minutes_before": time_window_minutes_before if not is_precise_search else None,
+                "minutes_after": time_window_minutes_after if not is_precise_search else None
             },
             "events": [],
             "total_events": 0,

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\SamsaraEvent;
 use App\Services\ContactResolver;
+use App\Services\SamsaraClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -12,6 +13,17 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Job para procesar eventos de Samsara.
+ * 
+ * ACTUALIZADO: Nuevo contrato de respuesta del AI Service.
+ * - alert_context: JSON estructurado del triage
+ * - assessment: Evaluación técnica
+ * - human_message: Mensaje para humanos (STRING)
+ * - notification_decision: Decisión sin side effects
+ * - notification_execution: Resultados de ejecución
+ * - execution: Trazabilidad
+ */
 class ProcessSamsaraEventJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -44,7 +56,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(ContactResolver $contactResolver): void
+    public function handle(ContactResolver $contactResolver, SamsaraClient $samsaraClient): void
     {
         Log::info("Processing Samsara event", [
             'event_id' => $this->event->id,
@@ -69,6 +81,16 @@ class ProcessSamsaraEventJob implements ShouldQueue
 
             // Enriquecer el payload con los contactos
             $enrichedPayload = array_merge($this->event->raw_payload, $contactPayload);
+            
+            // Pre-cargar TODA la información de Samsara en paralelo
+            // Esto ahorra ~4-5 segundos al evitar que el AI llame a las tools
+            $enrichedPayload = $this->preloadSamsaraData($enrichedPayload, $samsaraClient);
+
+            Log::info('Enriched payload ready', [
+                'event_id' => $this->event->id,
+                'has_preloaded_data' => isset($enrichedPayload['preloaded_data']),
+                'preload_duration_ms' => $enrichedPayload['preloaded_data']['_metadata']['duration_ms'] ?? null,
+            ]);
 
             // Llamar al servicio de IA (FastAPI)
             $aiServiceUrl = config('services.ai_engine.url');
@@ -89,62 +111,48 @@ class ProcessSamsaraEventJob implements ShouldQueue
             Log::info("AI service response received", [
                 'event_id' => $this->event->id,
                 'status' => $result['status'] ?? 'unknown',
+                'has_alert_context' => isset($result['alert_context']),
                 'has_assessment' => isset($result['assessment']),
+                'has_human_message' => isset($result['human_message']),
+                'has_notification_decision' => isset($result['notification_decision']),
+                'has_notification_execution' => isset($result['notification_execution']),
                 'has_execution' => isset($result['execution']),
-                'execution_agents_count' => isset($result['execution']['agents']) ? count($result['execution']['agents']) : 0,
-                'raw_result' => $result,
             ]);
 
-            // Extraer información de monitoreo desde la nueva estructura
-            // La nueva estructura tiene monitoring anidado en assessment
-            $requiresMonitoring = false;
-            $nextCheckMinutes = 15;
-            $monitoringReason = null;
+            // Extraer datos del nuevo contrato
+            $alertContext = $result['alert_context'] ?? null;
+            $assessment = $result['assessment'] ?? [];
+            $humanMessage = $result['human_message'] ?? 'Procesamiento completado';
+            $notificationDecision = $result['notification_decision'] ?? null;
+            $notificationExecution = $result['notification_execution'] ?? null;
+            $execution = $result['execution'] ?? null;
+            
+            // Persistir imágenes de evidencia si existen
+            $execution = $this->persistEvidenceImages($execution);
 
-            // Nueva estructura: assessment.monitoring.required
-            if (isset($result['assessment']['monitoring']['required'])) {
-                $requiresMonitoring = $result['assessment']['monitoring']['required'];
-                $nextCheckMinutes = $result['assessment']['monitoring']['next_check_minutes'] ?? 15;
-                $monitoringReason = $result['assessment']['monitoring']['reason'] ?? null;
-            }
-            // Fallback: estructura anterior (backward compatibility)
-            elseif (isset($result['requires_monitoring'])) {
-                $requiresMonitoring = $result['requires_monitoring'];
-                $nextCheckMinutes = $result['next_check_minutes'] ?? 15;
-                $monitoringReason = $result['monitoring_reason'] ?? null;
-            }
-
-            // Nueva estructura: execution en lugar de actions
-            $actions = $result['execution'] ?? $result['actions'] ?? null;
-
-            // Log del contenido de execution/actions
-            Log::info("Extracted actions from AI response", [
-                'event_id' => $this->event->id,
-                'actions_is_null' => $actions === null,
-                'actions_keys' => $actions ? array_keys($actions) : [],
-                'agents_count' => isset($actions['agents']) ? count($actions['agents']) : 0,
-            ]);
-
-            // Persistir imágenes de evidencia si existen (en AMBOS flujos)
-            $actions = $this->persistEvidenceImages($actions);
-
-            Log::info("Actions after persisting evidence images", [
-                'event_id' => $this->event->id,
-                'actions_is_null' => $actions === null,
-            ]);
+            // Extraer información de monitoreo desde el assessment
+            $requiresMonitoring = $assessment['requires_monitoring'] ?? false;
+            $nextCheckMinutes = $assessment['next_check_minutes'] ?? 15;
+            $monitoringReason = $assessment['monitoring_reason'] ?? null;
 
             // Verificar si la AI requiere monitoreo continuo
             if ($requiresMonitoring) {
                 $this->event->markAsInvestigating(
-                    assessment: $result['assessment'] ?? [],
-                    message: $result['message'] ?? 'Evento bajo investigación',
+                    assessment: $assessment,
+                    humanMessage: $humanMessage,
                     nextCheckMinutes: $nextCheckMinutes,
-                    actions: $actions
+                    alertContext: $alertContext,
+                    notificationDecision: $notificationDecision,
+                    notificationExecution: $notificationExecution,
+                    execution: $execution
                 );
 
                 $this->event->addInvestigationRecord(
                     reason: $monitoringReason ?? 'Confianza insuficiente para veredicto final'
                 );
+
+                // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
+                $this->persistTwilioCallSid($notificationExecution);
 
                 // Programar revalidación
                 RevalidateSamsaraEventJob::dispatch($this->event)
@@ -154,19 +162,28 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 Log::info("Event marked for investigation", [
                     'event_id' => $this->event->id,
                     'next_check_minutes' => $nextCheckMinutes,
-                    'actions_saved' => $actions !== null,
+                    'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
+                    'proactive_flag' => $alertContext['proactive_flag'] ?? false,
                 ]);
             } else {
                 // Flujo normal - completar
                 $this->event->markAsCompleted(
-                    assessment: $result['assessment'] ?? [],
-                    message: $result['message'] ?? 'No message provided',
-                    actions: $actions
+                    assessment: $assessment,
+                    humanMessage: $humanMessage,
+                    alertContext: $alertContext,
+                    notificationDecision: $notificationDecision,
+                    notificationExecution: $notificationExecution,
+                    execution: $execution
                 );
+
+                // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
+                $this->persistTwilioCallSid($notificationExecution);
 
                 Log::info("Samsara event processed successfully", [
                     'event_id' => $this->event->id,
-                    'actions_saved' => $actions !== null,
+                    'verdict' => $assessment['verdict'] ?? 'unknown',
+                    'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
+                    'notification_attempted' => $notificationExecution['attempted'] ?? false,
                 ]);
             }
 
@@ -201,74 +218,92 @@ class ProcessSamsaraEventJob implements ShouldQueue
     }
 
     /**
+     * Guarda el twilio_call_sid del primer call exitoso para que el
+     * TwilioCallbackController pueda encontrar el evento por CallSid.
+     * 
+     * @param array|null $notificationExecution Resultados de ejecución de notificaciones
+     */
+    private function persistTwilioCallSid(?array $notificationExecution): void
+    {
+        if (!$notificationExecution || !($notificationExecution['attempted'] ?? false)) {
+            return;
+        }
+
+        $results = $notificationExecution['results'] ?? [];
+        
+        foreach ($results as $result) {
+            // Buscar el primer call exitoso con call_sid
+            if (
+                ($result['channel'] ?? '') === 'call' &&
+                ($result['success'] ?? false) &&
+                !empty($result['call_sid'])
+            ) {
+                $this->event->update([
+                    'twilio_call_sid' => $result['call_sid'],
+                    'notification_status' => 'sent',
+                    'notification_sent_at' => now(),
+                ]);
+
+                Log::debug("Twilio call_sid persisted for callbacks", [
+                    'event_id' => $this->event->id,
+                    'call_sid' => $result['call_sid'],
+                ]);
+
+                break; // Solo guardamos el primer call_sid
+            }
+        }
+    }
+
+    /**
      * Persiste las imágenes de evidencia desde las URLs de Samsara
      * 
-     * @param array|null $actions Los actions/execution del resultado de AI
-     * @return array|null Los actions actualizados con las URLs locales
+     * @param array|null $execution Los execution del resultado de AI
+     * @return array|null Los execution actualizados con las URLs locales
      */
-    private function persistEvidenceImages(?array $actions): ?array
+    private function persistEvidenceImages(?array $execution): ?array
     {
-        if (!$actions) {
-            Log::info("persistEvidenceImages: actions is null, returning null");
+        if (!$execution) {
+            Log::debug("persistEvidenceImages: execution is null, returning null");
             return null;
         }
 
-        Log::info("persistEvidenceImages: Starting to process actions", [
+        Log::debug("persistEvidenceImages: Starting to process execution", [
             'event_id' => $this->event->id,
-            'agents_count' => count($actions['agents'] ?? []),
-            'actions_keys' => array_keys($actions),
+            'agents_count' => count($execution['agents'] ?? []),
         ]);
 
         try {
             $totalMediaUrlsFound = 0;
             $totalDownloaded = 0;
 
-            // Buscar media_urls en los agents (nueva estructura: execution.agents[].tools[].media_urls)
-            foreach ($actions['agents'] ?? [] as $agentIndex => $agent) {
+            // Buscar media_urls en los agents (estructura: execution.agents[].tools[].media_urls)
+            foreach ($execution['agents'] ?? [] as $agentIndex => $agent) {
                 $agentName = $agent['name'] ?? "agent_{$agentIndex}";
-                $toolsCount = count($agent['tools'] ?? []);
-
-                Log::info("persistEvidenceImages: Processing agent", [
-                    'event_id' => $this->event->id,
-                    'agent_name' => $agentName,
-                    'tools_count' => $toolsCount,
-                ]);
 
                 foreach ($agent['tools'] ?? [] as $toolIndex => $tool) {
                     $toolName = $tool['name'] ?? "tool_{$toolIndex}";
-                    $mediaUrlsCount = count($tool['media_urls'] ?? []);
 
                     if (!empty($tool['media_urls'])) {
-                        $totalMediaUrlsFound += $mediaUrlsCount;
+                        $totalMediaUrlsFound += count($tool['media_urls']);
 
-                        Log::info("persistEvidenceImages: Found media_urls in tool", [
+                        Log::debug("persistEvidenceImages: Found media_urls in tool", [
                             'event_id' => $this->event->id,
                             'agent_name' => $agentName,
                             'tool_name' => $toolName,
-                            'media_urls_count' => $mediaUrlsCount,
+                            'media_urls_count' => count($tool['media_urls']),
                         ]);
 
                         $localUrls = [];
-                        foreach ($tool['media_urls'] as $urlIndex => $samsaraUrl) {
-                            Log::info("persistEvidenceImages: Downloading image", [
-                                'event_id' => $this->event->id,
-                                'url_index' => $urlIndex,
-                                'url_prefix' => substr($samsaraUrl, 0, 100) . '...',
-                            ]);
-
+                        foreach ($tool['media_urls'] as $samsaraUrl) {
                             $localUrl = $this->downloadAndStoreImage($samsaraUrl);
                             if ($localUrl) {
                                 $localUrls[] = $localUrl;
                                 $totalDownloaded++;
-                                Log::info("persistEvidenceImages: Image downloaded successfully", [
-                                    'event_id' => $this->event->id,
-                                    'local_url' => $localUrl,
-                                ]);
                             }
                         }
                         // Reemplazar con URLs locales
                         if (!empty($localUrls)) {
-                            $actions['agents'][$agentIndex]['tools'][$toolIndex]['media_urls'] = $localUrls;
+                            $execution['agents'][$agentIndex]['tools'][$toolIndex]['media_urls'] = $localUrls;
                         }
                     }
                 }
@@ -286,7 +321,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
             ]);
         }
 
-        return $actions;
+        return $execution;
     }
 
     /**
@@ -302,7 +337,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
             $response = Http::timeout(30)->get($url);
 
             if (!$response->successful()) {
-                Log::warning("Failed to download image", ['url' => $url]);
+                Log::warning("Failed to download image", ['url' => substr($url, 0, 100)]);
                 return null;
             }
 
@@ -313,7 +348,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Guardar usando Storage (public disk)
             \Illuminate\Support\Facades\Storage::disk('public')->put($path, $response->body());
 
-            Log::info("Evidence image saved", [
+            Log::debug("Evidence image saved", [
                 'event_id' => $this->event->id,
                 'path' => $path,
             ]);
@@ -322,10 +357,113 @@ class ProcessSamsaraEventJob implements ShouldQueue
             return "/storage/{$path}";
         } catch (\Exception $e) {
             Log::warning("Error storing image", [
-                'url' => $url,
+                'url' => substr($url, 0, 100),
                 'error' => $e->getMessage(),
             ]);
             return null;
         }
     }
+
+    /**
+     * Pre-carga TODA la información de Samsara en paralelo.
+     * 
+     * Esto reduce significativamente el tiempo de ejecución del AI Service
+     * al proporcionar toda la información necesaria de antemano:
+     * - vehicle_info: Información estática del vehículo
+     * - driver_assignment: Conductor asignado en el momento
+     * - vehicle_stats: GPS, velocidad, movimiento
+     * - safety_events_correlation: Otros eventos en la ventana de tiempo
+     * - safety_event_detail: Detalle del evento específico (si es safety event)
+     * - camera_media: URLs de imágenes (el análisis Vision se hace en AI)
+     * 
+     * @param array $payload El payload original del webhook
+     * @param SamsaraClient $samsaraClient Cliente de la API de Samsara
+     * @return array El payload enriquecido con preloaded_data
+     */
+    private function preloadSamsaraData(array $payload, SamsaraClient $samsaraClient): array
+    {
+        // Extraer contexto del evento (vehicleId, happenedAtTime)
+        $context = SamsaraClient::extractEventContext($payload);
+        
+        Log::debug("Preload: extractEventContext result", [
+            'event_id' => $this->event->id,
+            'context' => $context,
+            'has_data_conditions' => isset($payload['data']['conditions']),
+            'eventType' => $payload['eventType'] ?? 'unknown',
+        ]);
+        
+        if (!$context) {
+            Log::warning("Could not extract event context for preload", [
+                'event_id' => $this->event->id,
+                'payload_keys' => array_keys($payload),
+                'data_keys' => array_keys($payload['data'] ?? []),
+            ]);
+            return $payload;
+        }
+
+        $vehicleId = $context['vehicle_id'];
+        $eventTime = $context['happened_at_time'];
+        $isSafetyEvent = SamsaraClient::isSafetyEvent($payload);
+
+        Log::info("Pre-loading Samsara data", [
+            'event_id' => $this->event->id,
+            'vehicle_id' => $vehicleId,
+            'event_time' => $eventTime,
+            'is_safety_event' => $isSafetyEvent,
+        ]);
+
+        // Pre-cargar toda la información en paralelo
+        $preloadedData = $samsaraClient->preloadAllData(
+            vehicleId: $vehicleId,
+            eventTime: $eventTime,
+            isSafetyEvent: $isSafetyEvent
+        );
+
+        if (empty($preloadedData)) {
+            Log::warning("No data preloaded from Samsara API", [
+                'event_id' => $this->event->id,
+            ]);
+            return $payload;
+        }
+
+        // Añadir datos pre-cargados al payload
+        $payload['preloaded_data'] = $preloadedData;
+
+        // También extraer campos útiles a nivel superior para fácil acceso
+        
+        // Driver del safety event detail o del assignment
+        if (!empty($preloadedData['safety_event_detail']['driver']['id'])) {
+            $payload['driver'] = $preloadedData['safety_event_detail']['driver'];
+        } elseif (!empty($preloadedData['driver_assignment']['driver']['id'])) {
+            $payload['driver'] = $preloadedData['driver_assignment']['driver'];
+        }
+        
+        // Behavior label del safety event
+        if (!empty($preloadedData['safety_event_detail']['behavior_label'])) {
+            $payload['behavior_label'] = $preloadedData['safety_event_detail']['behavior_label'];
+        }
+        
+        // Severity de Samsara
+        if (!empty($preloadedData['safety_event_detail']['severity'])) {
+            $payload['samsara_severity'] = $preloadedData['safety_event_detail']['severity'];
+        }
+
+        // Copiar safety_event_detail a nivel superior para compatibilidad
+        if (!empty($preloadedData['safety_event_detail'])) {
+            $payload['safety_event_detail'] = $preloadedData['safety_event_detail'];
+        }
+
+        Log::info("Samsara data preloaded successfully", [
+            'event_id' => $this->event->id,
+            'has_vehicle_info' => !empty($preloadedData['vehicle_info']),
+            'has_driver' => !empty($preloadedData['driver_assignment']['driver']),
+            'has_vehicle_stats' => !empty($preloadedData['vehicle_stats']),
+            'safety_events_count' => $preloadedData['safety_events_correlation']['total_events'] ?? 0,
+            'camera_items_count' => $preloadedData['camera_media']['total_items'] ?? 0,
+            'duration_ms' => $preloadedData['_metadata']['duration_ms'] ?? null,
+        ]);
+
+        return $payload;
+    }
 }
+

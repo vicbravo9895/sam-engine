@@ -1,16 +1,27 @@
 """
 AlertResponseBuilder: Construye respuestas estructuradas para la API.
-Transforma PipelineResult en un formato de respuesta limpio y consistente.
+Transforma PipelineResult en el nuevo contrato de respuesta.
+
+NUEVO CONTRATO:
+{
+  "status": "success|error",
+  "event_id": <int>,
+  "alert_context": { ... JSON ... },          // Salida de triage (SIEMPRE objeto)
+  "assessment": { ... JSON ... },             // Evaluación técnica (SIEMPRE objeto)
+  "human_message": "string",                  // Mensaje final (SIEMPRE string)
+  "notification_decision": { ... JSON ... },  // Decisión sin side effects
+  "notification_execution": { ... JSON ... }, // Resultados de ejecución
+  "execution": { ... JSON ... }               // Trazabilidad
+}
 """
 
-from dataclasses import asdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-from .pipeline_executor import PipelineResult, AgentResult, ToolResult
+from agents.schemas import PipelineResult, AgentResult, ToolResult
 
 
 # ============================================================================
-# RESPONSE MODELS (como dicts para serialización)
+# HELPER FUNCTIONS
 # ============================================================================
 def _build_tool_response(tool: ToolResult) -> Dict[str, Any]:
     """Construye el objeto de respuesta para una tool."""
@@ -32,68 +43,37 @@ def _build_agent_response(agent: AgentResult) -> Dict[str, Any]:
         "summary": agent.summary
     }
     if agent.tools:
-        for t in agent.tools:
-            if t.name == "get_camera_media":
-                print(f"[DEBUG] _build_agent_response: tool={t.name}, media_urls={t.media_urls}")
         result["tools"] = [_build_tool_response(t) for t in agent.tools]
     return result
 
 
-def _build_monitoring_response(assessment: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Construye el objeto de monitoreo desde el assessment."""
-    if not assessment:
-        return {
-            "required": False,
-            "next_check_minutes": None,
-            "reason": None
-        }
-    
-    return {
-        "required": assessment.get("requires_monitoring", False),
-        "next_check_minutes": assessment.get("next_check_minutes"),
-        "reason": assessment.get("monitoring_reason")
-    }
-
-
-def _build_supporting_evidence(assessment: Optional[Dict[str, Any]]) -> Optional[Dict[str, str]]:
-    """Construye el resumen de evidencia de soporte."""
-    if not assessment:
+def _ensure_object(value: Any) -> Optional[Dict[str, Any]]:
+    """Asegura que el valor sea un objeto JSON, no un string."""
+    if value is None:
         return None
-    
-    evidence = assessment.get("supporting_evidence")
-    if not evidence:
-        return None
-    
-    # Simplificar keys si existen
-    simplified = {}
-    
-    if "vehicle_stats_summary" in evidence:
-        simplified["vehicle"] = evidence["vehicle_stats_summary"]
-    if "vehicle_info_summary" in evidence:
-        simplified["info"] = evidence["vehicle_info_summary"]
-    if "safety_events_summary" in evidence:
-        simplified["safety"] = evidence["safety_events_summary"]
-    if "camera_summary" in evidence:
-        simplified["camera"] = evidence["camera_summary"]
-    
-    return simplified if simplified else evidence
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            import json
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except:
+            pass
+    return None
 
 
-def _build_clean_assessment(assessment: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Construye un assessment limpio sin duplicaciones."""
-    if not assessment:
-        return {}
-    
-    clean = {
-        "likelihood": assessment.get("likelihood"),
-        "verdict": assessment.get("verdict"),
-        "reasoning": assessment.get("reasoning"),
-        "supporting_evidence": _build_supporting_evidence(assessment),
-        "monitoring": _build_monitoring_response(assessment)
-    }
-    
-    # Eliminar None values
-    return {k: v for k, v in clean.items() if v is not None}
+def _ensure_string(value: Any) -> str:
+    """Asegura que el valor sea un string, no JSON."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        # Si es dict, convertir a string legible
+        return str(value)
+    return str(value)
 
 
 # ============================================================================
@@ -103,10 +83,13 @@ class AlertResponseBuilder:
     """
     Construye respuestas estructuradas y limpias para la API.
     
-    Transforma el PipelineResult en un formato que:
-    - Elimina duplicaciones (monitoring solo en assessment)
-    - Simplifica la estructura de tools (sin raw parameters)
-    - Usa nombres de keys más legibles
+    Implementa el NUEVO CONTRATO:
+    - alert_context: SIEMPRE objeto JSON
+    - assessment: SIEMPRE objeto JSON  
+    - human_message: SIEMPRE string
+    - notification_decision: objeto JSON (decisión)
+    - notification_execution: objeto JSON (resultados de ejecución)
+    - execution: objeto JSON (trazabilidad)
     """
     
     @staticmethod
@@ -122,7 +105,7 @@ class AlertResponseBuilder:
             event_id: ID del evento
             
         Returns:
-            Dict listo para serializar como JSON
+            Dict conforme al nuevo contrato
         """
         if not result.success:
             return {
@@ -131,17 +114,67 @@ class AlertResponseBuilder:
                 "error": result.error or "Unknown error"
             }
         
-        return {
+        # Construir respuesta base
+        response = {
             "status": "success",
             "event_id": event_id,
-            "assessment": _build_clean_assessment(result.assessment),
-            "message": result.message or "Procesamiento completado",
-            "execution": {
-                "total_duration_ms": result.total_duration_ms,
-                "total_tools_called": result.total_tools_called,
-                "agents": [_build_agent_response(a) for a in result.agents]
-            }
         }
+        
+        # alert_context - SIEMPRE objeto, nunca string
+        alert_context = _ensure_object(result.alert_context)
+        if alert_context:
+            response["alert_context"] = alert_context
+        else:
+            # Proveer estructura mínima si no existe
+            response["alert_context"] = {}
+        
+        # assessment - SIEMPRE objeto, nunca string
+        assessment = _ensure_object(result.assessment)
+        if assessment:
+            response["assessment"] = assessment
+        else:
+            response["assessment"] = {}
+        
+        # human_message - SIEMPRE string, nunca JSON
+        response["human_message"] = _ensure_string(result.human_message) or "Procesamiento completado"
+        
+        # notification_decision - objeto JSON (decisión sin side effects)
+        notification_decision = _ensure_object(result.notification_decision)
+        if notification_decision:
+            response["notification_decision"] = notification_decision
+        else:
+            response["notification_decision"] = {
+                "should_notify": False,
+                "escalation_level": "none",
+                "channels_to_use": [],
+                "recipients": [],
+                "message_text": "",
+                "dedupe_key": "",
+                "reason": "Sin decisión de notificación"
+            }
+        
+        # notification_execution - objeto JSON (resultados de ejecución)
+        notification_execution = _ensure_object(result.notification_execution)
+        if notification_execution:
+            response["notification_execution"] = notification_execution
+        else:
+            response["notification_execution"] = {
+                "attempted": False,
+                "results": [],
+                "timestamp_utc": "",
+                "dedupe_key": "",
+                "throttled": False,
+                "throttle_reason": None
+            }
+        
+        # execution - trazabilidad
+        response["execution"] = {
+            "total_duration_ms": result.total_duration_ms,
+            "total_tools_called": result.total_tools_called,
+            "agents": [_build_agent_response(a) for a in result.agents]
+        }
+        
+        return response
     
     @staticmethod
     def build_error(event_id: int, error: str) -> Dict[str, Any]:
@@ -151,3 +184,36 @@ class AlertResponseBuilder:
             "event_id": event_id,
             "error": error
         }
+    
+    @staticmethod
+    def extract_for_laravel(response: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extrae los campos relevantes para guardar en Laravel.
+        
+        Returns:
+            Dict con campos listos para el modelo SamsaraEvent
+        """
+        assessment = response.get("assessment", {})
+        
+        return {
+            "ai_status": "completed" if response.get("status") == "success" else "failed",
+            "ai_assessment": assessment,
+            "ai_message": response.get("human_message", ""),
+            "alert_context": response.get("alert_context", {}),
+            "notification_decision": response.get("notification_decision", {}),
+            "notification_execution": response.get("notification_execution", {}),
+            "ai_actions": response.get("execution", {}),
+            
+            # Campos operativos del assessment
+            "dedupe_key": assessment.get("dedupe_key"),
+            "risk_escalation": assessment.get("risk_escalation"),
+            "proactive_flag": response.get("alert_context", {}).get("proactive_flag", False),
+            "data_consistency": assessment.get("supporting_evidence", {}).get("data_consistency", {}),
+            "recommended_actions": assessment.get("recommended_actions", []),
+            
+            # Campos de monitoreo
+            "requires_monitoring": assessment.get("requires_monitoring", False),
+            "next_check_minutes": assessment.get("next_check_minutes"),
+            "monitoring_reason": assessment.get("monitoring_reason"),
+        }
+

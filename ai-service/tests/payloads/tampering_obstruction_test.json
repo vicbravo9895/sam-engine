@@ -1,0 +1,89 @@
+{
+  "eventType": "AlertIncident",
+  "alertType": "Camera Obstruction",
+  "alertId": "test-obstruction-001",
+  "occurredAtTime": "2024-12-14T15:30:00Z",
+  "resolvedAtTime": null,
+  "isResolved": false,
+  "conditionDetails": {
+    "type": "cameraObstruction",
+    "behaviorLabel": "obstructedCamera",
+    "severity": "high",
+    "description": "Cámara frontal obstruida - posible objeto colocado frente al lente"
+  },
+  "vehicle": {
+    "id": "vehicle-test-123",
+    "name": "Camión 5678-XYZ",
+    "externalIds": {
+      "serial": "VIN123456789"
+    }
+  },
+  "driver": {
+    "id": "driver-test-456",
+    "name": "Carlos Ramírez",
+    "phone": "+5218117658890"
+  },
+  "location": {
+    "latitude": 25.6866,
+    "longitude": -100.3161,
+    "address": "Av. Constitución 1500, Monterrey, NL",
+    "speedMilesPerHour": 45
+  },
+  "triggers": [
+    {
+      "type": "cameraObstruction",
+      "configuredValue": true,
+      "actualValue": true,
+      "triggeredAt": "2024-12-14T15:30:00Z"
+    }
+  ],
+  "metadata": {
+    "orgId": "org-test-001",
+    "cameraType": "frontFacing",
+    "obstructionLevel": "full",
+    "obstructionDurationSeconds": 120,
+    "previousEventsSummary": "2 eventos de frenado brusco en los últimos 30 minutos"
+  },
+  "notification_contacts": {
+    "operator": {
+      "name": "Carlos Ramírez",
+      "role": "operator",
+      "type": "driver",
+      "phone": "+5218117658890",
+      "whatsapp": "+5218117658890",
+      "priority": 1
+    },
+    "monitoring_team": {
+      "name": "Centro de Monitoreo",
+      "role": "monitoring",
+      "type": "team",
+      "phone": "+5218112345678",
+      "whatsapp": "+5218112345678",
+      "priority": 2
+    },
+    "supervisor": {
+      "name": "Juan López",
+      "role": "supervisor",
+      "type": "supervisor",
+      "phone": "+5218119876543",
+      "whatsapp": "+5218119876543",
+      "priority": 3
+    }
+  },
+  "_test_metadata": {
+    "description": "Payload sintético para probar alertas proactivas de obstrucción de cámara",
+    "expected_behavior": {
+      "alert_kind": "tampering",
+      "proactive_flag": true,
+      "verdict": "risk_detected",
+      "risk_escalation": "warn or call",
+      "recommended_actions": [
+        "Contactar operador para verificar estado",
+        "Revisar unidad físicamente",
+        "Escalar si hay repetición o zona de riesgo"
+      ]
+    }
+  }
+}
+
+

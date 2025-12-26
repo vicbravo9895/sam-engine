@@ -1,0 +1,88 @@
+{
+  "eventType": "AlertIncident",
+  "alertType": "Connection Lost",
+  "alertId": "test-connectivity-001",
+  "occurredAtTime": "2024-12-14T02:45:00Z",
+  "resolvedAtTime": null,
+  "isResolved": false,
+  "conditionDetails": {
+    "type": "connectionLost",
+    "severity": "high",
+    "description": "Pérdida de conexión del dispositivo telemático",
+    "lastKnownLocation": {
+      "latitude": 25.4500,
+      "longitude": -100.9500,
+      "address": "Carretera Nacional km 45, zona rural"
+    },
+    "offlineDurationMinutes": 15
+  },
+  "vehicle": {
+    "id": "vehicle-test-789",
+    "name": "Van 1234-ABC",
+    "externalIds": {
+      "serial": "VIN987654321"
+    }
+  },
+  "driver": {
+    "id": "driver-test-111",
+    "name": "María González"
+  },
+  "location": {
+    "latitude": 25.4500,
+    "longitude": -100.9500,
+    "address": "Carretera Nacional km 45 - Última ubicación conocida",
+    "speedMilesPerHour": 0
+  },
+  "triggers": [
+    {
+      "type": "connectionLost",
+      "configuredValue": 10,
+      "actualValue": 15,
+      "triggeredAt": "2024-12-14T02:45:00Z"
+    }
+  ],
+  "metadata": {
+    "orgId": "org-test-001",
+    "deviceType": "AG24",
+    "lastHeartbeatTime": "2024-12-14T02:30:00Z",
+    "signalStrengthBeforeLoss": "weak",
+    "isKnownDeadZone": false,
+    "timeOfDay": "madrugada",
+    "routeExpected": true,
+    "previousEventsSummary": "Vehículo en ruta nocturna hacia almacén central"
+  },
+  "notification_contacts": {
+    "operator": {
+      "name": "María González",
+      "role": "operator",
+      "type": "driver",
+      "phone": "+5218115551234",
+      "whatsapp": "+5218115551234",
+      "priority": 1
+    },
+    "monitoring_team": {
+      "name": "Centro de Monitoreo Nocturno",
+      "role": "monitoring",
+      "type": "team",
+      "phone": "+5218112345678",
+      "whatsapp": "+5218112345678",
+      "priority": 2
+    }
+  },
+  "_test_metadata": {
+    "description": "Payload sintético para probar alertas proactivas de pérdida de conectividad",
+    "expected_behavior": {
+      "alert_kind": "connectivity",
+      "proactive_flag": true,
+      "verdict": "uncertain or risk_detected",
+      "risk_escalation": "monitor or warn",
+      "considerations": [
+        "Hora nocturna aumenta riesgo",
+        "Zona rural puede explicar pérdida de señal",
+        "Verificar si es zona conocida sin cobertura"
+      ]
+    }
+  }
+}
+
+
