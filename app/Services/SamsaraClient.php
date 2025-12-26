@@ -87,7 +87,7 @@ class SamsaraClient
                 ]),
             
             // 4. Safety Events - ventana depende del tipo de evento
-            // Safety event: ±10 segundos (buscar el evento específico)
+            // Safety event: ±2 minutos (buscar el evento específico - ampliado para capturar diferencias de tiempo)
             // Panic/otro: -30min/+10min (buscar eventos correlacionados)
             $pool->as('safety_events')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
@@ -95,8 +95,8 @@ class SamsaraClient
                 ->get("{$this->baseUrl}/fleet/safety-events", $isSafetyEvent 
                     ? [
                         'vehicleIds' => $vehicleId,
-                        'startTime' => $eventDt->copy()->subSeconds(10)->toIso8601String(),
-                        'endTime' => $eventDt->copy()->addSeconds(10)->toIso8601String(),
+                        'startTime' => $eventDt->copy()->subMinutes(2)->toIso8601String(),
+                        'endTime' => $eventDt->copy()->addMinutes(2)->toIso8601String(),
                     ]
                     : [
                         'vehicleIds' => $vehicleId,
@@ -149,14 +149,14 @@ class SamsaraClient
             $events = $responses['safety_events']->json('data') ?? [];
             
             if ($isSafetyEvent) {
-                // Safety Event: buscar el evento específico en la ventana corta
+                // Safety Event: buscar el evento específico en la ventana de ±2 minutos
                 if (!empty($events)) {
                     $closest = $this->findClosestEvent($events, $eventDt);
                     if ($closest) {
                         $preloadedData['safety_event_detail'] = $this->formatSafetyEvent($closest);
                     }
                 }
-                // No incluimos correlación porque la ventana es muy corta
+                // No incluimos correlación porque la ventana es corta
             } else {
                 // Panic/Otro: todos los eventos son correlación
                 $preloadedData['safety_events_correlation'] = [
@@ -164,6 +164,12 @@ class SamsaraClient
                     'events' => array_map(fn($e) => $this->formatSafetyEventSummary($e), $events),
                 ];
             }
+        } else {
+            Log::warning('SamsaraClient::preloadAllData - Safety events API call failed', [
+                'vehicle_id' => $vehicleId,
+                'status' => $responses['safety_events']->status(),
+                'body' => substr($responses['safety_events']->body(), 0, 500),
+            ]);
         }
 
         // Camera Media (URLs sin análisis)
@@ -369,12 +375,24 @@ class SamsaraClient
      */
     private function formatSafetyEvent(array $event): array
     {
+        // Extraer el nombre legible del behavior label
+        // behaviorLabels es un array de objetos con {label, source, name}
+        // 'name' es el nombre legible (ej: "Passenger Detection", "Hard Braking")
+        $behaviorLabels = $event['behaviorLabels'] ?? [];
+        $primaryBehaviorName = null;
+        $primaryBehaviorLabel = $event['behaviorLabel'] ?? $event['label'] ?? null;
+        
+        if (!empty($behaviorLabels) && isset($behaviorLabels[0]['name'])) {
+            $primaryBehaviorName = $behaviorLabels[0]['name'];
+        }
+        
         return [
             'safety_event_id' => $event['id'] ?? null,
-            'behavior_label' => $event['behaviorLabel'] ?? $event['label'] ?? null,
-            'behavior_labels' => $event['behaviorLabels'] ?? [],
+            'behavior_label' => $primaryBehaviorLabel,
+            'behavior_name' => $primaryBehaviorName, // Nombre legible del evento
+            'behavior_labels' => $behaviorLabels,
             'severity' => $event['severity'] ?? null,
-            'max_acceleration_g' => $event['maxAccelerationG'] ?? null,
+            'max_acceleration_g' => $event['maxAccelerationGForce'] ?? $event['maxAccelerationG'] ?? null,
             'duration_ms' => $event['durationMs'] ?? null,
             'coaching_state' => $event['coachingState'] ?? null,
             'location' => [

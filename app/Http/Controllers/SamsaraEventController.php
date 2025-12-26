@@ -474,9 +474,24 @@ class SamsaraEventController extends Controller
     private function assessmentVerdictLabel(?string $verdict): string
     {
         return match ($verdict) {
-            'likely_false_positive' => 'Probable falso positivo',
-            'likely_true_positive' => 'Probable verdadero positivo',
-            'needs_human_review' => 'Requiere revisión manual',
+            // Falsos positivos
+            'likely_false_positive', 'false_positive' => 'Probable falso positivo',
+            'confirmed_false_positive' => 'Falso positivo confirmado',
+            
+            // Verdaderos positivos
+            'likely_true_positive', 'true_positive' => 'Probable verdadero positivo',
+            'confirmed_true_positive' => 'Verdadero positivo confirmado',
+            
+            // Requiere revisión
+            'needs_review', 'needs_human_review', 'pending_review' => 'Requiere revisión manual',
+            'inconclusive' => 'Resultado inconcluso',
+            
+            // Sin acción necesaria
+            'no_action_needed', 'dismissed' => 'Sin acción necesaria',
+            
+            // Monitor
+            'monitor', 'monitoring' => 'En monitoreo',
+            
             default => ucfirst((string) ($verdict ?? 'Sin veredicto')),
         };
     }
@@ -833,17 +848,45 @@ class SamsaraEventController extends Controller
         $verdict = $assessment['verdict'];
         $likelihood = $assessment['likelihood'] ?? null;
 
-        $urgency = match ($verdict) {
-            'Probable verdadero positivo' => 'high',
-            'Requiere revisión manual' => 'medium',
-            default => 'low',
-        };
+        $urgency = $this->determineVerdictUrgency($verdict);
 
         return [
             'verdict' => $verdict,
             'likelihood' => $likelihood,
             'urgency' => $urgency,
         ];
+    }
+
+    /**
+     * Determina la urgencia basándose en el veredicto traducido.
+     */
+    private function determineVerdictUrgency(string $verdict): string
+    {
+        // Urgencia alta - requiere atención inmediata
+        $highUrgency = [
+            'Probable verdadero positivo',
+            'Verdadero positivo confirmado',
+        ];
+
+        // Urgencia media - requiere revisión
+        $mediumUrgency = [
+            'Requiere revisión manual',
+            'Resultado inconcluso',
+            'En monitoreo',
+        ];
+
+        // Urgencia baja - sin acción necesaria
+        // Todo lo demás se considera baja urgencia
+
+        if (in_array($verdict, $highUrgency, true)) {
+            return 'high';
+        }
+
+        if (in_array($verdict, $mediumUrgency, true)) {
+            return 'medium';
+        }
+
+        return 'low';
     }
 
     private function getInvestigationSummary(?array $aiActions): array
@@ -959,11 +1002,7 @@ class SamsaraEventController extends Controller
         $verdict = $assessment['verdict'] ?? 'Sin veredicto';
         $likelihood = $assessment['likelihood'] ?? null;
 
-        $urgency = match ($verdict) {
-            'Probable verdadero positivo' => 'high',
-            'Requiere revisión manual' => 'medium',
-            default => 'low',
-        };
+        $urgency = $this->determineVerdictUrgency($verdict);
 
         $color = match ($urgency) {
             'high' => 'red',

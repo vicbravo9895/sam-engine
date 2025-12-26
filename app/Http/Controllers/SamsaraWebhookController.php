@@ -159,28 +159,62 @@ class SamsaraWebhookController extends Controller
     }
 
     /**
-     * Traduce descripciones de eventos comunes al español
+     * Traduce descripciones de eventos comunes al español.
+     * 
+     * Esta traducción se aplica al webhook inicial. El Job también puede
+     * actualizar la descripción si encuentra un behavior_name más específico.
      */
     private function translateEventDescription(string $description): string
     {
         $translations = [
+            // Panic Button
             'Panic Button' => 'Botón de pánico',
             'panic button' => 'Botón de pánico',
             'PANIC BUTTON' => 'Botón de pánico',
+            
+            // Safety Event genérico (se enriquece después en el Job)
+            'A safety event occurred' => 'Evento de seguridad',
+            'a safety event occurred' => 'Evento de seguridad',
+            
+            // Eventos de manejo brusco
             'Hard Braking' => 'Frenado brusco',
             'hard braking' => 'Frenado brusco',
+            'Harsh Braking' => 'Frenado brusco',
             'Harsh Acceleration' => 'Aceleración brusca',
             'harsh acceleration' => 'Aceleración brusca',
+            'Hard Acceleration' => 'Aceleración brusca',
             'Sharp Turn' => 'Giro brusco',
             'sharp turn' => 'Giro brusco',
+            'Harsh Turn' => 'Giro brusco',
+            
+            // Comportamiento del conductor
             'Distracted Driving' => 'Conducción distraída',
             'distracted driving' => 'Conducción distraída',
+            'Drowsiness' => 'Somnolencia',
+            'Cell Phone Use' => 'Uso de celular',
+            'Cell Phone' => 'Uso de celular',
+            'No Seatbelt' => 'Sin cinturón de seguridad',
+            
+            // Detecciones de cámara
+            'Passenger Detection' => 'Detección de pasajero',
+            'Driver Detection' => 'Detección de conductor',
+            'No Driver Detected' => 'Conductor no detectado',
+            'Obstructed Camera' => 'Cámara obstruida',
+            
+            // Eventos de seguridad vial
             'Following Distance' => 'Distancia de seguimiento',
             'following distance' => 'Distancia de seguimiento',
             'Speeding' => 'Exceso de velocidad',
             'speeding' => 'Exceso de velocidad',
             'Stop Sign Violation' => 'Violación de señal de alto',
             'stop sign violation' => 'Violación de señal de alto',
+            'Lane Departure' => 'Salida de carril',
+            'Forward Collision Warning' => 'Advertencia de colisión frontal',
+            'Rolling Stop' => 'Alto sin detenerse',
+            
+            // Colisiones
+            'Collision' => 'Colisión',
+            'Near Collision' => 'Casi colisión',
         ];
 
         return $translations[$description] ?? $description;

@@ -371,6 +371,8 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
         return () => clearInterval(timer);
     }, [event.investigation_metadata?.next_check_available_at, isInvestigating]);
 
+    const isRevalidationImminent = nextInvestigationEtaMs !== null && nextInvestigationEtaMs === 0;
+    
     const nextInvestigationCountdownText = useMemo(() => {
         if (!isInvestigating) return null;
 
@@ -379,7 +381,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
             return fallbackMinutes ? `En ${fallbackMinutes} minutos` : null;
         }
 
-        if (nextInvestigationEtaMs === 0) return 'Disponible ahora';
+        if (nextInvestigationEtaMs === 0) return null; // Se maneja aparte con isRevalidationImminent
 
         const totalSeconds = Math.ceil(nextInvestigationEtaMs / 1000);
         if (totalSeconds >= 60) {
@@ -522,23 +524,52 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                     <div className="rounded-full bg-amber-500/20 p-2">
-                                        <Search className="size-5 text-amber-600 dark:text-amber-400" />
+                                        {isRevalidationImminent ? (
+                                            <Loader2 className="size-5 animate-spin text-amber-600 dark:text-amber-400" />
+                                        ) : (
+                                            <Search className="size-5 text-amber-600 dark:text-amber-400" />
+                                        )}
                                     </div>
                                     <div>
                                         <CardTitle className="text-amber-900 dark:text-amber-100">
-                                            Evento bajo investigación
+                                            {isRevalidationImminent 
+                                                ? 'Ejecutando re-validación...' 
+                                                : 'Evento bajo investigación'}
                                         </CardTitle>
                                         <CardDescription className="text-amber-700 dark:text-amber-300">
-                                            La AI continúa monitoreando este evento
+                                            {isRevalidationImminent 
+                                                ? 'La AI está analizando nueva información del evento'
+                                                : 'La AI continúa monitoreando este evento'}
                                         </CardDescription>
                                     </div>
                                 </div>
-                                <Badge className="bg-amber-500 text-white">
+                                <Badge className={isRevalidationImminent 
+                                    ? "bg-amber-500 text-white animate-pulse" 
+                                    : "bg-amber-500 text-white"}>
                                     {event.investigation_metadata.count} de {event.investigation_metadata.max_investigations}
                                 </Badge>
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                            {/* Estado de re-validación inminente */}
+                            {isRevalidationImminent && (
+                                <div className="rounded-lg border-2 border-amber-400/50 bg-amber-100/50 p-4 dark:border-amber-600/50 dark:bg-amber-900/30">
+                                    <div className="flex items-center gap-3">
+                                        <Loader2 className="size-5 animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
+                                        <div>
+                                            <p className="font-semibold text-amber-900 dark:text-amber-100">
+                                                Re-validación en progreso
+                                            </p>
+                                            <p className="text-sm text-amber-700 dark:text-amber-300">
+                                                La página se actualizará automáticamente con los nuevos resultados. 
+                                                Este proceso toma aproximadamente 30-60 segundos.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Información de verificaciones */}
                             <div className="grid gap-3 sm:grid-cols-2">
                                 {event.investigation_metadata.last_check && (
                                     <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
@@ -546,10 +577,22 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                                         <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{event.investigation_metadata.last_check}</p>
                                     </div>
                                 )}
-                                {nextInvestigationCountdownText && (
+                                {nextInvestigationCountdownText && !isRevalidationImminent && (
                                     <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
                                         <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">Próxima verificación</p>
                                         <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{nextInvestigationCountdownText}</p>
+                                    </div>
+                                )}
+                                {isRevalidationImminent && (
+                                    <div className="rounded-lg border border-amber-400 bg-amber-100/70 p-3 dark:border-amber-600 dark:bg-amber-900/50">
+                                        <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">Estado</p>
+                                        <p className="text-sm font-medium text-amber-900 dark:text-amber-100 flex items-center gap-2">
+                                            <span className="relative flex h-2 w-2">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-600"></span>
+                                            </span>
+                                            Analizando...
+                                        </p>
                                     </div>
                                 )}
                             </div>

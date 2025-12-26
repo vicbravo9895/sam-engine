@@ -48,6 +48,7 @@ interface EventListItem {
     samsara_event_id?: string | null;
     event_type?: string | null;
     event_title?: string | null;
+    event_description?: string | null;
     severity: string;
     severity_label?: string | null;
     ai_status: string;
@@ -528,7 +529,7 @@ export default function SamsaraAlertsIndex({
                                                     Tipo de alerta
                                                 </p>
                                                 <CardTitle className="text-xl">
-                                                    {event.event_title ??
+                                                    {event.event_description ?? event.event_title ??
                                                         formatEventType(event.event_type)}
                                                 </CardTitle>
                                                 <CardDescription>

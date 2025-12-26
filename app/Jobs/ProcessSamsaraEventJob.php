@@ -86,6 +86,9 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Esto ahorra ~4-5 segundos al evitar que el AI llame a las tools
             $enrichedPayload = $this->preloadSamsaraData($enrichedPayload, $samsaraClient);
 
+            // Actualizar la descripción del evento si se encontró un behavior_name más específico
+            $this->updateEventDescriptionFromSafetyEvent($enrichedPayload);
+
             Log::info('Enriched payload ready', [
                 'event_id' => $this->event->id,
                 'has_preloaded_data' => isset($enrichedPayload['preloaded_data']),
@@ -362,6 +365,110 @@ class ProcessSamsaraEventJob implements ShouldQueue
             ]);
             return null;
         }
+    }
+
+    /**
+     * Actualiza la descripción del evento si se encontró un behavior_name más específico
+     * desde el safety event detail.
+     * 
+     * Esto permite mostrar "Passenger Detection" en lugar de "A safety event occurred".
+     */
+    private function updateEventDescriptionFromSafetyEvent(array $enrichedPayload): void
+    {
+        // Obtener el safety_event_detail del payload enriquecido
+        $safetyEventDetail = $enrichedPayload['preloaded_data']['safety_event_detail'] 
+            ?? $enrichedPayload['safety_event_detail'] 
+            ?? null;
+
+        // Obtener el behavior_name del safety_event_detail
+        $behaviorName = $safetyEventDetail['behavior_name'] ?? null;
+
+        // Solo actualizar si tenemos un nombre más específico
+        if (!$behaviorName) {
+            return;
+        }
+
+        $currentDescription = $this->event->event_description;
+        $genericDescriptions = [
+            // Inglés
+            'A safety event occurred',
+            'a safety event occurred',
+            'Safety Event',
+            'safety event',
+            // Español (traducción del webhook)
+            'Evento de seguridad',
+            'evento de seguridad',
+            // Vacíos
+            null,
+            '',
+        ];
+
+        $isGeneric = in_array($currentDescription, $genericDescriptions, true) 
+            || str_contains(strtolower($currentDescription ?? ''), 'safety event occurred')
+            || str_contains(strtolower($currentDescription ?? ''), 'evento de seguridad');
+
+        if ($isGeneric) {
+            // Traducir el behavior name al español
+            $translatedName = $this->translateBehaviorName($behaviorName);
+            
+            $this->event->update([
+                'event_description' => $translatedName,
+            ]);
+
+            Log::info("Event description updated from safety event detail", [
+                'event_id' => $this->event->id,
+                'original' => $currentDescription,
+                'updated' => $translatedName,
+                'behavior_name' => $behaviorName,
+            ]);
+        }
+    }
+
+    /**
+     * Traduce los nombres de behavior labels de Samsara al español.
+     */
+    private function translateBehaviorName(string $behaviorName): string
+    {
+        $translations = [
+            // Detección de comportamiento
+            'Passenger Detection' => 'Detección de pasajero',
+            'Driver Detection' => 'Detección de conductor',
+            'No Driver Detected' => 'Conductor no detectado',
+            'Distracted Driving' => 'Conducción distraída',
+            'Drowsiness' => 'Somnolencia',
+            'Cell Phone Use' => 'Uso de celular',
+            'Cell Phone' => 'Uso de celular',
+            'Smoking' => 'Fumando',
+            'Eating' => 'Comiendo',
+            'Yawning' => 'Bostezando',
+            'Eyes Closed' => 'Ojos cerrados',
+            'No Seatbelt' => 'Sin cinturón de seguridad',
+            'Obstructed Camera' => 'Cámara obstruida',
+            
+            // Eventos de manejo
+            'Hard Braking' => 'Frenado brusco',
+            'Harsh Braking' => 'Frenado brusco',
+            'Hard Acceleration' => 'Aceleración brusca',
+            'Harsh Acceleration' => 'Aceleración brusca',
+            'Sharp Turn' => 'Giro brusco',
+            'Harsh Turn' => 'Giro brusco',
+            'Speeding' => 'Exceso de velocidad',
+            
+            // Eventos de seguridad
+            'Collision' => 'Colisión',
+            'Near Collision' => 'Casi colisión',
+            'Following Distance' => 'Distancia de seguimiento',
+            'Rolling Stop' => 'Alto sin detenerse',
+            'Stop Sign Violation' => 'Violación de señal de alto',
+            'Lane Departure' => 'Salida de carril',
+            'Forward Collision Warning' => 'Advertencia de colisión frontal',
+            
+            // Otros
+            'Panic Button' => 'Botón de pánico',
+            'Tampering' => 'Manipulación de equipo',
+        ];
+
+        return $translations[$behaviorName] ?? $behaviorName;
     }
 
     /**
