@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Modelo para eventos de Samsara.
@@ -15,6 +17,11 @@ use Illuminate\Database\Eloquent\Model;
  * - notification_decision: Decisión de notificación (sin side effects)
  * - notification_execution: Resultados de ejecución real
  * - Campos operativos: dedupe_key, risk_escalation, proactive_flag, etc.
+ * 
+ * HUMAN REVIEW: Sistema de revisión humana independiente del AI.
+ * - human_status: Estado de revisión (pending, reviewed, flagged, resolved, false_positive)
+ * - reviewed_by_id: Usuario que revisó
+ * - reviewed_at: Timestamp de revisión
  */
 class SamsaraEvent extends Model
 {
@@ -65,6 +72,11 @@ class SamsaraEvent extends Model
         'notification_sent_at',
         'twilio_call_sid',
         'call_response',
+        
+        // Human review (independiente del AI)
+        'human_status',
+        'reviewed_by_id',
+        'reviewed_at',
     ];
 
     protected $casts = [
@@ -93,6 +105,9 @@ class SamsaraEvent extends Model
         'notification_channels' => 'array',
         'notification_sent_at' => 'datetime',
         'call_response' => 'array',
+        
+        // Human review
+        'reviewed_at' => 'datetime',
     ];
 
     // Constantes de estado
@@ -112,9 +127,52 @@ class SamsaraEvent extends Model
     const RISK_WARN = 'warn';
     const RISK_CALL = 'call';
     const RISK_EMERGENCY = 'emergency';
+    
+    // Constantes de human_status (independiente del ai_status)
+    const HUMAN_STATUS_PENDING = 'pending';
+    const HUMAN_STATUS_REVIEWED = 'reviewed';
+    const HUMAN_STATUS_FLAGGED = 'flagged';
+    const HUMAN_STATUS_RESOLVED = 'resolved';
+    const HUMAN_STATUS_FALSE_POSITIVE = 'false_positive';
 
     /**
-     * Scopes para filtrar eventos
+     * ========================================
+     * RELACIONES
+     * ========================================
+     */
+    
+    /**
+     * Usuario que revisó el evento.
+     */
+    public function reviewedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by_id');
+    }
+    
+    /**
+     * Comentarios del evento.
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(SamsaraEventComment::class)->orderBy('created_at', 'desc');
+    }
+    
+    /**
+     * Actividades/audit trail del evento.
+     */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(SamsaraEventActivity::class)->orderBy('created_at', 'desc');
+    }
+
+    /**
+     * ========================================
+     * SCOPES
+     * ========================================
+     */
+    
+    /**
+     * Scopes para filtrar eventos (AI status)
      */
     public function scopePending($query)
     {
@@ -160,9 +218,53 @@ class SamsaraEvent extends Model
     {
         return $query->where('dedupe_key', $key);
     }
+    
+    /**
+     * Scopes para filtrar por human_status
+     */
+    public function scopeHumanPending($query)
+    {
+        return $query->where('human_status', self::HUMAN_STATUS_PENDING);
+    }
+    
+    public function scopeHumanReviewed($query)
+    {
+        return $query->where('human_status', self::HUMAN_STATUS_REVIEWED);
+    }
+    
+    public function scopeHumanFlagged($query)
+    {
+        return $query->where('human_status', self::HUMAN_STATUS_FLAGGED);
+    }
+    
+    public function scopeHumanResolved($query)
+    {
+        return $query->where('human_status', self::HUMAN_STATUS_RESOLVED);
+    }
+    
+    public function scopeHumanFalsePositive($query)
+    {
+        return $query->where('human_status', self::HUMAN_STATUS_FALSE_POSITIVE);
+    }
+    
+    /**
+     * Scope para alertas que requieren atención humana.
+     * Lógica: AI no completó o está en estados que sugieren revisión.
+     */
+    public function scopeNeedsHumanAttention($query)
+    {
+        return $query->where('human_status', self::HUMAN_STATUS_PENDING)
+            ->where(function ($q) {
+                $q->whereIn('ai_status', [self::STATUS_FAILED, self::STATUS_INVESTIGATING])
+                  ->orWhere('severity', self::SEVERITY_CRITICAL)
+                  ->orWhereIn('risk_escalation', [self::RISK_CALL, self::RISK_EMERGENCY]);
+            });
+    }
 
     /**
-     * Métodos helper para cambiar estado
+     * ========================================
+     * MÉTODOS HELPER - AI STATUS
+     * ========================================
      */
     public function markAsProcessing(): void
     {
@@ -387,6 +489,199 @@ class SamsaraEvent extends Model
     public static function getMaxInvestigations(): int
     {
         return 3;
+    }
+
+    /**
+     * ========================================
+     * MÉTODOS HELPER - HUMAN STATUS
+     * ========================================
+     */
+    
+    /**
+     * Marcar como revisado por un humano.
+     */
+    public function markAsHumanReviewed(int $userId): void
+    {
+        $oldStatus = $this->human_status;
+        
+        $this->update([
+            'human_status' => self::HUMAN_STATUS_REVIEWED,
+            'reviewed_by_id' => $userId,
+            'reviewed_at' => now(),
+        ]);
+        
+        $this->logHumanStatusChange($userId, $oldStatus, self::HUMAN_STATUS_REVIEWED);
+    }
+    
+    /**
+     * Marcar como flagged (requiere seguimiento).
+     */
+    public function markAsHumanFlagged(int $userId): void
+    {
+        $oldStatus = $this->human_status;
+        
+        $this->update([
+            'human_status' => self::HUMAN_STATUS_FLAGGED,
+            'reviewed_by_id' => $userId,
+            'reviewed_at' => now(),
+        ]);
+        
+        $this->logHumanStatusChange($userId, $oldStatus, self::HUMAN_STATUS_FLAGGED);
+    }
+    
+    /**
+     * Marcar como resuelto por humano.
+     */
+    public function markAsHumanResolved(int $userId): void
+    {
+        $oldStatus = $this->human_status;
+        
+        $this->update([
+            'human_status' => self::HUMAN_STATUS_RESOLVED,
+            'reviewed_by_id' => $userId,
+            'reviewed_at' => now(),
+        ]);
+        
+        $this->logHumanStatusChange($userId, $oldStatus, self::HUMAN_STATUS_RESOLVED);
+    }
+    
+    /**
+     * Marcar como falso positivo.
+     */
+    public function markAsHumanFalsePositive(int $userId): void
+    {
+        $oldStatus = $this->human_status;
+        
+        $this->update([
+            'human_status' => self::HUMAN_STATUS_FALSE_POSITIVE,
+            'reviewed_by_id' => $userId,
+            'reviewed_at' => now(),
+        ]);
+        
+        $this->logHumanStatusChange($userId, $oldStatus, self::HUMAN_STATUS_FALSE_POSITIVE);
+    }
+    
+    /**
+     * Cambiar human_status de forma genérica.
+     */
+    public function setHumanStatus(string $status, int $userId): void
+    {
+        $validStatuses = [
+            self::HUMAN_STATUS_PENDING,
+            self::HUMAN_STATUS_REVIEWED,
+            self::HUMAN_STATUS_FLAGGED,
+            self::HUMAN_STATUS_RESOLVED,
+            self::HUMAN_STATUS_FALSE_POSITIVE,
+        ];
+        
+        if (!in_array($status, $validStatuses)) {
+            throw new \InvalidArgumentException("Invalid human_status: {$status}");
+        }
+        
+        $oldStatus = $this->human_status;
+        
+        $this->update([
+            'human_status' => $status,
+            'reviewed_by_id' => $userId,
+            'reviewed_at' => now(),
+        ]);
+        
+        $this->logHumanStatusChange($userId, $oldStatus, $status);
+    }
+    
+    /**
+     * Helper para loggear cambio de human_status.
+     */
+    protected function logHumanStatusChange(int $userId, string $oldStatus, string $newStatus): void
+    {
+        SamsaraEventActivity::logHumanAction(
+            $this->id,
+            $userId,
+            SamsaraEventActivity::ACTION_HUMAN_STATUS_CHANGED,
+            [
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus,
+            ]
+        );
+    }
+    
+    /**
+     * Agregar un comentario al evento.
+     */
+    public function addComment(int $userId, string $content): SamsaraEventComment
+    {
+        $comment = $this->comments()->create([
+            'user_id' => $userId,
+            'content' => $content,
+        ]);
+        
+        // Loggear la actividad
+        SamsaraEventActivity::logHumanAction(
+            $this->id,
+            $userId,
+            SamsaraEventActivity::ACTION_COMMENT_ADDED,
+            ['comment_id' => $comment->id]
+        );
+        
+        return $comment;
+    }
+    
+    /**
+     * Verificar si ha sido revisado por un humano.
+     */
+    public function isHumanReviewed(): bool
+    {
+        return $this->human_status !== self::HUMAN_STATUS_PENDING;
+    }
+    
+    /**
+     * Verificar si requiere atención humana.
+     */
+    public function needsHumanAttention(): bool
+    {
+        if ($this->human_status !== self::HUMAN_STATUS_PENDING) {
+            return false;
+        }
+        
+        return $this->ai_status === self::STATUS_FAILED
+            || $this->ai_status === self::STATUS_INVESTIGATING
+            || $this->severity === self::SEVERITY_CRITICAL
+            || $this->requiresUrgentEscalation();
+    }
+    
+    /**
+     * Obtener el nivel de urgencia para UI.
+     * 
+     * @return string 'high', 'medium', 'low'
+     */
+    public function getHumanUrgencyLevel(): string
+    {
+        // Ya revisado = bajo
+        if ($this->human_status !== self::HUMAN_STATUS_PENDING) {
+            return 'low';
+        }
+        
+        // AI falló o es crítico = alto
+        if ($this->ai_status === self::STATUS_FAILED || $this->severity === self::SEVERITY_CRITICAL) {
+            return 'high';
+        }
+        
+        // Requiere escalación urgente = alto
+        if ($this->requiresUrgentEscalation()) {
+            return 'high';
+        }
+        
+        // Investigando con múltiples intentos = medio
+        if ($this->ai_status === self::STATUS_INVESTIGATING && $this->investigation_count >= 2) {
+            return 'medium';
+        }
+        
+        // Investigando = medio
+        if ($this->ai_status === self::STATUS_INVESTIGATING) {
+            return 'medium';
+        }
+        
+        return 'low';
     }
 }
 

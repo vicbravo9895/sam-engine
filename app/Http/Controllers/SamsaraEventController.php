@@ -94,6 +94,11 @@ class SamsaraEventController extends Controller
                             'max_investigations' => SamsaraEvent::getMaxInvestigations(),
                         ]
                         : null,
+                    // Human review data
+                    'human_status' => $event->human_status,
+                    'human_status_label' => $this->humanStatusLabel($event->human_status),
+                    'needs_attention' => $event->needsHumanAttention(),
+                    'urgency_level' => $event->getHumanUrgencyLevel(),
                 ];
             });
 
@@ -103,6 +108,14 @@ class SamsaraEventController extends Controller
             'investigating' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_INVESTIGATING)->count(),
             'completed' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_COMPLETED)->count(),
             'failed' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_FAILED)->count(),
+            // Human review stats
+            'needs_attention' => SamsaraEvent::query()->needsHumanAttention()->count(),
+            'human_pending' => SamsaraEvent::where('human_status', SamsaraEvent::HUMAN_STATUS_PENDING)->count(),
+            'human_reviewed' => SamsaraEvent::whereIn('human_status', [
+                SamsaraEvent::HUMAN_STATUS_REVIEWED,
+                SamsaraEvent::HUMAN_STATUS_RESOLVED,
+                SamsaraEvent::HUMAN_STATUS_FALSE_POSITIVE,
+            ])->count(),
         ];
 
         $eventTypes = SamsaraEvent::query()
@@ -298,6 +311,18 @@ class SamsaraEventController extends Controller
                     'max_investigations' => SamsaraEvent::getMaxInvestigations(),
                 ],
                 'investigation_actions' => $investigationActions,
+                // Human review data
+                'human_status' => $samsaraEvent->human_status,
+                'human_status_label' => $this->humanStatusLabel($samsaraEvent->human_status),
+                'reviewed_by' => $samsaraEvent->reviewedBy ? [
+                    'id' => $samsaraEvent->reviewedBy->id,
+                    'name' => $samsaraEvent->reviewedBy->name,
+                ] : null,
+                'reviewed_at' => $samsaraEvent->reviewed_at?->toIso8601String(),
+                'reviewed_at_human' => $samsaraEvent->reviewed_at?->diffForHumans(),
+                'needs_attention' => $samsaraEvent->needsHumanAttention(),
+                'urgency_level' => $samsaraEvent->getHumanUrgencyLevel(),
+                'comments_count' => $samsaraEvent->comments()->count(),
             ],
             'breadcrumbs' => [
                 [
@@ -1036,5 +1061,20 @@ class SamsaraEventController extends Controller
         }
 
         return false;
+    }
+
+    /**
+     * Label para human_status.
+     */
+    private function humanStatusLabel(string $status): string
+    {
+        return match ($status) {
+            SamsaraEvent::HUMAN_STATUS_PENDING => 'Sin revisar',
+            SamsaraEvent::HUMAN_STATUS_REVIEWED => 'Revisado',
+            SamsaraEvent::HUMAN_STATUS_FLAGGED => 'Marcado',
+            SamsaraEvent::HUMAN_STATUS_RESOLVED => 'Resuelto',
+            SamsaraEvent::HUMAN_STATUS_FALSE_POSITIVE => 'Falso positivo',
+            default => 'Desconocido',
+        };
     }
 }

@@ -527,13 +527,35 @@ async def _analyze_images_without_tracing(image_items: List[Any]) -> Dict[str, A
                 # Convertir a base64 para análisis con GPT-4o Vision
                 base64_image = base64.b64encode(image_data).decode('utf-8')
                 
-                prompt = """Analiza esta imagen de dashcam y describe:
-1. ¿Qué se ve en la escena? (vehículos, personas, entorno)
-2. ¿Hay alguna situación de riesgo o anómala visible?
-3. ¿El conductor parece estar en peligro o en una situación de emergencia?
-4. ¿Hay evidencia visual de un incidente (colisión, frenado brusco, etc.)?
+                # Determinar tipo de cámara para contexto
+                camera_type = "interior (hacia el conductor)" if "driver" in str(camera_input).lower() else "exterior (hacia el camino)"
+                
+                prompt = f"""Eres un analista de seguridad de flotas vehiculares. Esta imagen proviene de una dashcam {camera_type} de un vehículo comercial que activó una alerta de seguridad (posible botón de pánico, evento de seguridad, o incidente).
 
-Sé conciso y objetivo. Responde en español."""
+Tu tarea es proporcionar un ANÁLISIS OBJETIVO para ayudar al equipo de monitoreo a decidir si la alerta requiere intervención inmediata o puede considerarse un falso positivo.
+
+IMPORTANTE: NO identifiques personas ni proporciones datos personales. Enfócate en el ESTADO SITUACIONAL y CONTEXTO.
+
+Analiza y responde en este formato estructurado:
+
+## ESTADO GENERAL
+- Nivel de alerta visual: [NORMAL / ATENCIÓN / ALERTA / CRÍTICO]
+- Descripción breve de la escena (máximo 2 líneas)
+
+## INDICADORES DE SEGURIDAD
+{"- Postura y estado aparente del conductor (relajado, tenso, en movimiento, ausente)" if "driver" in str(camera_input).lower() else "- Condiciones del camino y tráfico visible"}
+{"- ¿Hay interacción anómala? (gesticulación, movimiento brusco, objetos extraños)" if "driver" in str(camera_input).lower() else "- ¿Hay obstáculos, vehículos detenidos o situaciones de riesgo?"}
+- ¿El vehículo parece estar en movimiento, detenido o en maniobra?
+
+## EVIDENCIA PARA DECISIÓN
+- Señales que sugieren EMERGENCIA REAL: (listar si hay, o "Ninguna visible")
+- Señales que sugieren FALSO POSITIVO: (listar si hay, o "Ninguna visible")
+- Elementos NO CONCLUYENTES que requieren más contexto: (listar si hay)
+
+## RECOMENDACIÓN OPERATIVA
+[INTERVENIR / MONITOREAR / DESCARTAR] + justificación en una línea
+
+Responde de forma concisa y profesional. Si la imagen está borrosa, oscura, o no permite análisis adecuado, indícalo claramente."""
                 
                 vision_response = await acompletion(
                     model=OpenAIConfig.MODEL_GPT4O,
