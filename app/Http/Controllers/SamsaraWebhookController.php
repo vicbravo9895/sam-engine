@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ProcessSamsaraEventJob;
 use App\Models\SamsaraEvent;
+use App\Models\Vehicle;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -26,6 +27,46 @@ class SamsaraWebhookController extends Controller
         try {
             // Extraer información básica del payload
             $eventData = $this->extractEventData($payload);
+
+            // Determinar company_id basado en vehicle_id
+            $companyId = $this->determineCompanyId($eventData['vehicle_id'] ?? null);
+            
+            if (!$companyId) {
+                Log::warning('Samsara webhook: Could not determine company_id', [
+                    'vehicle_id' => $eventData['vehicle_id'] ?? null,
+                    'event_type' => $eventData['event_type'] ?? null,
+                    'payload_keys' => array_keys($payload),
+                ]);
+                
+                // Rechazar el webhook si no podemos determinar la empresa
+                // Esto previene eventos huérfanos en un sistema multi-tenant
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Could not determine company for this vehicle. Vehicle may not be registered in the system.',
+                ], 400);
+            }
+
+            $eventData['company_id'] = $companyId;
+
+            // Verificar que la empresa tenga API key configurada
+            $company = \App\Models\Company::find($companyId);
+            if (!$company || !$company->hasSamsaraApiKey()) {
+                Log::warning('Samsara webhook: Company does not have API key configured', [
+                    'company_id' => $companyId,
+                    'company_name' => $company?->name,
+                ]);
+                
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Company does not have Samsara API key configured.',
+                ], 400);
+            }
+
+            Log::info('Samsara webhook: Company determined', [
+                'company_id' => $companyId,
+                'company_name' => $company->name,
+                'vehicle_id' => $eventData['vehicle_id'],
+            ]);
 
             // Crear el evento en la base de datos
             $event = SamsaraEvent::create($eventData);
@@ -304,5 +345,46 @@ class SamsaraWebhookController extends Controller
 
         // Por defecto: info
         return SamsaraEvent::SEVERITY_INFO;
+    }
+
+    /**
+     * Determina el company_id basado en el vehicle_id del webhook.
+     * 
+     * IMPORTANTE: En un sistema multi-tenant, cada vehículo debe estar
+     * asociado a una empresa. Si el vehículo no existe, no podemos procesar
+     * el webhook porque no sabemos qué API key usar.
+     * 
+     * @param string|null $vehicleId ID del vehículo en Samsara
+     * @return int|null ID de la empresa o null si no se puede determinar
+     */
+    private function determineCompanyId(?string $vehicleId): ?int
+    {
+        if (!$vehicleId) {
+            Log::warning('Samsara webhook: No vehicle_id in payload');
+            return null;
+        }
+
+        // Buscar el vehículo por samsara_id
+        // IMPORTANTE: En un sistema multi-tenant, el samsara_id debe ser único
+        // por company_id. Si dos empresas tienen el mismo samsara_id, habrá conflicto.
+        $vehicle = Vehicle::where('samsara_id', $vehicleId)->first();
+
+        if (!$vehicle) {
+            Log::warning('Samsara webhook: Vehicle not found in database', [
+                'samsara_id' => $vehicleId,
+                'note' => 'Vehicle must be synced from Samsara before webhooks can be processed',
+            ]);
+            return null;
+        }
+
+        if (!$vehicle->company_id) {
+            Log::warning('Samsara webhook: Vehicle has no company_id', [
+                'vehicle_id' => $vehicle->id,
+                'samsara_id' => $vehicleId,
+            ]);
+            return null;
+        }
+
+        return $vehicle->company_id;
     }
 }

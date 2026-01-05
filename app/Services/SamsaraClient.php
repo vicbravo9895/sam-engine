@@ -21,10 +21,16 @@ class SamsaraClient
     private string $baseUrl;
     private string $apiToken;
 
-    public function __construct()
+    /**
+     * Constructor del cliente Samsara.
+     * 
+     * @param string|null $apiToken API token de Samsara. Si es null, usa el config global (legacy).
+     * @param string|null $baseUrl Base URL de la API. Si es null, usa el config global.
+     */
+    public function __construct(?string $apiToken = null, ?string $baseUrl = null)
     {
-        $this->baseUrl = config('services.samsara.base_url', 'https://api.samsara.com');
-        $this->apiToken = config('services.samsara.api_token', '');
+        $this->baseUrl = $baseUrl ?? config('services.samsara.base_url', 'https://api.samsara.com');
+        $this->apiToken = $apiToken ?? config('services.samsara.api_token', '');
     }
 
     /**

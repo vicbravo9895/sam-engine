@@ -1,12 +1,14 @@
 import '../css/app.css';
 
+import { FlashMessages } from '@/components/flash-messages';
+import { OfflineIndicator, PWAInstallPrompt, PWAUpdatePrompt } from '@/components/pwa';
 import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initializeTheme } from './hooks/use-appearance';
 
-const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+const appName = import.meta.env.VITE_APP_NAME || 'SAM';
 
 createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
@@ -20,7 +22,11 @@ createInertiaApp({
 
         root.render(
             <StrictMode>
+                <OfflineIndicator />
+                <PWAUpdatePrompt />
                 <App {...props} />
+                <PWAInstallPrompt />
+                <FlashMessages />
             </StrictMode>,
         );
     },

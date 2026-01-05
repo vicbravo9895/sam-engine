@@ -56,7 +56,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
     /**
      * Execute the job.
      */
-    public function handle(ContactResolver $contactResolver, SamsaraClient $samsaraClient): void
+    public function handle(ContactResolver $contactResolver): void
     {
         Log::info("Processing Samsara event", [
             'event_id' => $this->event->id,
@@ -67,6 +67,27 @@ class ProcessSamsaraEventJob implements ShouldQueue
         try {
             // Marcar como procesando
             $this->event->markAsProcessing();
+
+            // Obtener la API key de la empresa del evento (multi-tenant)
+            $company = $this->event->company;
+            if (!$company) {
+                throw new \Exception("Event has no company associated. Cannot process without API key.");
+            }
+
+            $samsaraApiKey = $company->getSamsaraApiKey();
+            if (empty($samsaraApiKey)) {
+                throw new \Exception("Company {$company->id} ({$company->name}) does not have Samsara API key configured.");
+            }
+
+            // Crear cliente Samsara con la API key de la empresa
+            $samsaraClient = new SamsaraClient($samsaraApiKey);
+
+            Log::info("Using company Samsara API key", [
+                'event_id' => $this->event->id,
+                'company_id' => $company->id,
+                'company_name' => $company->name,
+                'has_api_key' => !empty($samsaraApiKey),
+            ]);
 
             // Resolver contactos para notificaciones
             $contacts = $contactResolver->resolveForEvent($this->event);

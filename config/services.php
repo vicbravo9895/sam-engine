@@ -39,6 +39,12 @@ return [
         'url' => env('AI_SERVICE_BASE_URL', 'http://ai-service:8000'),
     ],
 
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'standard_model' => env('OPENAI_STANDARD_MODEL', 'gpt-4o-mini'),
+        'advanced_model' => env('OPENAI_ADVANCED_MODEL', 'gpt-4o'),
+    ],
+
     'samsara' => [
         'api_token' => env('SAMSARA_API_TOKEN'),
         'base_url' => env('SAMSARA_BASE_URL', 'https://api.samsara.com'),

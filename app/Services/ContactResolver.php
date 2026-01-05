@@ -28,8 +28,9 @@ class ContactResolver
     {
         $vehicleId = $event->vehicle_id;
         $driverId = $event->driver_id;
+        $companyId = $event->company_id;
 
-        return $this->resolve($vehicleId, $driverId);
+        return $this->resolve($vehicleId, $driverId, $companyId);
     }
 
     /**
@@ -37,9 +38,10 @@ class ContactResolver
      * 
      * @param string|null $vehicleId ID del vehículo de Samsara
      * @param string|null $driverId ID del conductor de Samsara
+     * @param int|null $companyId ID de la compañía (multi-tenant isolation)
      * @return array Contactos organizados por tipo
      */
-    public function resolve(?string $vehicleId, ?string $driverId): array
+    public function resolve(?string $vehicleId, ?string $driverId, ?int $companyId = null): array
     {
         $contacts = [
             'operator' => null,
@@ -52,7 +54,7 @@ class ContactResolver
         $types = array_keys($contacts);
 
         foreach ($types as $type) {
-            $contact = $this->resolveByType($type, $vehicleId, $driverId);
+            $contact = $this->resolveByType($type, $vehicleId, $driverId, $companyId);
             if ($contact) {
                 $contacts[$type] = $contact->toNotificationPayload();
             }
@@ -74,17 +76,22 @@ class ContactResolver
      * @param string $type Tipo de contacto
      * @param string|null $vehicleId ID del vehículo
      * @param string|null $driverId ID del conductor
+     * @param int|null $companyId ID de la compañía (multi-tenant isolation)
      * @return Contact|null
      */
-    public function resolveByType(string $type, ?string $vehicleId, ?string $driverId): ?Contact
+    public function resolveByType(string $type, ?string $vehicleId, ?string $driverId, ?int $companyId = null): ?Contact
     {
         // 1. Buscar contacto específico del vehículo
         if ($vehicleId) {
-            $contact = Contact::active()
+            $query = Contact::active()
                 ->ofType($type)
-                ->forVehicle($vehicleId)
-                ->orderByPriority()
-                ->first();
+                ->forVehicle($vehicleId);
+            
+            if ($companyId) {
+                $query->forCompany($companyId);
+            }
+            
+            $contact = $query->orderByPriority()->first();
 
             if ($contact) {
                 return $contact;
@@ -93,11 +100,15 @@ class ContactResolver
 
         // 2. Buscar contacto específico del conductor
         if ($driverId) {
-            $contact = Contact::active()
+            $query = Contact::active()
                 ->ofType($type)
-                ->forDriver($driverId)
-                ->orderByPriority()
-                ->first();
+                ->forDriver($driverId);
+            
+            if ($companyId) {
+                $query->forCompany($companyId);
+            }
+            
+            $contact = $query->orderByPriority()->first();
 
             if ($contact) {
                 return $contact;
@@ -105,23 +116,31 @@ class ContactResolver
         }
 
         // 3. Buscar contacto global por defecto
-        $contact = Contact::active()
+        $query = Contact::active()
             ->ofType($type)
             ->global()
-            ->default()
-            ->orderByPriority()
-            ->first();
+            ->default();
+        
+        if ($companyId) {
+            $query->forCompany($companyId);
+        }
+        
+        $contact = $query->orderByPriority()->first();
 
         if ($contact) {
             return $contact;
         }
 
         // 4. Fallback: cualquier contacto global activo del tipo
-        return Contact::active()
+        $query = Contact::active()
             ->ofType($type)
-            ->global()
-            ->orderByPriority()
-            ->first();
+            ->global();
+        
+        if ($companyId) {
+            $query->forCompany($companyId);
+        }
+        
+        return $query->orderByPriority()->first();
     }
 
     /**
@@ -129,11 +148,17 @@ class ContactResolver
      * 
      * @param string|null $vehicleId ID del vehículo
      * @param string|null $driverId ID del conductor
+     * @param int|null $companyId ID de la compañía (multi-tenant isolation)
      * @return Collection Colección de todos los contactos aplicables
      */
-    public function getAllApplicable(?string $vehicleId, ?string $driverId): Collection
+    public function getAllApplicable(?string $vehicleId, ?string $driverId, ?int $companyId = null): Collection
     {
         $query = Contact::active();
+        
+        // Filter by company_id if provided (multi-tenant isolation)
+        if ($companyId) {
+            $query->forCompany($companyId);
+        }
 
         $query->where(function ($q) use ($vehicleId, $driverId) {
             // Contactos globales

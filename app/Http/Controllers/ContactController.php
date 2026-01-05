@@ -14,7 +14,14 @@ class ContactController extends Controller
      */
     public function index(Request $request): Response
     {
+        $user = $request->user();
+        
         $query = Contact::query();
+        
+        // Filter by company_id if user has a company (multi-tenant isolation)
+        if ($user->company_id) {
+            $query->forCompany($user->company_id);
+        }
 
         // Filtros
         if ($request->has('type') && $request->type) {
@@ -63,6 +70,8 @@ class ContactController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+        
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'role' => 'nullable|string|max:255',
@@ -79,9 +88,12 @@ class ContactController extends Controller
             'notes' => 'nullable|string',
         ]);
 
+        // Assign company_id from authenticated user
+        $validated['company_id'] = $user->company_id;
+
         // Si se marca como default, quitar default de otros del mismo tipo
         if ($validated['is_default'] ?? false) {
-            $this->clearDefaultForType($validated['type'], $validated['entity_type'] ?? null, $validated['entity_id'] ?? null);
+            $this->clearDefaultForType($user->company_id, $validated['type'], $validated['entity_type'] ?? null, $validated['entity_id'] ?? null);
         }
 
         $contact = Contact::create($validated);
@@ -93,8 +105,15 @@ class ContactController extends Controller
     /**
      * Display the specified contact.
      */
-    public function show(Contact $contact): Response
+    public function show(Request $request, Contact $contact): Response
     {
+        $user = $request->user();
+        
+        // Ensure contact belongs to user's company (multi-tenant isolation)
+        if ($user->company_id && $contact->company_id !== $user->company_id) {
+            abort(404);
+        }
+        
         return Inertia::render('contacts/show', [
             'contact' => $contact,
             'types' => Contact::getTypes(),
@@ -104,8 +123,15 @@ class ContactController extends Controller
     /**
      * Show the form for editing the specified contact.
      */
-    public function edit(Contact $contact): Response
+    public function edit(Request $request, Contact $contact): Response
     {
+        $user = $request->user();
+        
+        // Ensure contact belongs to user's company (multi-tenant isolation)
+        if ($user->company_id && $contact->company_id !== $user->company_id) {
+            abort(404);
+        }
+        
         return Inertia::render('contacts/edit', [
             'contact' => $contact,
             'types' => Contact::getTypes(),
@@ -117,6 +143,13 @@ class ContactController extends Controller
      */
     public function update(Request $request, Contact $contact)
     {
+        $user = $request->user();
+        
+        // Ensure contact belongs to user's company (multi-tenant isolation)
+        if ($user->company_id && $contact->company_id !== $user->company_id) {
+            abort(404);
+        }
+        
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'role' => 'nullable|string|max:255',
@@ -135,7 +168,7 @@ class ContactController extends Controller
 
         // Si se marca como default, quitar default de otros del mismo tipo
         if (($validated['is_default'] ?? false) && !$contact->is_default) {
-            $this->clearDefaultForType($validated['type'], $validated['entity_type'] ?? null, $validated['entity_id'] ?? null, $contact->id);
+            $this->clearDefaultForType($user->company_id, $validated['type'], $validated['entity_type'] ?? null, $validated['entity_id'] ?? null, $contact->id);
         }
 
         $contact->update($validated);
@@ -147,8 +180,15 @@ class ContactController extends Controller
     /**
      * Remove the specified contact from storage.
      */
-    public function destroy(Contact $contact)
+    public function destroy(Request $request, Contact $contact)
     {
+        $user = $request->user();
+        
+        // Ensure contact belongs to user's company (multi-tenant isolation)
+        if ($user->company_id && $contact->company_id !== $user->company_id) {
+            abort(404);
+        }
+        
         $contact->delete();
 
         return redirect()->route('contacts.index')
@@ -158,8 +198,15 @@ class ContactController extends Controller
     /**
      * Toggle the active status of a contact.
      */
-    public function toggleActive(Contact $contact)
+    public function toggleActive(Request $request, Contact $contact)
     {
+        $user = $request->user();
+        
+        // Ensure contact belongs to user's company (multi-tenant isolation)
+        if ($user->company_id && $contact->company_id !== $user->company_id) {
+            abort(404);
+        }
+        
         $contact->update(['is_active' => !$contact->is_active]);
 
         return back()->with('success', 
@@ -170,9 +217,16 @@ class ContactController extends Controller
     /**
      * Set a contact as the default for its type.
      */
-    public function setDefault(Contact $contact)
+    public function setDefault(Request $request, Contact $contact)
     {
-        $this->clearDefaultForType($contact->type, $contact->entity_type, $contact->entity_id, $contact->id);
+        $user = $request->user();
+        
+        // Ensure contact belongs to user's company (multi-tenant isolation)
+        if ($user->company_id && $contact->company_id !== $user->company_id) {
+            abort(404);
+        }
+        
+        $this->clearDefaultForType($user->company_id, $contact->type, $contact->entity_type, $contact->entity_id, $contact->id);
         $contact->update(['is_default' => true]);
 
         return back()->with('success', 'Contacto establecido como predeterminado.');
@@ -181,9 +235,14 @@ class ContactController extends Controller
     /**
      * Clear the default flag for all contacts of a type.
      */
-    private function clearDefaultForType(string $type, ?string $entityType, ?string $entityId, ?int $excludeId = null): void
+    private function clearDefaultForType(?int $companyId, string $type, ?string $entityType, ?string $entityId, ?int $excludeId = null): void
     {
         $query = Contact::where('type', $type)->where('is_default', true);
+        
+        // Filter by company_id if provided (multi-tenant isolation)
+        if ($companyId) {
+            $query->where('company_id', $companyId);
+        }
 
         if ($entityType) {
             $query->where('entity_type', $entityType)->where('entity_id', $entityId);

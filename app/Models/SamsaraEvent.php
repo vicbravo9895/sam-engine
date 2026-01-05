@@ -28,6 +28,8 @@ class SamsaraEvent extends Model
     use HasFactory;
 
     protected $fillable = [
+        // Company association
+        'company_id',
         // Información del evento de Samsara
         'event_type',
         'event_description',
@@ -142,6 +144,14 @@ class SamsaraEvent extends Model
      */
     
     /**
+     * Company that owns this event.
+     */
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+    
+    /**
      * Usuario que revisó el evento.
      */
     public function reviewedBy(): BelongsTo
@@ -217,6 +227,14 @@ class SamsaraEvent extends Model
     public function scopeByDedupeKey($query, string $key)
     {
         return $query->where('dedupe_key', $key);
+    }
+    
+    /**
+     * Scope a query to only include events for a specific company.
+     */
+    public function scopeForCompany($query, int $companyId)
+    {
+        return $query->where('company_id', $companyId);
     }
     
     /**

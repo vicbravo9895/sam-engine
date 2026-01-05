@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Contact extends Model
@@ -22,6 +23,7 @@ class Contact extends Model
     const ENTITY_DRIVER = 'driver';
 
     protected $fillable = [
+        'company_id',
         'name',
         'role',
         'type',
@@ -43,6 +45,22 @@ class Contact extends Model
         'priority' => 'integer',
         'notification_preferences' => 'array',
     ];
+
+    /**
+     * Get the company that owns this contact.
+     */
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * Scope a query to only include contacts for a specific company.
+     */
+    public function scopeForCompany($query, int $companyId)
+    {
+        return $query->where('company_id', $companyId);
+    }
 
     /**
      * Obtiene el número de WhatsApp (usa phone si phone_whatsapp no está definido)

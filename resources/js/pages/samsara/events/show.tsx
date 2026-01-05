@@ -1022,7 +1022,7 @@ function EvidenceGallery({ event, onSelectImage }: EvidenceGalleryProps) {
                     <button
                         key={`${item.url}-${idx}`}
                         onClick={() => onSelectImage(item)}
-                        className="group relative aspect-video overflow-hidden rounded-xl border bg-muted text-left transition-all hover:ring-2 hover:ring-primary hover:ring-offset-2"
+                        className="group relative aspect-video cursor-pointer overflow-hidden rounded-xl border bg-muted text-left transition-all hover:ring-2 hover:ring-primary hover:ring-offset-2"
                     >
                         <img
                             src={item.url}

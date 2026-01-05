@@ -18,6 +18,7 @@ class SamsaraEventComment extends Model
 
     protected $fillable = [
         'samsara_event_id',
+        'company_id',
         'user_id',
         'content',
     ];
@@ -31,11 +32,27 @@ class SamsaraEventComment extends Model
     }
 
     /**
+     * Relación con la company.
+     */
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    /**
      * Relación con el usuario que creó el comentario.
      */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Scope a query to only include comments for a specific company.
+     */
+    public function scopeForCompany($query, int $companyId)
+    {
+        return $query->where('company_id', $companyId);
     }
 }
 

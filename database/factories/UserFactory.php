@@ -27,6 +27,9 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= 'password',
+            'role' => \App\Models\User::ROLE_USER,
+            'is_active' => true,
+            'company_id' => null, // Se puede asignar usando ->for() o ->state()
             'remember_token' => Str::random(10),
             'two_factor_secret' => Str::random(10),
             'two_factor_recovery_codes' => Str::random(10),
@@ -53,6 +56,47 @@ class UserFactory extends Factory
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
             'two_factor_confirmed_at' => null,
+        ]);
+    }
+
+    /**
+     * Indicate that the user is a super admin (no company).
+     */
+    public function superAdmin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => \App\Models\User::ROLE_SUPER_ADMIN,
+            'company_id' => null,
+        ]);
+    }
+
+    /**
+     * Indicate that the user is an admin.
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => \App\Models\User::ROLE_ADMIN,
+        ]);
+    }
+
+    /**
+     * Indicate that the user is a manager.
+     */
+    public function manager(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => \App\Models\User::ROLE_MANAGER,
+        ]);
+    }
+
+    /**
+     * Associate the user with a company.
+     */
+    public function forCompany(\App\Models\Company $company): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'company_id' => $company->id,
         ]);
     }
 }

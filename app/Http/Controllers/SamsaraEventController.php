@@ -13,6 +13,8 @@ class SamsaraEventController extends Controller
 {
     public function index(Request $request): Response
     {
+        $user = $request->user();
+        
         $filters = [
             'search' => trim((string) $request->input('search', '')),
             'severity' => (string) $request->input('severity', ''),
@@ -22,8 +24,14 @@ class SamsaraEventController extends Controller
             'date_to' => (string) $request->input('date_to', ''),
         ];
 
-        $query = SamsaraEvent::query()
-            ->orderByDesc('occurred_at')
+        $query = SamsaraEvent::query();
+        
+        // Filter by company_id if user has a company (multi-tenant isolation)
+        if ($user->company_id) {
+            $query->forCompany($user->company_id);
+        }
+        
+        $query->orderByDesc('occurred_at')
             ->orderByDesc('created_at');
 
         if ($filters['search'] !== '') {
@@ -159,8 +167,15 @@ class SamsaraEventController extends Controller
         ]);
     }
 
-    public function show(SamsaraEvent $samsaraEvent): Response
+    public function show(Request $request, SamsaraEvent $samsaraEvent): Response
     {
+        $user = $request->user();
+        
+        // Ensure event belongs to user's company (multi-tenant isolation)
+        if ($user->company_id && $samsaraEvent->company_id !== $user->company_id) {
+            abort(404);
+        }
+        
         $rawPayload = $samsaraEvent->raw_payload ?? [];
         $aiActions = $this->normalizeAiActions($samsaraEvent->ai_actions);
         $assessment = $samsaraEvent->ai_assessment ?? null;

@@ -23,6 +23,7 @@ class SamsaraEventActivity extends Model
     
     protected $fillable = [
         'samsara_event_id',
+        'company_id',
         'user_id',
         'action',
         'metadata',
@@ -72,12 +73,28 @@ class SamsaraEventActivity extends Model
     }
 
     /**
+     * Relación con la company.
+     */
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    /**
      * Relación con el usuario que realizó la acción.
      * NULL si fue una acción del sistema/AI.
      */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Scope a query to only include activities for a specific company.
+     */
+    public function scopeForCompany($query, int $companyId)
+    {
+        return $query->where('company_id', $companyId);
     }
 
     /**
@@ -123,10 +140,11 @@ class SamsaraEventActivity extends Model
     /**
      * Crear una actividad de AI.
      */
-    public static function logAiAction(int $eventId, string $action, ?array $metadata = null): self
+    public static function logAiAction(int $eventId, ?int $companyId, string $action, ?array $metadata = null): self
     {
         return static::create([
             'samsara_event_id' => $eventId,
+            'company_id' => $companyId,
             'user_id' => null,
             'action' => $action,
             'metadata' => $metadata,
@@ -136,10 +154,11 @@ class SamsaraEventActivity extends Model
     /**
      * Crear una actividad humana.
      */
-    public static function logHumanAction(int $eventId, int $userId, string $action, ?array $metadata = null): self
+    public static function logHumanAction(int $eventId, ?int $companyId, int $userId, string $action, ?array $metadata = null): self
     {
         return static::create([
             'samsara_event_id' => $eventId,
+            'company_id' => $companyId,
             'user_id' => $userId,
             'action' => $action,
             'metadata' => $metadata,

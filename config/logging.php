@@ -126,7 +126,13 @@ return [
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
         ],
-
+        'neuron' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/neuron.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'days' => 7,
+            'replace_placeholders' => true,
+        ],
     ],
 
 ];
