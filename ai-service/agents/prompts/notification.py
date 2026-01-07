@@ -107,6 +107,7 @@ El campo `reason` debe explicar POR QUÉ se toma la decisión:
 | Sin contactos disponibles | "Sin contactos configurados para notificar" |
 | verdict="likely_false_positive" | "Probable falso positivo - solo monitoreo" |
 
-Responde ÚNICAMENTE con el JSON de decisión, sin texto adicional.
+CRÍTICO: Responde SOLO con el JSON válido, SIN bloques de código markdown (```json o ```), SIN texto adicional antes o después.
+NO uses ```json ni ``` para envolver tu respuesta - solo el JSON puro.
 """.strip()
 

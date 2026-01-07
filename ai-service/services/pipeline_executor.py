@@ -110,10 +110,23 @@ def _extract_media_urls(response: Any) -> List[str]:
 
 def _clean_markdown(text: str) -> str:
     """Limpia bloques de código markdown del texto."""
-    if "```" in text:
-        text = re.sub(r'^```\w*\s*', '', text)
-        text = re.sub(r'\s*```$', '', text)
-    return text.strip()
+    if not text:
+        return text
+    
+    # Remover bloques de código markdown (```json ... ``` o ``` ... ```)
+    # Patrón para capturar el contenido entre los bloques
+    pattern = r'```(?:json|JSON)?\s*\n?(.*?)\n?```'
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        # Si encontramos un bloque de código, usar solo el contenido
+        text = match.group(1).strip()
+    else:
+        # Si no hay bloques, intentar limpiar cualquier ``` residual
+        text = re.sub(r'^```\w*\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+        text = text.strip()
+    
+    return text
 
 
 def _generate_agent_summary(agent_name: str, raw_output: str) -> str:

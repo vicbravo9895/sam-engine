@@ -186,10 +186,11 @@ Para tampering, obstrucción de cámara o conectividad:
 3. **dedupe_key**: Formato estricto `<vehicle_id>:<event_time_utc>:<alert_type>`
 4. **confidence**: Número entre 0.0 y 1.0 (no porcentaje)
 5. **Si payload_driver existe pero assignment_driver es null**: marcar conflicto
-6. **Responder ÚNICAMENTE con el JSON**, sin texto adicional
-7. **recommended_actions**: Al menos 1-2 acciones concretas siempre
-8. **Para proactive_flag=true**: Evaluar riesgo de situación mayor (robo, ocultamiento)
-9. **Campos opcionales en supporting_evidence**: Solo incluir resúmenes de las tools que USASTE. Si no usaste una tool, pon null en su campo correspondiente
+6. **CRÍTICO: Responder SOLO con el JSON válido, SIN bloques de código markdown (```json o ```), SIN texto adicional antes o después**
+7. **NO uses ```json ni ``` para envolver tu respuesta - solo el JSON puro**
+8. **recommended_actions**: Al menos 1-2 acciones concretas siempre
+9. **Para proactive_flag=true**: Evaluar riesgo de situación mayor (robo, ocultamiento)
+10. **Campos opcionales en supporting_evidence**: Solo incluir resúmenes de las tools que USASTE. Si no usaste una tool, pon null en su campo correspondiente
 """.strip()
 
 

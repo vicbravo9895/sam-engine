@@ -15,6 +15,8 @@ NUEVO CONTRATO:
 }
 """
 
+import json
+import re
 from typing import Any, Dict, Optional
 
 from agents.schemas import PipelineResult, AgentResult, ToolResult
@@ -47,6 +49,27 @@ def _build_agent_response(agent: AgentResult) -> Dict[str, Any]:
     return result
 
 
+def _clean_markdown(text: str) -> str:
+    """Limpia bloques de código markdown del texto."""
+    if not text:
+        return text
+    
+    # Remover bloques de código markdown (```json ... ``` o ``` ... ```)
+    # Patrón para capturar el contenido entre los bloques
+    pattern = r'```(?:json|JSON)?\s*\n?(.*?)\n?```'
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        # Si encontramos un bloque de código, usar solo el contenido
+        text = match.group(1).strip()
+    else:
+        # Si no hay bloques, intentar limpiar cualquier ``` residual
+        text = re.sub(r'^```\w*\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE)
+        text = text.strip()
+    
+    return text
+
+
 def _ensure_object(value: Any) -> Optional[Dict[str, Any]]:
     """Asegura que el valor sea un objeto JSON, no un string."""
     if value is None:
@@ -55,8 +78,9 @@ def _ensure_object(value: Any) -> Optional[Dict[str, Any]]:
         return value
     if isinstance(value, str):
         try:
-            import json
-            parsed = json.loads(value)
+            # Limpiar markdown antes de parsear
+            clean_text = _clean_markdown(value)
+            parsed = json.loads(clean_text)
             if isinstance(parsed, dict):
                 return parsed
         except:

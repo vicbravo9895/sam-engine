@@ -205,6 +205,7 @@ Determina si es zona sin cobertura conocida o posible manipulación.
 ALERTA PROACTIVA: Evalúa riesgo de situación mayor.
 ```
 
-Responde ÚNICAMENTE con el JSON estructurado, sin texto adicional.
+CRÍTICO: Responde SOLO con el JSON válido, SIN bloques de código markdown (```json o ```), SIN texto adicional antes o después.
+NO uses ```json ni ``` para envolver tu respuesta - solo el JSON puro.
 """.strip()
 
