@@ -1,7 +1,8 @@
 import {
-    index as copilotIndex,
+    resume,
     send,
     show,
+    stream,
 } from '@/actions/App/Http/Controllers/CopilotController';
 import { MarkdownContent } from '@/components/markdown-content';
 import { Button } from '@/components/ui/button';
@@ -20,12 +21,13 @@ import {
     Truck,
     User,
 } from 'lucide-react';
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 interface Message {
     id: number;
     role: 'user' | 'assistant';
     content: string;
+    status?: 'pending' | 'streaming' | 'completed' | 'failed';
     created_at: string;
 }
 
@@ -36,6 +38,12 @@ interface Conversation {
     created_at: string;
     updated_at: string;
     total_tokens?: number;
+    is_streaming?: boolean;
+    streaming_content?: string;
+    active_tool?: {
+        label: string;
+        icon: string;
+    } | null;
 }
 
 interface CopilotPageProps {
@@ -45,12 +53,13 @@ interface CopilotPageProps {
 }
 
 export default function Copilot() {
-    const { conversations, currentConversation, messages } =
+    const { conversations: serverConversations, currentConversation, messages } =
         usePage<{ props: CopilotPageProps }>().props as unknown as CopilotPageProps;
 
     const [input, setInput] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
     const [localMessages, setLocalMessages] = useState<Message[]>(messages);
+    const [localConversations, setLocalConversations] = useState<Conversation[]>(serverConversations);
     const [streamingContent, setStreamingContent] = useState('');
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(
         currentConversation?.thread_id || null,
@@ -66,22 +75,251 @@ export default function Copilot() {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
+    const eventSourceRef = useRef<EventSource | null>(null);
     // Trackear IDs de mensajes que ya fueron animados
     const animatedMessagesRef = useRef<Set<number>>(new Set());
     // Trackear el conteo inicial de mensajes para no animar mensajes existentes al cargar
     const initialMessageCountRef = useRef<number>(messages.length);
+    // Contenido acumulado para el stream
+    const streamingContentRef = useRef<string>('');
+    // Trackear el thread actual para detectar cambios de conversación
+    const lastServerThreadIdRef = useRef<string | null>(currentConversation?.thread_id || null);
+    // Ref para el thread actual del stream (para usar en callbacks)
+    const currentStreamThreadIdRef = useRef<string | null>(null);
 
-    // Sincronizar mensajes cuando cambian desde el servidor
+    // Función para cerrar EventSource
+    const closeEventSource = useCallback(() => {
+        if (eventSourceRef.current) {
+            eventSourceRef.current.close();
+            eventSourceRef.current = null;
+        }
+    }, []);
+
+    // Función para conectar al stream SSE (sin dependencias que cambien frecuentemente)
+    const connectToStream = useCallback((threadId: string, isResume: boolean = false) => {
+        // Cerrar conexión existente
+        if (eventSourceRef.current) {
+            eventSourceRef.current.close();
+            eventSourceRef.current = null;
+        }
+        
+        // Guardar threadId en ref para usarlo en callbacks
+        currentStreamThreadIdRef.current = threadId;
+        
+        // Resetear contenido si no es reconexión
+        if (!isResume) {
+            streamingContentRef.current = '';
+            setStreamingContent('');
+        }
+        
+        // Construir URL del endpoint SSE usando Wayfinder actions
+        const endpoint = isResume 
+            ? resume.url(threadId)
+            : stream.url(threadId);
+        
+        console.log('Connecting to SSE:', endpoint, { isResume, threadId });
+        
+        const eventSource = new EventSource(endpoint, { withCredentials: true });
+        eventSourceRef.current = eventSource;
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('SSE message:', data.type);
+                
+                switch (data.type) {
+                    case 'resume_state':
+                        // Reconexión: recibimos el contenido acumulado
+                        streamingContentRef.current = data.content || '';
+                        setStreamingContent(streamingContentRef.current);
+                        if (data.active_tool) {
+                            setActiveTool(data.active_tool);
+                        }
+                        break;
+                        
+                    case 'chunk':
+                        // Chunk de texto nuevo
+                        streamingContentRef.current += data.content || '';
+                        setStreamingContent(streamingContentRef.current);
+                        setActiveTool(null);
+                        break;
+                        
+                    case 'tool_start':
+                        // Inicio de tool call
+                        setActiveTool(data.tool_info || null);
+                        break;
+                        
+                    case 'tool_end':
+                        // Fin de tool call
+                        setActiveTool(null);
+                        break;
+                        
+                    case 'stream_end':
+                        // Stream completado
+                        console.log('Stream ended', { threadId: currentStreamThreadIdRef.current });
+                        if (eventSourceRef.current) {
+                            eventSourceRef.current.close();
+                            eventSourceRef.current = null;
+                        }
+                        setIsStreaming(false);
+                        setStreamingContent('');
+                        setActiveTool(null);
+                        
+                        // Actualizar tokens si los recibimos
+                        if (data.tokens?.total_tokens) {
+                            setConversationTokens(prev => prev + data.tokens.total_tokens);
+                        }
+                        
+                        // Navegar a la conversación (esto recargará los mensajes correctamente)
+                        // Usamos el ref que contiene el threadId del stream actual
+                        const threadIdToNavigate = currentStreamThreadIdRef.current;
+                        if (threadIdToNavigate) {
+                            router.visit(show.url(threadIdToNavigate), {
+                                preserveScroll: true,
+                            });
+                        } else {
+                            router.reload({ only: ['messages', 'currentConversation', 'conversations'] });
+                        }
+                        break;
+                        
+                    case 'stream_error':
+                        // Error en el stream
+                        if (eventSourceRef.current) {
+                            eventSourceRef.current.close();
+                            eventSourceRef.current = null;
+                        }
+                        setIsStreaming(false);
+                        setStreamingContent('');
+                        setActiveTool(null);
+                        
+                        // Mostrar mensaje de error
+                        const errorMessage: Message = {
+                            id: Date.now() + 1,
+                            role: 'assistant',
+                            content: `Lo siento, hubo un error: ${data.error}`,
+                            created_at: new Date().toISOString(),
+                        };
+                        setLocalMessages((prev) => [...prev, errorMessage]);
+                        break;
+                        
+                    case 'no_active_stream':
+                        // No hay stream activo, cerrar conexión y recargar mensajes
+                        console.log('No active stream found, reloading messages');
+                        if (eventSourceRef.current) {
+                            eventSourceRef.current.close();
+                            eventSourceRef.current = null;
+                        }
+                        setIsStreaming(false);
+                        setStreamingContent('');
+                        setActiveTool(null);
+                        // Recargar mensajes por si el stream ya terminó
+                        router.reload({ only: ['messages', 'currentConversation'] });
+                        break;
+                }
+            } catch (err) {
+                console.error('Error parsing SSE message:', err);
+            }
+        };
+        
+        eventSource.onerror = (err) => {
+            console.error('SSE error:', err);
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+                eventSourceRef.current = null;
+            }
+            // No intentamos reconectar automáticamente - el usuario puede refrescar
+        };
+        
+        // NOTA: resume_state ya se procesa en onmessage (switch case)
+        // No agregar listener duplicado que cause doble procesamiento
+    }, []); // Sin dependencias para evitar recreación
+
+    // Sincronizar mensajes y conversaciones cuando hay navegación o carga inicial
     useEffect(() => {
-        // Marcar todos los mensajes del servidor como ya animados (son mensajes históricos)
-        messages.forEach((msg) => animatedMessagesRef.current.add(msg.id));
-        initialMessageCountRef.current = messages.length;
-        setLocalMessages(messages);
-        setCurrentThreadId(currentConversation?.thread_id || null);
-        setConversationTokens(currentConversation?.total_tokens || 0);
-        setSessionTokens(0); // Reset session tokens on conversation change
-    }, [messages, currentConversation]);
+        const serverThreadId = currentConversation?.thread_id || null;
+        const isConversationChange = serverThreadId !== lastServerThreadIdRef.current;
+        
+        // Siempre actualizar la lista de conversaciones del sidebar
+        setLocalConversations(serverConversations);
+        
+        // Sincronizar si hay cambio de conversación
+        if (isConversationChange) {
+            console.log('Conversation changed:', lastServerThreadIdRef.current, '->', serverThreadId);
+            lastServerThreadIdRef.current = serverThreadId;
+            
+            // Marcar todos los mensajes del servidor como ya animados (son mensajes históricos)
+            messages.forEach((msg) => animatedMessagesRef.current.add(msg.id));
+            initialMessageCountRef.current = messages.length;
+            setLocalMessages(messages);
+            setCurrentThreadId(serverThreadId);
+            setConversationTokens(currentConversation?.total_tokens || 0);
+            setSessionTokens(0);
+        }
+        
+        // Verificar si hay streaming activo y reconectarse (también aplica en refresh de página)
+        // Se ejecuta si: 1) hay cambio de conversación, O 2) hay streaming activo sin EventSource conectado
+        const needsStreamReconnect = currentConversation?.is_streaming && 
+                                     currentConversation?.thread_id && 
+                                     !eventSourceRef.current;
+        
+        if (isConversationChange || needsStreamReconnect) {
+            if (currentConversation?.is_streaming && currentConversation?.thread_id) {
+                console.log('Reconnecting to active stream:', currentConversation.thread_id);
+                setIsStreaming(true);
+                streamingContentRef.current = currentConversation.streaming_content || '';
+                setStreamingContent(streamingContentRef.current);
+                setActiveTool(currentConversation.active_tool || null);
+                // Usar endpoint resume para reconexión
+                connectToStream(currentConversation.thread_id, true);
+            } else if (isConversationChange) {
+                // Solo limpiar si hubo cambio de conversación (no en refresh)
+                setIsStreaming(false);
+                setStreamingContent('');
+                setActiveTool(null);
+                if (eventSourceRef.current) {
+                    eventSourceRef.current.close();
+                    eventSourceRef.current = null;
+                }
+            }
+        }
+    }, [serverConversations, currentConversation, connectToStream]);
+    
+    // Sincronizar mensajes del servidor cuando cambian (solo después de navegación via Inertia)
+    // Este useEffect NO debe interferir con operaciones locales (envío de mensaje, streaming)
+    useEffect(() => {
+        // No sincronizar si estamos en streaming o si no hay conversación actual
+        if (isStreaming) return;
+        
+        // Solo sincronizar si el thread actual coincide con el del servidor
+        // Esto evita sobrescribir mensajes cuando el usuario acaba de crear una conversación nueva
+        const serverThreadId = currentConversation?.thread_id;
+        if (!serverThreadId || serverThreadId !== currentThreadId) return;
+        
+        // Solo sincronizar si hay mensajes del servidor y son genuinamente diferentes
+        if (messages.length === 0) return;
+        
+        const lastServerId = messages[messages.length - 1]?.id;
+        const lastLocalId = localMessages[localMessages.length - 1]?.id;
+        
+        // Solo sincronizar si el último mensaje del servidor es diferente Y es un ID real (no temporal)
+        // Los IDs temporales (Date.now()) son muy grandes, los de BD son secuenciales pequeños
+        const isTemporaryId = lastLocalId && lastLocalId > 1000000000000;
+        
+        if (lastServerId && lastServerId !== lastLocalId && !isTemporaryId) {
+            console.log('Syncing messages from server after Inertia navigation');
+            messages.forEach((msg) => animatedMessagesRef.current.add(msg.id));
+            setLocalMessages(messages);
+            setConversationTokens(currentConversation?.total_tokens || 0);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messages]);
+
+    // Limpiar EventSource al desmontar
+    useEffect(() => {
+        return () => {
+            closeEventSource();
+        };
+    }, [closeEventSource]);
 
     // Helper para determinar si un mensaje debe animarse
     const shouldAnimateMessage = (messageId: number): boolean => {
@@ -114,6 +352,7 @@ export default function Copilot() {
         setInput('');
         setIsStreaming(true);
         setStreamingContent('');
+        streamingContentRef.current = '';
 
         // Agregar mensaje del usuario localmente
         const tempUserMessage: Message = {
@@ -123,9 +362,6 @@ export default function Copilot() {
             created_at: new Date().toISOString(),
         };
         setLocalMessages((prev) => [...prev, tempUserMessage]);
-
-        // Crear AbortController para poder cancelar
-        abortControllerRef.current = new AbortController();
 
         try {
             // Obtener CSRF token del meta tag
@@ -143,106 +379,65 @@ export default function Copilot() {
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': csrfToken,
-                    'Accept': 'text/event-stream',
+                    'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                 },
                 body: JSON.stringify({
                     message: userMessage,
                     thread_id: currentThreadId,
                 }),
-                signal: abortControllerRef.current.signal,
             });
 
             if (!response.ok) {
                 throw new Error('Error en la respuesta del servidor');
             }
 
-            const reader = response.body?.getReader();
-            const decoder = new TextDecoder();
-            let fullContent = '';
-            let newThreadId = currentThreadId;
+            const data = await response.json();
+            console.log('Send response:', data);
 
-            if (reader) {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+            // Actualizar thread_id si es nueva conversación
+            const newThreadId = data.thread_id || currentThreadId;
+            if (data.thread_id) {
+                setCurrentThreadId(data.thread_id);
+                // Actualizar ref para evitar que useEffect resetee
+                lastServerThreadIdRef.current = data.thread_id;
+            }
 
-                    const text = decoder.decode(value, { stream: true });
-                    const lines = text.split('\n');
+            // Si es nueva conversación, agregar al sidebar
+            if (data.is_new_conversation && data.thread_id) {
+                // Agregar la nueva conversación al estado local del sidebar
+                const newConversation: Conversation = {
+                    id: Date.now(), // ID temporal
+                    thread_id: data.thread_id,
+                    title: userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : ''),
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                };
+                setLocalConversations((prev) => [newConversation, ...prev]);
+                
+                // NO actualizamos la URL aquí, esperamos a que termine el stream
+            }
 
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const data = JSON.parse(line.slice(6));
-
-                                if (data.type === 'start') {
-                                    newThreadId = data.thread_id;
-                                    setCurrentThreadId(data.thread_id);
-                                } else if (data.type === 'tool_start') {
-                                    setActiveTool({
-                                        label: data.label,
-                                        icon: data.icon,
-                                    });
-                                } else if (data.type === 'tool_end') {
-                                    setActiveTool(null);
-                                } else if (data.type === 'chunk') {
-                                    setActiveTool(null); // Limpiar tool cuando empieza el texto
-                                    fullContent += data.content;
-                                    setStreamingContent(fullContent);
-                                } else if (data.type === 'done') {
-                                    // Agregar mensaje del asistente cuando termina
-                                    const assistantMessage: Message = {
-                                        id: Date.now() + 1,
-                                        role: 'assistant',
-                                        content: fullContent,
-                                        created_at: new Date().toISOString(),
-                                    };
-                                    setLocalMessages((prev) => [
-                                        ...prev,
-                                        assistantMessage,
-                                    ]);
-                                    setStreamingContent('');
-
-                                    // Acumular tokens de esta sesión
-                                    if (data.tokens && data.tokens.total_tokens > 0) {
-                                        setSessionTokens((prev) => prev + data.tokens.total_tokens);
-                                        setConversationTokens((prev) => prev + data.tokens.total_tokens);
-                                    }
-
-                                    // Si es nueva conversación, redirigir
-                                    if (
-                                        newThreadId &&
-                                        newThreadId !== currentConversation?.thread_id
-                                    ) {
-                                        router.visit(show.url(newThreadId), {
-                                            preserveState: false,
-                                        });
-                                    }
-                                }
-                            } catch {
-                                // Ignorar líneas que no son JSON válido
-                            }
-                        }
-                    }
-                }
+            // Conectar al stream SSE para recibir chunks en tiempo real
+            // Redis ya fue inicializado en el backend antes de despachar el Job
+            if (newThreadId) {
+                console.log('Connecting to stream:', newThreadId);
+                connectToStream(newThreadId, false);
             }
         } catch (error) {
-            if ((error as Error).name !== 'AbortError') {
-                console.error('Error en streaming:', error);
-                // Mostrar mensaje de error
-                const errorMessage: Message = {
-                    id: Date.now() + 1,
-                    role: 'assistant',
-                    content: 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.',
-                    created_at: new Date().toISOString(),
-                };
-                setLocalMessages((prev) => [...prev, errorMessage]);
-            }
-        } finally {
+            console.error('Error al enviar mensaje:', error);
             setIsStreaming(false);
             setStreamingContent('');
             setActiveTool(null);
-            abortControllerRef.current = null;
+
+            // Mostrar mensaje de error
+            const errorMessage: Message = {
+                id: Date.now() + 1,
+                role: 'assistant',
+                content: 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.',
+                created_at: new Date().toISOString(),
+            };
+            setLocalMessages((prev) => [...prev, errorMessage]);
         }
     };
 
@@ -272,8 +467,8 @@ export default function Copilot() {
 
     return (
         <CopilotLayout
-            conversations={conversations}
-            currentThreadId={currentConversation?.thread_id || null}
+            conversations={localConversations}
+            currentThreadId={currentThreadId}
         >
             <Head title="Copilot" />
 

@@ -30,6 +30,106 @@ class SamsaraClient
     }
 
     /**
+     * Get all drivers from Samsara API with pagination support.
+     * 
+     * @param array $params Optional query parameters (limit, tagIds, driverActivationStatus, etc.)
+     * @return array All drivers data combined from all pages
+     * 
+     * @see https://developers.samsara.com/reference/listdrivers
+     */
+    public function getDrivers(array $params = []): array
+    {
+        $allDrivers = [];
+        $cursor = null;
+        $hasNextPage = true;
+
+        while ($hasNextPage) {
+            $queryParams = $params;
+            
+            if ($cursor) {
+                $queryParams['after'] = $cursor;
+            }
+
+            /** @var Response $response */
+            $response = $this->client()->get('/fleet/drivers', $queryParams);
+
+            if (!$response->successful()) {
+                throw new \Exception(
+                    'Failed to fetch drivers from Samsara API: ' . $response->body(),
+                    $response->status()
+                );
+            }
+
+            $data = $response->json();
+
+            // Merge drivers from this page
+            if (isset($data['data']) && is_array($data['data'])) {
+                $allDrivers = array_merge($allDrivers, $data['data']);
+            }
+
+            // Check for next page
+            $hasNextPage = $data['pagination']['hasNextPage'] ?? false;
+            $cursor = $data['pagination']['endCursor'] ?? null;
+        }
+
+        return $allDrivers;
+    }
+
+    /**
+     * Get drivers with pagination info (single page).
+     * 
+     * @param string|null $cursor Pagination cursor
+     * @param int $limit Number of results per page
+     * @param string|null $driverActivationStatus Filter by activation status (active, deactivated)
+     * @return array Response with data and pagination info
+     */
+    public function getDriversPage(?string $cursor = null, int $limit = 100, ?string $driverActivationStatus = null): array
+    {
+        $params = ['limit' => $limit];
+        
+        if ($cursor) {
+            $params['after'] = $cursor;
+        }
+
+        if ($driverActivationStatus) {
+            $params['driverActivationStatus'] = $driverActivationStatus;
+        }
+
+        /** @var Response $response */
+        $response = $this->client()->get('/fleet/drivers', $params);
+
+        if (!$response->successful()) {
+            throw new \Exception(
+                'Failed to fetch drivers from Samsara API: ' . $response->body(),
+                $response->status()
+            );
+        }
+
+        return $response->json();
+    }
+
+    /**
+     * Get a single driver by ID.
+     * 
+     * @param string $driverId The Samsara driver ID
+     * @return array Driver data
+     */
+    public function getDriver(string $driverId): array
+    {
+        /** @var Response $response */
+        $response = $this->client()->get("/fleet/drivers/{$driverId}");
+
+        if (!$response->successful()) {
+            throw new \Exception(
+                "Failed to fetch driver {$driverId} from Samsara API: " . $response->body(),
+                $response->status()
+            );
+        }
+
+        return $response->json()['data'] ?? [];
+    }
+
+    /**
      * Get all vehicles from Samsara API with pagination support.
      * 
      * @param array $params Optional query parameters (limit, tagIds, etc.)

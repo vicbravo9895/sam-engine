@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Vehicle extends Model
 {
@@ -48,6 +49,7 @@ class Vehicle extends Model
         'external_ids',
         'sensor_configuration',
         'static_assigned_driver',
+        'assigned_driver_samsara_id',
         'tags',
         'samsara_created_at',
         'samsara_updated_at',
@@ -75,6 +77,16 @@ class Vehicle extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * Get the statically assigned driver for this vehicle.
+     * 
+     * Cross-references the drivers table using the Samsara ID.
+     */
+    public function assignedDriver(): HasOne
+    {
+        return $this->hasOne(Driver::class, 'samsara_id', 'assigned_driver_samsara_id');
     }
 
     /**
@@ -184,6 +196,7 @@ class Vehicle extends Model
             'external_ids' => $data['externalIds'] ?? null,
             'sensor_configuration' => $data['sensorConfiguration'] ?? null,
             'static_assigned_driver' => $data['staticAssignedDriver'] ?? null,
+            'assigned_driver_samsara_id' => $data['staticAssignedDriver']['id'] ?? null,
             'tags' => $data['tags'] ?? null,
             'samsara_created_at' => isset($data['createdAtTime']) ? \Carbon\Carbon::parse($data['createdAtTime']) : null,
             'samsara_updated_at' => isset($data['updatedAtTime']) ? \Carbon\Carbon::parse($data['updatedAtTime']) : null,

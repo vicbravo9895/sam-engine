@@ -97,6 +97,12 @@ services:
         container_name: ai-service
         env_file:
             - ./ai-service/.env
+        environment:
+            # Concurrency settings - ajustar según capacidad del servidor
+            # MAX_CONCURRENT_REQUESTS controla cuántas alertas se procesan en paralelo
+            MAX_CONCURRENT_REQUESTS: ${AI_MAX_CONCURRENT_REQUESTS:-5}
+            SEMAPHORE_TIMEOUT: ${AI_SEMAPHORE_TIMEOUT:-30.0}
+            RATE_LIMITING_ENABLED: ${AI_RATE_LIMITING_ENABLED:-true}
         ports:
             - '8000:8000'
         networks:
@@ -104,6 +110,17 @@ services:
         depends_on:
             - redis
         restart: unless-stopped
+        deploy:
+            resources:
+                limits:
+                    memory: 1G
+                reservations:
+                    memory: 512M
+        # ESCALADO HORIZONTAL:
+        # Para producción con múltiples instancias:
+        # 1. Remover container_name y ports
+        # 2. Usar un load balancer (nginx, traefik, etc.)
+        # 3. Ejecutar: docker compose up --scale ai-service=3
     
     # ============================================================================
     # LANGFUSE OBSERVABILITY PLATFORM

@@ -36,8 +36,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     
     // Copilot routes
     Route::get('copilot', [CopilotController::class, 'index'])->name('copilot.index');
-    Route::get('copilot/{threadId}', [CopilotController::class, 'show'])->name('copilot.show');
     Route::post('copilot/send', [CopilotController::class, 'send'])->name('copilot.send');
+    // SSE endpoints para streaming en tiempo real (ANTES de la ruta con wildcard)
+    Route::get('copilot/sse/stream/{threadId}', [CopilotController::class, 'stream'])->name('copilot.sse.stream');
+    Route::get('copilot/sse/resume/{threadId}', [CopilotController::class, 'resume'])->name('copilot.sse.resume');
+    // Fallback polling endpoint
+    Route::get('copilot/stream/{threadId}', [CopilotController::class, 'streamProgress'])->name('copilot.stream.progress');
+    // Esta ruta debe ir AL FINAL porque {threadId} es un wildcard
+    Route::get('copilot/{threadId}', [CopilotController::class, 'show'])->name('copilot.show');
     Route::delete('copilot/{threadId}', [CopilotController::class, 'destroy'])->name('copilot.destroy');
 
     // Samsara alerts routes

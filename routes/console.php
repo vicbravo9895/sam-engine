@@ -1,8 +1,36 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+use Illuminate\Support\Facades\Schedule;
+
+
+/*
+|--------------------------------------------------------------------------
+| Scheduled Commands
+|--------------------------------------------------------------------------
+|
+| Here you may define all of your scheduled commands. Commands are run
+| in a single, sequential process to avoid race conditions.
+|
+*/
+
+// Sync vehicles from Samsara API every 5 minutes
+Schedule::command('samsara:sync-vehicles')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/vehicle-sync.log'));
+
+// Sync drivers from Samsara API every 5 minutes
+Schedule::command('samsara:sync-drivers')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/driver-sync.log'));
+
+// Sync tags from Samsara API once daily at 3:00 AM
+Schedule::command('samsara:sync-tags')
+    ->dailyAt('03:00')
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/tag-sync.log'));

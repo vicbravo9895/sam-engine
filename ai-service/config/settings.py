@@ -11,6 +11,24 @@ load_dotenv()
 
 
 # ============================================================================
+# CONFIGURACIÓN DE CONCURRENCIA Y ESCALABILIDAD
+# ============================================================================
+class ConcurrencyConfig:
+    """Configuración para control de concurrencia del servicio."""
+    
+    # Máximo de peticiones procesándose simultáneamente
+    # Esto protege contra sobrecarga de memoria y rate limits de OpenAI
+    MAX_CONCURRENT_REQUESTS = int(os.getenv("MAX_CONCURRENT_REQUESTS", "5"))
+    
+    # Timeout para adquirir el semáforo (segundos)
+    # Si se excede, retorna 503 Service Unavailable
+    SEMAPHORE_TIMEOUT = float(os.getenv("SEMAPHORE_TIMEOUT", "30.0"))
+    
+    # Habilitar/deshabilitar el rate limiting
+    RATE_LIMITING_ENABLED = os.getenv("RATE_LIMITING_ENABLED", "true").lower() == "true"
+
+
+# ============================================================================
 # CONFIGURACIÓN DE SAMSARA API
 # ============================================================================
 class SamsaraConfig:

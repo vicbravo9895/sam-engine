@@ -125,6 +125,18 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'payload' => $enrichedPayload,
                 ]);
 
+            // Manejar 503 (Service at Capacity) - el AI Service está sobrecargado
+            // Laravel reintentará automáticamente después del backoff
+            if ($response->status() === 503) {
+                $stats = $response->json('stats', []);
+                Log::warning("AI service at capacity, will retry", [
+                    'event_id' => $this->event->id,
+                    'attempt' => $this->attempts(),
+                    'ai_stats' => $stats,
+                ]);
+                throw new \Exception("AI service at capacity. Active: {$stats['active_requests'] ?? '?'}, Pending: {$stats['pending_requests'] ?? '?'}");
+            }
+
             if ($response->failed()) {
                 throw new \Exception("AI service returned error: " . $response->body());
             }

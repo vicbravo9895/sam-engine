@@ -196,17 +196,69 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Queue Worker Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configuración optimizada para el procesamiento de alertas de Samsara.
+    | 
+    | IMPORTANTE: El número de workers debe coordinarse con MAX_CONCURRENT_REQUESTS
+    | del AI Service para evitar cuellos de botella:
+    |
+    | - Si AI Service tiene MAX_CONCURRENT_REQUESTS=5
+    | - Y tienes maxProcesses=10 en Horizon
+    | - Entonces 5 jobs esperarán mientras los otros 5 se procesan
+    |
+    | Recomendación: maxProcesses <= MAX_CONCURRENT_REQUESTS * num_ai_instances
+    |
+    */
+
     'defaults' => [
-        'supervisor-1' => [
+        // Supervisor para alertas de Samsara (alta prioridad)
+        'samsara-supervisor' => [
             'connection' => 'redis',
-            'queue' => ['default', 'samsara-events', 'samsara-revalidation'],
+            'queue' => ['samsara-events'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
             'maxProcesses' => 1,
+            'minProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 300,  // 5 minutos - el pipeline AI puede tardar
+            'nice' => 0,
+        ],
+        
+        // Supervisor para revalidaciones (prioridad media)
+        'revalidation-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['samsara-revalidation'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 1,
+            'minProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 300,
+            'nice' => 0,
+        ],
+        
+        // Supervisor para tareas generales (baja prioridad)
+        'default-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['default'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 1,
+            'minProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
             'memory' => 128,
-            'tries' => 1,
+            'tries' => 3,
             'timeout' => 60,
             'nice' => 0,
         ],
@@ -214,16 +266,41 @@ return [
 
     'environments' => [
         'production' => [
-            'supervisor-1' => [
-                'maxProcesses' => 10,
+            // Alertas nuevas: alta prioridad, más workers
+            'samsara-supervisor' => [
+                'maxProcesses' => 5,  // Coordinar con MAX_CONCURRENT_REQUESTS del AI Service
+                'minProcesses' => 2,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
+            ],
+            
+            // Revalidaciones: menos urgentes, menos workers
+            'revalidation-supervisor' => [
+                'maxProcesses' => 3,
+                'minProcesses' => 1,
+                'balanceMaxShift' => 1,
+                'balanceCooldown' => 3,
+            ],
+            
+            // Default: tareas de fondo
+            'default-supervisor' => [
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
             ],
         ],
 
         'local' => [
-            'supervisor-1' => [
+            'samsara-supervisor' => [
                 'maxProcesses' => 3,
+                'minProcesses' => 1,
+            ],
+            'revalidation-supervisor' => [
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
+            ],
+            'default-supervisor' => [
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
             ],
         ],
     ],

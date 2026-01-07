@@ -21,29 +21,17 @@ class GetVehicles extends Tool
      */
     private const CACHE_KEY_LAST_SYNC = 'vehicles_last_sync';
 
-    /**
-     * Minimum time between API syncs (in seconds).
-     * Default: 5 minutes.
-     */
-    private const SYNC_INTERVAL = 300;
-
     public function __construct()
     {
         parent::__construct(
             'GetVehicles',
-            'Obtener información de los vehículos de la flota. Devuelve la lista completa de vehículos con sus detalles como nombre, VIN, marca, modelo, matrícula, etc. Puede filtrar por tags/grupos. Los datos se sincronizan automáticamente con la API de Samsara cuando es necesario.'
+            'Obtener información de los vehículos de la flota. Devuelve la lista completa de vehículos con sus detalles como nombre, VIN, marca, modelo, matrícula, etc. Puede filtrar por tags/grupos. Los datos se sincronizan automáticamente en segundo plano cada 5 minutos.'
         );
     }
 
     protected function properties(): array
     {
         return [
-            new ToolProperty(
-                name: 'force_sync',
-                type: PropertyType::BOOLEAN,
-                description: 'Forzar sincronización con la API de Samsara aunque los datos estén actualizados. Por defecto es false.',
-                required: false,
-            ),
             new ToolProperty(
                 name: 'search',
                 type: PropertyType::STRING,
@@ -78,7 +66,6 @@ class GetVehicles extends Tool
     }
 
     public function __invoke(
-        bool $force_sync = false,
         ?string $search = null,
         ?string $tag_ids = null,
         ?string $tag_name = null,
@@ -92,13 +79,6 @@ class GetVehicles extends Tool
             // Check if company has Samsara access
             if (!$this->hasSamsaraAccess()) {
                 return $this->noSamsaraAccessResponse();
-            }
-
-            // Check if we need to sync from API
-            $shouldSync = $force_sync || $this->shouldSyncFromApi();
-
-            if ($shouldSync) {
-                $syncResult = $this->syncVehiclesFromApi();
             }
 
             // Collect vehicle IDs from tags if filtering by tag
@@ -154,9 +134,7 @@ class GetVehicles extends Tool
             // Build response
             $response = [
                 'total_vehicles' => $totalCount,
-                'sync_status' => $shouldSync
-                    ? ($syncResult ?? 'Sincronizado')
-                    : 'Datos desde caché (última sincronización: ' . $this->getLastSyncTime() . ')',
+                'data_source' => 'Datos desde base de datos (sincronización automática: ' . $this->getLastSyncTime() . ')',
             ];
 
             // Add tag filter info if applicable
@@ -295,21 +273,6 @@ class GetVehicles extends Tool
     }
 
     /**
-     * Check if we should sync from the API based on the last sync time.
-     */
-    protected function shouldSyncFromApi(): bool
-    {
-        $cacheKey = $this->companyCacheKey(self::CACHE_KEY_LAST_SYNC);
-        $lastSync = Cache::get($cacheKey);
-
-        if (!$lastSync) {
-            return true;
-        }
-
-        return (time() - $lastSync) > self::SYNC_INTERVAL;
-    }
-
-    /**
      * Get the last sync time as a human-readable string.
      */
     protected function getLastSyncTime(): string
@@ -318,50 +281,9 @@ class GetVehicles extends Tool
         $lastSync = Cache::get($cacheKey);
 
         if (!$lastSync) {
-            return 'nunca';
+            return 'pendiente';
         }
 
         return \Carbon\Carbon::createFromTimestamp($lastSync)->diffForHumans();
     }
-
-    /**
-     * Sync vehicles from Samsara API to database.
-     */
-    protected function syncVehiclesFromApi(): string
-    {
-        $companyId = $this->getCompanyId();
-        $client = $this->createSamsaraClient();
-        $vehicles = $client->getVehicles();
-
-        $created = 0;
-        $updated = 0;
-        $unchanged = 0;
-
-        foreach ($vehicles as $vehicleData) {
-            $existingVehicle = Vehicle::forCompany($companyId)
-                ->where('samsara_id', $vehicleData['id'])
-                ->first();
-            $dataHash = Vehicle::generateDataHash($vehicleData);
-
-            if (!$existingVehicle) {
-                // New vehicle - associate with company
-                Vehicle::syncFromSamsara($vehicleData, $companyId);
-                $created++;
-            } elseif ($existingVehicle->data_hash !== $dataHash) {
-                // Vehicle changed
-                Vehicle::syncFromSamsara($vehicleData, $companyId);
-                $updated++;
-            } else {
-                // No changes
-                $unchanged++;
-            }
-        }
-
-        // Update last sync timestamp (company-specific)
-        $cacheKey = $this->companyCacheKey(self::CACHE_KEY_LAST_SYNC);
-        Cache::put($cacheKey, time());
-
-        return "Sincronización completada: {$created} creados, {$updated} actualizados, {$unchanged} sin cambios.";
-    }
 }
-
