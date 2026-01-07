@@ -24,9 +24,6 @@ export function DashcamMediaCard({ data }: DashcamMediaCardProps) {
     const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState<'all' | 'road' | 'driver'>('all');
 
-    // Debug: log image URLs
-    console.log('DashcamMediaCard images:', data.images.map(img => img.url));
-
     const formatTimestamp = (timestamp: string) => {
         const date = new Date(timestamp);
         return date.toLocaleString('es-MX', {
@@ -183,9 +180,6 @@ export function DashcamMediaCard({ data }: DashcamMediaCardProps) {
                                 alt={image.typeDescription}
                                 className="size-full object-cover transition-opacity group-hover:opacity-90"
                                 loading="lazy"
-                                onError={(e) => {
-                                    console.error('Image load error:', image.url);
-                                }}
                             />
                             {/* Type Badge */}
                             <div

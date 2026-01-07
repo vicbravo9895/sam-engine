@@ -169,7 +169,7 @@ export function ReviewPanel({
             const data = await response.json();
             setComments(data.data);
         } catch (error) {
-            console.error('Error fetching comments:', error);
+            // Error fetching comments
         } finally {
             setIsLoadingComments(false);
         }
@@ -183,7 +183,7 @@ export function ReviewPanel({
             const data = await response.json();
             setActivities(data.data);
         } catch (error) {
-            console.error('Error fetching activities:', error);
+            // Error fetching activities
         } finally {
             setIsLoadingActivities(false);
         }
@@ -223,7 +223,7 @@ export function ReviewPanel({
             // Refresh page data
             router.reload({ only: ['events', 'stats'] });
         } catch (error) {
-            console.error('Error changing status:', error);
+            // Error changing status
         } finally {
             setIsChangingStatus(false);
         }
@@ -258,7 +258,7 @@ export function ReviewPanel({
             setNewComment('');
             fetchActivities();
         } catch (error) {
-            console.error('Error submitting comment:', error);
+            // Error submitting comment
         } finally {
             setIsSubmitting(false);
         }

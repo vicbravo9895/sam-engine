@@ -117,15 +117,12 @@ export default function Copilot() {
             ? resume.url(threadId)
             : stream.url(threadId);
         
-        console.log('Connecting to SSE:', endpoint, { isResume, threadId });
-        
         const eventSource = new EventSource(endpoint, { withCredentials: true });
         eventSourceRef.current = eventSource;
         
         eventSource.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                console.log('SSE message:', data.type);
                 
                 switch (data.type) {
                     case 'resume_state':
@@ -156,7 +153,6 @@ export default function Copilot() {
                         
                     case 'stream_end':
                         // Stream completado
-                        console.log('Stream ended', { threadId: currentStreamThreadIdRef.current });
                         if (eventSourceRef.current) {
                             eventSourceRef.current.close();
                             eventSourceRef.current = null;
@@ -204,7 +200,6 @@ export default function Copilot() {
                         
                     case 'no_active_stream':
                         // No hay stream activo, cerrar conexión y recargar mensajes
-                        console.log('No active stream found, reloading messages');
                         if (eventSourceRef.current) {
                             eventSourceRef.current.close();
                             eventSourceRef.current = null;
@@ -217,12 +212,11 @@ export default function Copilot() {
                         break;
                 }
             } catch (err) {
-                console.error('Error parsing SSE message:', err);
+                // Error parsing SSE message
             }
         };
         
-        eventSource.onerror = (err) => {
-            console.error('SSE error:', err);
+        eventSource.onerror = () => {
             if (eventSourceRef.current) {
                 eventSourceRef.current.close();
                 eventSourceRef.current = null;
@@ -244,7 +238,6 @@ export default function Copilot() {
         
         // Sincronizar si hay cambio de conversación
         if (isConversationChange) {
-            console.log('Conversation changed:', lastServerThreadIdRef.current, '->', serverThreadId);
             lastServerThreadIdRef.current = serverThreadId;
             
             // Marcar todos los mensajes del servidor como ya animados (son mensajes históricos)
@@ -264,7 +257,6 @@ export default function Copilot() {
         
         if (isConversationChange || needsStreamReconnect) {
             if (currentConversation?.is_streaming && currentConversation?.thread_id) {
-                console.log('Reconnecting to active stream:', currentConversation.thread_id);
                 setIsStreaming(true);
                 streamingContentRef.current = currentConversation.streaming_content || '';
                 setStreamingContent(streamingContentRef.current);
@@ -306,7 +298,6 @@ export default function Copilot() {
         const isTemporaryId = lastLocalId && lastLocalId > 1000000000000;
         
         if (lastServerId && lastServerId !== lastLocalId && !isTemporaryId) {
-            console.log('Syncing messages from server after Inertia navigation');
             messages.forEach((msg) => animatedMessagesRef.current.add(msg.id));
             setLocalMessages(messages);
             setConversationTokens(currentConversation?.total_tokens || 0);
@@ -393,7 +384,6 @@ export default function Copilot() {
             }
 
             const data = await response.json();
-            console.log('Send response:', data);
 
             // Actualizar thread_id si es nueva conversación
             const newThreadId = data.thread_id || currentThreadId;
@@ -421,11 +411,9 @@ export default function Copilot() {
             // Conectar al stream SSE para recibir chunks en tiempo real
             // Redis ya fue inicializado en el backend antes de despachar el Job
             if (newThreadId) {
-                console.log('Connecting to stream:', newThreadId);
                 connectToStream(newThreadId, false);
             }
         } catch (error) {
-            console.error('Error al enviar mensaje:', error);
             setIsStreaming(false);
             setStreamingContent('');
             setActiveTool(null);

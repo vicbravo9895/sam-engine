@@ -144,7 +144,7 @@ return [
     */
 
     'features' => [
-        Features::registration(),
+        // Features::registration(), // Registro deshabilitado
         Features::resetPasswords(),
         Features::emailVerification(),
         Features::twoFactorAuthentication([

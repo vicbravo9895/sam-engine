@@ -129,7 +129,6 @@ export function usePWA(): UsePWAReturn {
 
     const installApp = useCallback(async (): Promise<boolean> => {
         if (!deferredPrompt) {
-            console.log('[PWA] No install prompt available');
             return false;
         }
 
@@ -138,17 +137,14 @@ export function usePWA(): UsePWAReturn {
             const choiceResult = await deferredPrompt.userChoice;
 
             if (choiceResult.outcome === 'accepted') {
-                console.log('[PWA] User accepted the install prompt');
                 setState((prev) => ({ ...prev, isInstallable: false, isInstalled: true }));
                 setDeferredPrompt(null);
                 window.deferredPWAPrompt = undefined;
                 return true;
             } else {
-                console.log('[PWA] User dismissed the install prompt');
                 return false;
             }
         } catch (error) {
-            console.error('[PWA] Error during installation:', error);
             return false;
         }
     }, [deferredPrompt]);
@@ -158,18 +154,14 @@ export function usePWA(): UsePWAReturn {
 
         // Si tenemos un waiting worker guardado, usarlo
         if (waitingWorker) {
-            console.log('[PWA] Sending SKIP_WAITING to waiting worker');
             waitingWorker.postMessage({ type: 'SKIP_WAITING' });
         } else {
             // Intentar obtener el waiting worker directamente
-            console.log('[PWA] No cached waiting worker, checking registration...');
             navigator.serviceWorker.ready.then((registration) => {
                 if (registration.waiting) {
-                    console.log('[PWA] Found waiting worker in registration');
                     registration.waiting.postMessage({ type: 'SKIP_WAITING' });
                 } else {
                     // No hay waiting worker - forzar recarga para obtener nueva versión
-                    console.log('[PWA] No waiting worker found, forcing reload');
                     window.location.reload();
                 }
             });
@@ -177,7 +169,6 @@ export function usePWA(): UsePWAReturn {
 
         // Escuchar cuando el nuevo SW tome control y recargar
         const handleControllerChange = () => {
-            console.log('[PWA] Controller changed, reloading...');
             window.location.reload();
         };
 
@@ -185,7 +176,6 @@ export function usePWA(): UsePWAReturn {
 
         // Timeout de seguridad: si no recarga en 3 segundos, forzar recarga
         setTimeout(() => {
-            console.log('[PWA] Timeout reached, forcing reload');
             window.location.reload();
         }, 3000);
     }, [waitingWorker]);
