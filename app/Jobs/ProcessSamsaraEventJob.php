@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Traits\PersistsEvidenceImages;
 use App\Models\SamsaraEvent;
 use App\Services\ContactResolver;
 use App\Services\SamsaraClient;
@@ -26,7 +27,7 @@ use Illuminate\Support\Facades\Log;
  */
 class ProcessSamsaraEventJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, PersistsEvidenceImages;
 
     /**
      * Número de intentos antes de fallar
@@ -190,9 +191,16 @@ class ProcessSamsaraEventJob implements ShouldQueue
             $notificationDecision = $result['notification_decision'] ?? null;
             $notificationExecution = $result['notification_execution'] ?? null;
             $execution = $result['execution'] ?? null;
+            $cameraAnalysis = $result['camera_analysis'] ?? null;
             
             // Persistir imágenes de evidencia si existen
-            $execution = $this->persistEvidenceImages($execution);
+            // Esto descarga las imágenes de Samsara y las guarda localmente
+            [$execution, $cameraAnalysis] = $this->persistEvidenceImages($execution, $cameraAnalysis);
+
+            // Agregar camera_analysis al execution para que se guarde en ai_actions
+            if ($cameraAnalysis) {
+                $execution['camera_analysis'] = $cameraAnalysis;
+            }
 
             // Extraer información de monitoreo desde el assessment
             $requiresMonitoring = $assessment['requires_monitoring'] ?? false;
@@ -318,115 +326,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
         }
     }
 
-    /**
-     * Persiste las imágenes de evidencia desde las URLs de Samsara
-     * 
-     * @param array|null $execution Los execution del resultado de AI
-     * @return array|null Los execution actualizados con las URLs locales
-     */
-    private function persistEvidenceImages(?array $execution): ?array
-    {
-        if (!$execution) {
-            Log::debug("persistEvidenceImages: execution is null, returning null");
-            return null;
-        }
-
-        Log::debug("persistEvidenceImages: Starting to process execution", [
-            'event_id' => $this->event->id,
-            'agents_count' => count($execution['agents'] ?? []),
-        ]);
-
-        try {
-            $totalMediaUrlsFound = 0;
-            $totalDownloaded = 0;
-
-            // Buscar media_urls en los agents (estructura: execution.agents[].tools[].media_urls)
-            foreach ($execution['agents'] ?? [] as $agentIndex => $agent) {
-                $agentName = $agent['name'] ?? "agent_{$agentIndex}";
-
-                foreach ($agent['tools'] ?? [] as $toolIndex => $tool) {
-                    $toolName = $tool['name'] ?? "tool_{$toolIndex}";
-
-                    if (!empty($tool['media_urls'])) {
-                        $totalMediaUrlsFound += count($tool['media_urls']);
-
-                        Log::debug("persistEvidenceImages: Found media_urls in tool", [
-                            'event_id' => $this->event->id,
-                            'agent_name' => $agentName,
-                            'tool_name' => $toolName,
-                            'media_urls_count' => count($tool['media_urls']),
-                        ]);
-
-                        $localUrls = [];
-                        foreach ($tool['media_urls'] as $samsaraUrl) {
-                            $localUrl = $this->downloadAndStoreImage($samsaraUrl);
-                            if ($localUrl) {
-                                $localUrls[] = $localUrl;
-                                $totalDownloaded++;
-                            }
-                        }
-                        // Reemplazar con URLs locales
-                        if (!empty($localUrls)) {
-                            $execution['agents'][$agentIndex]['tools'][$toolIndex]['media_urls'] = $localUrls;
-                        }
-                    }
-                }
-            }
-
-            Log::info("persistEvidenceImages: Completed", [
-                'event_id' => $this->event->id,
-                'total_media_urls_found' => $totalMediaUrlsFound,
-                'total_downloaded' => $totalDownloaded,
-            ]);
-        } catch (\Exception $e) {
-            Log::warning("Failed to persist evidence images", [
-                'event_id' => $this->event->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return $execution;
-    }
-
-    /**
-     * Descarga una imagen de una URL y la guarda localmente
-     * 
-     * @param string $url URL de la imagen (S3 de Samsara)
-     * @return string|null URL local de la imagen guardada
-     */
-    private function downloadAndStoreImage(string $url): ?string
-    {
-        try {
-            // Descargar imagen
-            $response = Http::timeout(30)->get($url);
-
-            if (!$response->successful()) {
-                Log::warning("Failed to download image", ['url' => substr($url, 0, 100)]);
-                return null;
-            }
-
-            // Generar nombre único
-            $filename = \Illuminate\Support\Str::uuid() . '.jpg';
-            $path = "evidence/{$filename}";
-
-            // Guardar usando Storage (public disk)
-            \Illuminate\Support\Facades\Storage::disk('public')->put($path, $response->body());
-
-            Log::debug("Evidence image saved", [
-                'event_id' => $this->event->id,
-                'path' => $path,
-            ]);
-
-            // Retornar URL pública
-            return "/storage/{$path}";
-        } catch (\Exception $e) {
-            Log::warning("Error storing image", [
-                'url' => substr($url, 0, 100),
-                'error' => $e->getMessage(),
-            ]);
-            return null;
-        }
-    }
+    // Métodos persistEvidenceImages y downloadAndStoreImage están en el trait PersistsEvidenceImages
 
     /**
      * Actualiza la descripción del evento si se encontró un behavior_name más específico

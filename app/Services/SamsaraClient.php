@@ -34,6 +34,180 @@ class SamsaraClient
     }
 
     /**
+     * Recarga datos de Samsara para una REVALIDACIÓN.
+     * 
+     * A diferencia de preloadAllData(), este método usa ventanas de tiempo
+     * ACTUALIZADAS desde la última investigación hasta ahora.
+     * 
+     * @param string $vehicleId ID del vehículo
+     * @param string $originalEventTime Timestamp ISO 8601 del evento original
+     * @param string $lastInvestigationTime Timestamp de la última investigación
+     * @param bool $isSafetyEvent Si es un safety event
+     * @return array Datos actualizados para revalidación
+     */
+    public function reloadDataForRevalidation(
+        string $vehicleId,
+        string $originalEventTime,
+        string $lastInvestigationTime,
+        bool $isSafetyEvent = false
+    ): array {
+        if (empty($this->apiToken)) {
+            Log::warning('SamsaraClient: API token not configured, skipping reload');
+            return [];
+        }
+
+        $originalDt = Carbon::parse($originalEventTime);
+        $lastCheckDt = Carbon::parse($lastInvestigationTime);
+        // IMPORTANTE: Usar 60 segundos atrás para evitar error "End time cannot be in the future"
+        // Samsara rechaza timestamps que sean muy cercanos o en el futuro
+        $nowDt = Carbon::now()->subSeconds(60);
+
+        Log::info('SamsaraClient: Starting revalidation data reload', [
+            'vehicle_id' => $vehicleId,
+            'original_event_time' => $originalEventTime,
+            'last_investigation_time' => $lastInvestigationTime,
+            'now_adjusted' => $nowDt->toIso8601String(),
+        ]);
+
+        $startTime = microtime(true);
+
+        // Para revalidaciones, usamos ventanas que capturan lo NUEVO:
+        // - Vehicle stats: desde última investigación hasta ahora
+        // - Safety events: desde última investigación hasta ahora (buscar nuevos eventos)
+        // - Camera media: desde última investigación hasta ahora (buscar nuevas imágenes)
+        // - Vehicle info y driver assignment: siempre frescos (pueden cambiar)
+
+        $responses = Http::pool(fn (Pool $pool) => [
+            // 1. Vehicle Info (información estática - siempre fresco)
+            $pool->as('vehicle_info')
+                ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+                ->timeout(15)
+                ->get("{$this->baseUrl}/fleet/vehicles/{$vehicleId}"),
+            
+            // 2. Driver Assignment (puede haber cambiado de conductor)
+            $pool->as('driver_assignment')
+                ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+                ->timeout(15)
+                ->get("{$this->baseUrl}/fleet/driver-vehicle-assignments", [
+                    'filterBy' => 'vehicles',
+                    'vehicleIds' => $vehicleId,
+                ]),
+            
+            // 3. Vehicle Stats - DESDE última investigación hasta ahora
+            $pool->as('vehicle_stats')
+                ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+                ->timeout(15)
+                ->get("{$this->baseUrl}/fleet/vehicles/stats/history", [
+                    'vehicleIds' => $vehicleId,
+                    'startTime' => $lastCheckDt->toIso8601String(),
+                    'endTime' => $nowDt->toIso8601String(),
+                    'types' => 'gps,engineStates',
+                ]),
+            
+            // 4. Safety Events - DESDE última investigación hasta ahora
+            // Buscar si hubo NUEVOS eventos de seguridad
+            $pool->as('safety_events_new')
+                ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+                ->timeout(15)
+                ->get("{$this->baseUrl}/fleet/safety-events", [
+                    'vehicleIds' => $vehicleId,
+                    'startTime' => $lastCheckDt->toIso8601String(),
+                    'endTime' => $nowDt->toIso8601String(),
+                ]),
+            
+            // 5. Camera Media - DESDE última investigación hasta ahora
+            $pool->as('camera_media_new')
+                ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+                ->timeout(15)
+                ->get("{$this->baseUrl}/cameras/media", [
+                    'vehicleIds' => $vehicleId,
+                    'startTime' => $lastCheckDt->toIso8601String(),
+                    'endTime' => $nowDt->toIso8601String(),
+                ]),
+        ]);
+
+        $duration = round((microtime(true) - $startTime) * 1000);
+
+        Log::info('SamsaraClient: Revalidation data reload completed', [
+            'vehicle_id' => $vehicleId,
+            'duration_ms' => $duration,
+        ]);
+
+        // Procesar respuestas
+        $reloadedData = [];
+
+        // Vehicle Info
+        if ($responses['vehicle_info']->successful()) {
+            $reloadedData['vehicle_info'] = $responses['vehicle_info']->json('data') 
+                ?? $responses['vehicle_info']->json();
+        }
+
+        // Driver Assignment
+        if ($responses['driver_assignment']->successful()) {
+            $data = $responses['driver_assignment']->json('data') ?? [];
+            $reloadedData['driver_assignment'] = $this->formatDriverAssignment($data);
+        }
+
+        // Vehicle Stats (período nuevo: last_check -> now)
+        if ($responses['vehicle_stats']->successful()) {
+            $reloadedData['vehicle_stats_since_last_check'] = $responses['vehicle_stats']->json('data') 
+                ?? $responses['vehicle_stats']->json();
+        }
+
+        // Safety Events nuevos (período nuevo: last_check -> now)
+        if ($responses['safety_events_new']->successful()) {
+            $events = $responses['safety_events_new']->json('data') ?? [];
+            $reloadedData['safety_events_since_last_check'] = [
+                'total_events' => count($events),
+                'events' => array_map(fn($e) => $this->formatSafetyEventSummary($e), $events),
+                'time_window' => [
+                    'start' => $lastCheckDt->toIso8601String(),
+                    'end' => $nowDt->toIso8601String(),
+                ],
+            ];
+        }
+
+        // Camera Media nuevo (período nuevo: last_check -> now)
+        // LIMITADO a 5 imágenes: 3 del interior (driver) + 2 del exterior (road)
+        if ($responses['camera_media_new']->successful()) {
+            $media = $responses['camera_media_new']->json('data.media') 
+                ?? $responses['camera_media_new']->json('data') 
+                ?? [];
+            
+            // Limitar imágenes para no sobrecargar el análisis de Vision AI
+            $limitedMedia = $this->limitCameraMedia($media, maxDriver: 3, maxRoad: 2);
+            
+            $reloadedData['camera_media_since_last_check'] = [
+                'total_items_found' => count($media),
+                'total_items_selected' => count($limitedMedia),
+                'items' => array_map(fn($m) => $this->formatMediaItem($m), $limitedMedia),
+                'time_window' => [
+                    'start' => $lastCheckDt->toIso8601String(),
+                    'end' => $nowDt->toIso8601String(),
+                ],
+                'note' => count($media) > 5 
+                    ? 'Se seleccionaron las ' . count($limitedMedia) . ' imágenes más recientes (3 interior + 2 exterior) de ' . count($media) . ' disponibles'
+                    : null,
+            ];
+        }
+
+        $reloadedData['_metadata'] = [
+            'reloaded_at' => $nowDt->toIso8601String(),
+            'duration_ms' => $duration,
+            'vehicle_id' => $vehicleId,
+            'original_event_time' => $originalEventTime,
+            'last_investigation_time' => $lastInvestigationTime,
+            'query_window' => [
+                'start' => $lastCheckDt->toIso8601String(),
+                'end' => $nowDt->toIso8601String(),
+                'minutes_covered' => $lastCheckDt->diffInMinutes($nowDt),
+            ],
+        ];
+
+        return $reloadedData;
+    }
+
+    /**
      * Pre-carga TODA la información disponible de Samsara en paralelo.
      * 
      * Esto ahorra ~4-5 segundos de ejecución en el AI Service al evitar
@@ -111,14 +285,15 @@ class SamsaraClient
                     ]
                 ),
             
-            // 6. Camera Media (URLs) - 2 min antes, 2 min después
+            // 6. Camera Media (URLs) - 2 min antes, 2 min después (o hasta ahora-60s si es futuro)
             $pool->as('camera_media')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
                 ->get("{$this->baseUrl}/cameras/media", [
                     'vehicleIds' => $vehicleId,
                     'startTime' => $eventDt->copy()->subMinutes(2)->toIso8601String(),
-                    'endTime' => $eventDt->copy()->addMinutes(2)->toIso8601String(),
+                    // Evitar "End time cannot be in the future"
+                    'endTime' => $eventDt->copy()->addMinutes(2)->min(Carbon::now()->subSeconds(60))->toIso8601String(),
                 ]),
         ]);
 
@@ -179,14 +354,22 @@ class SamsaraClient
         }
 
         // Camera Media (URLs sin análisis)
+        // LIMITADO a 5 imágenes: 3 del interior (driver) + 2 del exterior (road)
         if ($responses['camera_media']->successful()) {
             $media = $responses['camera_media']->json('data.media') 
                 ?? $responses['camera_media']->json('data') 
                 ?? [];
+            
+            // Limitar imágenes para no sobrecargar el análisis de Vision AI
+            $limitedMedia = $this->limitCameraMedia($media, maxDriver: 3, maxRoad: 2);
+            
             $preloadedData['camera_media'] = [
-                'total_items' => count($media),
-                'items' => array_map(fn($m) => $this->formatMediaItem($m), $media),
-                'note' => 'URLs pre-cargadas. El análisis con Vision se hace en el AI Service.',
+                'total_items_found' => count($media),
+                'total_items_selected' => count($limitedMedia),
+                'items' => array_map(fn($m) => $this->formatMediaItem($m), $limitedMedia),
+                'note' => count($media) > 5 
+                    ? 'Se seleccionaron las ' . count($limitedMedia) . ' imágenes más recientes (3 interior + 2 exterior) de ' . count($media) . ' disponibles. El análisis con Vision se hace en el AI Service.'
+                    : 'URLs pre-cargadas. El análisis con Vision se hace en el AI Service.',
             ];
         }
 
@@ -198,6 +381,74 @@ class SamsaraClient
         ];
 
         return $preloadedData;
+    }
+
+    /**
+     * Limita las imágenes de cámara para no sobrecargar el análisis de Vision AI.
+     * 
+     * Selecciona las imágenes más recientes:
+     * - Máximo N imágenes del interior (dashcamDriverFacing)
+     * - Máximo M imágenes del exterior (dashcamRoadFacing)
+     * 
+     * @param array $media Lista completa de imágenes
+     * @param int $maxDriver Máximo de imágenes del interior
+     * @param int $maxRoad Máximo de imágenes del exterior
+     * @return array Lista limitada de imágenes
+     */
+    private function limitCameraMedia(array $media, int $maxDriver = 3, int $maxRoad = 2): array
+    {
+        if (empty($media)) {
+            return [];
+        }
+
+        // Separar por tipo de cámara
+        $driverImages = [];
+        $roadImages = [];
+        $otherImages = [];
+
+        foreach ($media as $item) {
+            $input = $item['input'] ?? '';
+            
+            if (stripos($input, 'driver') !== false || stripos($input, 'Driver') !== false) {
+                $driverImages[] = $item;
+            } elseif (stripos($input, 'road') !== false || stripos($input, 'Road') !== false) {
+                $roadImages[] = $item;
+            } else {
+                $otherImages[] = $item;
+            }
+        }
+
+        // Ordenar por tiempo (más reciente primero)
+        $sortByTime = function ($a, $b) {
+            $timeA = $a['startTime'] ?? $a['availableAtTime'] ?? '';
+            $timeB = $b['startTime'] ?? $b['availableAtTime'] ?? '';
+            return strcmp($timeB, $timeA); // Descendente (más reciente primero)
+        };
+
+        usort($driverImages, $sortByTime);
+        usort($roadImages, $sortByTime);
+        usort($otherImages, $sortByTime);
+
+        // Tomar las más recientes de cada tipo
+        $selected = array_merge(
+            array_slice($driverImages, 0, $maxDriver),
+            array_slice($roadImages, 0, $maxRoad)
+        );
+
+        // Si no hay suficientes, completar con "other"
+        $remaining = ($maxDriver + $maxRoad) - count($selected);
+        if ($remaining > 0 && !empty($otherImages)) {
+            $selected = array_merge($selected, array_slice($otherImages, 0, $remaining));
+        }
+
+        // Ordenar resultado final por tiempo (más antiguo primero para análisis cronológico)
+        usort($selected, function ($a, $b) {
+            $timeA = $a['startTime'] ?? $a['availableAtTime'] ?? '';
+            $timeB = $b['startTime'] ?? $b['availableAtTime'] ?? '';
+            return strcmp($timeA, $timeB); // Ascendente
+        });
+
+        return $selected;
     }
 
     /**

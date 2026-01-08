@@ -11,6 +11,7 @@ ACTUALIZADO: Nuevo contrato de respuesta.
 """
 
 import json
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -18,12 +19,15 @@ from typing import Any, Dict, List, Optional
 
 from google.genai import types
 
+logger = logging.getLogger(__name__)
+
 from config import ServiceConfig, langfuse_client
 from core import runner, session_service
 from core.context import current_langfuse_span, current_tool_tracker
 from agents.agent_definitions import AGENTS_BY_NAME
 from agents.schemas import ToolResult, AgentResult, PipelineResult
 from .notification_executor import execute_notifications
+from .preloaded_media_analyzer import analyze_preloaded_media
 
 
 # ============================================================================
@@ -196,6 +200,7 @@ class PipelineExecutor:
         self._agent_outputs: Dict[str, str] = {}
         self._pending_tools: Dict[str, Dict] = {}
         self._total_tools = 0
+        self._camera_analysis: Optional[Dict[str, Any]] = None
     
     async def execute(
         self,
@@ -239,6 +244,21 @@ class PipelineExecutor:
             session_id=session_id,
             app_name=ServiceConfig.APP_NAME
         )
+        
+        # =========================================================
+        # ANALIZAR IMÁGENES PRE-CARGADAS AUTOMÁTICAMENTE
+        # =========================================================
+        # Laravel ya pre-carga las URLs de las imágenes.
+        # Aquí las analizamos con Vision AI ANTES de que el investigador
+        # empiece, para que no tenga que llamar a get_camera_media.
+        preloaded_analysis = await analyze_preloaded_media(payload)
+        if preloaded_analysis:
+            # Agregar el análisis al payload para que esté disponible
+            payload['preloaded_camera_analysis'] = preloaded_analysis
+            logger.info(f"Preloaded camera analysis: {preloaded_analysis.get('total_images_analyzed', 0)} images analyzed")
+        
+        # Guardar para incluirlo en el resultado final
+        self._camera_analysis = preloaded_analysis
         
         # Construir mensaje inicial
         initial_message = self._build_initial_message(payload, is_revalidation, context)
@@ -330,6 +350,7 @@ class PipelineExecutor:
                 human_message=human_message or "Procesamiento completado",
                 notification_decision=notification_decision,
                 notification_execution=notification_execution,
+                camera_analysis=self._camera_analysis,  # Para que Laravel persista las imágenes
                 agents=self._agent_results,
                 total_duration_ms=sum(a.duration_ms for a in self._agent_results),
                 total_tools_called=self._total_tools
@@ -470,25 +491,71 @@ class PipelineExecutor:
         """Construye el mensaje inicial para el pipeline."""
         payload_json = json.dumps(payload, ensure_ascii=False, indent=2)
         
+        # Verificar si hay análisis de imágenes pre-cargadas
+        preloaded_camera_analysis = payload.get('preloaded_camera_analysis')
+        camera_analysis_note = ""
+        if preloaded_camera_analysis:
+            num_images = preloaded_camera_analysis.get('total_images_analyzed', 0)
+            camera_analysis_note = f"""
+ANÁLISIS DE IMÁGENES YA DISPONIBLE:
+- Se analizaron {num_images} imágenes con Vision AI
+- El análisis está en `preloaded_camera_analysis` del payload
+- ⚠️ NO LLAMES A get_camera_media - ya tienes el análisis completo
+- Usa este análisis para tu evaluación
+"""
+        
         if is_revalidation and context:
+            # Extraer información sobre datos nuevos disponibles
+            revalidation_data = payload.get('revalidation_data', {})
+            metadata = revalidation_data.get('_metadata', {})
+            query_window = metadata.get('query_window', {})
+            
+            new_safety_events_count = revalidation_data.get('safety_events_since_last_check', {}).get('total_events', 0)
+            new_camera_items_count = revalidation_data.get('camera_media_since_last_check', {}).get('total_items_selected', 0)
+            minutes_covered = query_window.get('minutes_covered', 0)
+            
+            # Historial acumulado de todas las ventanas consultadas
+            windows_history = payload.get('revalidation_windows_history', [])
+            total_windows = len(windows_history)
+            total_minutes_observed = sum(w.get('time_window', {}).get('minutes_covered', 0) for w in windows_history)
+            
             temporal_context = f"""
 CONTEXTO DE REVALIDACIÓN:
 - Evento original: {context.get('original_event_time', 'unknown')}
 - Primera investigación: {context.get('first_investigation_time', 'unknown')}
 - Última investigación: {context.get('last_investigation_time', 'unknown')}
+- Revalidación actual: {context.get('current_revalidation_time', 'unknown')}
 - Número de investigaciones: {context.get('investigation_count', 0)}
 
+COBERTURA TEMPORAL ACUMULADA:
+- Total de ventanas consultadas: {total_windows}
+- Tiempo total de observación: {total_minutes_observed} minutos
+- HISTORIAL COMPLETO disponible en `revalidation_windows_history` del payload
+
+DATOS NUEVOS EN ESTA VENTANA (desde última investigación hasta ahora):
+- Ventana temporal consultada: {minutes_covered} minutos
+- Nuevos safety events: {new_safety_events_count}
+- Nuevas imágenes de cámara: {new_camera_items_count}
+- IMPORTANTE: Revisa `revalidation_data` en el payload para información FRESCA
+{camera_analysis_note}
 ANÁLISIS PREVIO:
 {json.dumps(context.get('previous_assessment', {}), ensure_ascii=False, indent=2)}
 
-HISTORIAL DE INVESTIGACIONES:
-{json.dumps(context.get('investigation_history', []), ensure_ascii=False, indent=2)}
+HISTORIAL DE VENTANAS CONSULTADAS:
+{json.dumps(windows_history, ensure_ascii=False, indent=2)}
 
-Ahora tienes más contexto temporal. Revalida si puedes dar un veredicto definitivo o si aún necesitas más monitoreo.
+INSTRUCCIONES:
+1. PRIORIZA los datos en `revalidation_data` - son NUEVOS desde la última investigación
+2. Revisa el HISTORIAL de ventanas para ver la evolución de la situación
+3. Compara findings entre ventanas: ¿hubo safety events antes que ya no hay? ¿o siguen apareciendo?
+4. Con {total_minutes_observed} minutos de observación, evalúa si tienes suficiente evidencia
+5. Si ya hay 3+ ventanas sin novedad, considera dar un veredicto definitivo
+6. ⚠️ NO LLAMES A get_camera_media si ya hay análisis en preloaded_camera_analysis
 """
             text = f"Revalida esta alerta de Samsara:\n\n{temporal_context}\n\nPAYLOAD:\n{payload_json}"
         else:
-            text = f"Analiza esta alerta de Samsara:\n\n{payload_json}"
+            extra_note = camera_analysis_note if camera_analysis_note else ""
+            text = f"Analiza esta alerta de Samsara:\n{extra_note}\n\nPAYLOAD:\n{payload_json}"
         
         return types.Content(parts=[types.Part(text=text)])
     

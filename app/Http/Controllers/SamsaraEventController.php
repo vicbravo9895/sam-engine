@@ -285,6 +285,22 @@ class SamsaraEventController extends Controller
         $verdictBadge = $this->getVerdictBadge($assessmentView);
 
         $aiActions['agents'] = $timeline;
+        
+        // Procesar alert_context para agregar missing_contacts flag
+        $alertContext = $samsaraEvent->alert_context;
+        if ($alertContext && isset($alertContext['notification_contacts'])) {
+            $contacts = $alertContext['notification_contacts'];
+            $allEmpty = empty($contacts['operator']['phone'] ?? null) 
+                && empty($contacts['monitoring_team']['phone'] ?? null) 
+                && empty($contacts['supervisor']['phone'] ?? null);
+            $alertContext['notification_contacts']['missing_contacts'] = $allEmpty;
+        }
+        
+        // Traducir behavior_label si existe
+        if ($alertContext && !empty($alertContext['behavior_label'])) {
+            $alertContext['behavior_label_translated'] = $this->behaviorLabelTranslation($alertContext['behavior_label']);
+        }
+        
         return Inertia::render('samsara/events/show', [
             'event' => [
                 'id' => $samsaraEvent->id,
@@ -326,6 +342,13 @@ class SamsaraEventController extends Controller
                     'max_investigations' => SamsaraEvent::getMaxInvestigations(),
                 ],
                 'investigation_actions' => $investigationActions,
+                // Campos adicionales del pipeline AI (Problema 0)
+                'alert_context' => $alertContext,
+                'notification_decision' => $samsaraEvent->notification_decision,
+                'notification_execution' => $samsaraEvent->notification_execution,
+                'risk_escalation' => $samsaraEvent->risk_escalation ?? ($samsaraEvent->ai_assessment['risk_escalation'] ?? null),
+                'proactive_flag' => $samsaraEvent->proactive_flag ?? ($alertContext['proactive_flag'] ?? null),
+                'dedupe_key' => $samsaraEvent->dedupe_key ?? ($samsaraEvent->ai_assessment['dedupe_key'] ?? null),
                 // Human review data
                 'human_status' => $samsaraEvent->human_status,
                 'human_status_label' => $this->humanStatusLabel($samsaraEvent->human_status),
@@ -366,7 +389,7 @@ class SamsaraEventController extends Controller
     {
         $actions ??= [];
 
-        return [
+        $normalized = [
             'agents' => collect($actions['agents'] ?? [])->map(function ($agent) {
                 // Support both 'tools' (new format) and 'tools_used' (old format)
                 $rawTools = $agent['tools'] ?? $agent['tools_used'] ?? [];
@@ -389,6 +412,13 @@ class SamsaraEventController extends Controller
             'total_duration_ms' => $actions['total_duration_ms'] ?? 0,
             'total_tools_called' => $actions['total_tools_called'] ?? 0,
         ];
+        
+        // Preserve camera_analysis if it exists (contains local URLs after persistence)
+        if (!empty($actions['camera_analysis'])) {
+            $normalized['camera_analysis'] = $actions['camera_analysis'];
+        }
+        
+        return $normalized;
     }
 
     private function formatAssessment(?array $assessment): ?array
@@ -531,6 +561,14 @@ class SamsaraEventController extends Controller
             
             // Monitor
             'monitor', 'monitoring' => 'En monitoreo',
+            
+            // Nuevos verdicts del AI Service (Problema 1)
+            'uncertain' => 'En monitoreo - Información insuficiente',
+            'real_panic' => 'Pánico real - Emergencia confirmada',
+            'risk_detected' => 'Riesgo detectado - Posible manipulación',
+            'confirmed_violation' => 'Violación confirmada',
+            'resolved' => 'Resuelto - Sin acción necesaria',
+            'escalated' => 'Escalado a supervisión',
             
             default => ucfirst((string) ($verdict ?? 'Sin veredicto')),
         };
@@ -906,6 +944,10 @@ class SamsaraEventController extends Controller
         $highUrgency = [
             'Probable verdadero positivo',
             'Verdadero positivo confirmado',
+            // Nuevos verdicts de alta urgencia (Problema 2)
+            'Pánico real - Emergencia confirmada',
+            'Violación confirmada',
+            'Escalado a supervisión',
         ];
 
         // Urgencia media - requiere revisión
@@ -913,10 +955,13 @@ class SamsaraEventController extends Controller
             'Requiere revisión manual',
             'Resultado inconcluso',
             'En monitoreo',
+            // Nuevos verdicts de urgencia media (Problema 2)
+            'En monitoreo - Información insuficiente',
+            'Riesgo detectado - Posible manipulación',
         ];
 
         // Urgencia baja - sin acción necesaria
-        // Todo lo demás se considera baja urgencia
+        // Todo lo demás se considera baja urgencia (incluyendo 'Resuelto - Sin acción necesaria')
 
         if (in_array($verdict, $highUrgency, true)) {
             return 'high';
@@ -1090,6 +1135,30 @@ class SamsaraEventController extends Controller
             SamsaraEvent::HUMAN_STATUS_RESOLVED => 'Resuelto',
             SamsaraEvent::HUMAN_STATUS_FALSE_POSITIVE => 'Falso positivo',
             default => 'Desconocido',
+        };
+    }
+
+    /**
+     * Traduce behavior_label del AI al español (Problema 4).
+     */
+    private function behaviorLabelTranslation(?string $label): string
+    {
+        return match ($label) {
+            'passenger' => 'Detección de pasajero',
+            'panic' => 'Botón de pánico',
+            'distraction' => 'Distracción del conductor',
+            'drowsiness' => 'Somnolencia detectada',
+            'phone_use' => 'Uso de teléfono',
+            'seatbelt' => 'Cinturón de seguridad',
+            'smoking' => 'Fumar detectado',
+            'obstruction' => 'Obstrucción de cámara',
+            'harsh_braking' => 'Frenado brusco',
+            'harsh_acceleration' => 'Aceleración brusca',
+            'harsh_cornering' => 'Giro brusco',
+            'speeding' => 'Exceso de velocidad',
+            'collision' => 'Colisión detectada',
+            'rollover' => 'Volcadura detectada',
+            default => $label ? Str::headline($label) : 'Sin clasificar',
         };
     }
 }

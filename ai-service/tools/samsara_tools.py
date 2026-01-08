@@ -345,6 +345,60 @@ async def get_driver_assignment(
         return {"error": str(e), "vehicle_id": vehicle_id}
 
 
+def _limit_camera_media(media_items: List[Any], max_driver: int = 3, max_road: int = 2) -> List[Any]:
+    """
+    Limita las imágenes de cámara para no sobrecargar el análisis de Vision AI.
+    Selecciona las más recientes: N del interior (driver) + M del exterior (road).
+    """
+    if not media_items:
+        return []
+    
+    driver_images = []
+    road_images = []
+    other_images = []
+    
+    for item in media_items:
+        # Obtener el input (tipo de cámara)
+        if isinstance(item, dict):
+            input_type = item.get('input', '')
+        elif hasattr(item, 'input'):
+            input_type = item.input or ''
+        else:
+            input_type = ''
+        
+        input_lower = input_type.lower()
+        
+        if 'driver' in input_lower:
+            driver_images.append(item)
+        elif 'road' in input_lower:
+            road_images.append(item)
+        else:
+            other_images.append(item)
+    
+    # Ordenar por tiempo (más reciente primero)
+    def get_time(item):
+        if isinstance(item, dict):
+            return item.get('start_time') or item.get('startTime') or ''
+        return getattr(item, 'start_time', '') or ''
+    
+    driver_images.sort(key=get_time, reverse=True)
+    road_images.sort(key=get_time, reverse=True)
+    other_images.sort(key=get_time, reverse=True)
+    
+    # Seleccionar las más recientes
+    selected = driver_images[:max_driver] + road_images[:max_road]
+    
+    # Completar con "other" si no hay suficientes
+    remaining = (max_driver + max_road) - len(selected)
+    if remaining > 0:
+        selected.extend(other_images[:remaining])
+    
+    # Ordenar por tiempo ascendente para análisis cronológico
+    selected.sort(key=get_time)
+    
+    return selected
+
+
 @trace_tool
 async def get_camera_media(
     vehicle_id: str, 
@@ -354,6 +408,8 @@ async def get_camera_media(
     """
     Busca videos o imágenes de la cámara del vehículo alrededor del timestamp.
     Si analyze_images=True, usa AI para analizar las imágenes y detectar situaciones relevantes.
+    
+    NOTA: Se limitan las imágenes a 5 máximo (3 interior + 2 exterior) para no sobrecargar Vision AI.
     
     Args:
         vehicle_id: ID del vehículo
@@ -367,7 +423,13 @@ async def get_camera_media(
     try:
         ts = datetime.fromisoformat(timestamp_utc.replace('Z', '+00:00'))
         start_time = (ts - timedelta(minutes=2)).isoformat()
-        end_time = (ts + timedelta(minutes=2)).isoformat()
+        # IMPORTANTE: Usar 60 segundos atrás del timestamp para evitar error "End time cannot be in the future"
+        # Esto es necesario porque Samsara rechaza timestamps muy cercanos al presente
+        end_time_dt = ts + timedelta(minutes=2)
+        now_safe = datetime.now(end_time_dt.tzinfo) - timedelta(seconds=60)
+        if end_time_dt > now_safe:
+            end_time_dt = now_safe
+        end_time = end_time_dt.isoformat()
         
         # Usamos media.list_uploaded_media() según el SDK v4.1.0
         # Método real disponible en AsyncMediaClient
@@ -396,9 +458,19 @@ async def get_camera_media(
             elif isinstance(response.data, list):
                 media_items = response.data
         
+        # Limitar imágenes para no sobrecargar Vision AI: 3 interior + 2 exterior
+        total_found = len(media_items) if media_items else 0
+        if media_items:
+            media_items = _limit_camera_media(media_items, max_driver=3, max_road=2)
+        
         # Convertir media_items a dict para el resultado
         if media_items:
             result['data'] = []
+            result['total_found'] = total_found
+            result['total_selected'] = len(media_items)
+            if total_found > 5:
+                result['note'] = f'Se seleccionaron las {len(media_items)} imágenes más recientes (3 interior + 2 exterior) de {total_found} disponibles'
+            
             for item in media_items:
                 try:
                     item_dict = {}
@@ -432,6 +504,8 @@ async def get_camera_media(
                     result['data'].append(str(item))
         else:
             result['data'] = []
+            result['total_found'] = 0
+            result['total_selected'] = 0
         
         # Si analyze_images está habilitado, analizar las imágenes con AI
         # Pasar los objetos originales, no los dicts
@@ -532,30 +606,37 @@ async def _analyze_images_without_tracing(image_items: List[Any]) -> Dict[str, A
                 
                 prompt = f"""Eres un analista de seguridad de flotas vehiculares. Esta imagen proviene de una dashcam {camera_type} de un vehículo comercial que activó una alerta de seguridad (posible botón de pánico, evento de seguridad, o incidente).
 
-Tu tarea es proporcionar un ANÁLISIS OBJETIVO para ayudar al equipo de monitoreo a decidir si la alerta requiere intervención inmediata o puede considerarse un falso positivo.
+Tu tarea es proporcionar un ANÁLISIS OBJETIVO en formato JSON para ayudar al equipo de monitoreo a decidir si la alerta requiere intervención inmediata o puede considerarse un falso positivo.
 
 IMPORTANTE: NO identifiques personas ni proporciones datos personales. Enfócate en el ESTADO SITUACIONAL y CONTEXTO.
 
-Analiza y responde en este formato estructurado:
+Responde ÚNICAMENTE con un JSON válido (sin bloques de código markdown) con esta estructura:
 
-## ESTADO GENERAL
-- Nivel de alerta visual: [NORMAL / ATENCIÓN / ALERTA / CRÍTICO]
-- Descripción breve de la escena (máximo 2 líneas)
+{{
+  "alert_level": "NORMAL | ATENCION | ALERTA | CRITICO",
+  "scene_description": "Descripción breve de la escena en máximo 2 líneas",
+  "security_indicators": {{
+    "driver_state": "{"Estado aparente del conductor: relajado, tenso, concentrado, ausente, etc." if "driver" in str(camera_input).lower() else "null - cámara exterior"}",
+    "anomalous_interaction": "{"Descripción de interacción anómala si existe, o null" if "driver" in str(camera_input).lower() else "null - cámara exterior"}",
+    "road_conditions": "{"null - cámara interior" if "driver" in str(camera_input).lower() else "Condiciones del camino y tráfico visible"}",
+    "vehicle_state": "en_movimiento | detenido | maniobra | indeterminado"
+  }},
+  "decision_evidence": {{
+    "emergency_signals": ["Lista de señales que sugieren emergencia real, o vacía si no hay"],
+    "false_positive_signals": ["Lista de señales que sugieren falso positivo, o vacía si no hay"],
+    "inconclusive_elements": ["Elementos que requieren más contexto, o vacía si no hay"]
+  }},
+  "recommendation": {{
+    "action": "INTERVENIR | MONITOREAR | DESCARTAR",
+    "reason": "Justificación en una línea"
+  }},
+  "image_quality": {{
+    "is_usable": true | false,
+    "issues": ["Lista de problemas: borrosa, oscura, obstruida, etc. o vacía si es clara"]
+  }}
+}}
 
-## INDICADORES DE SEGURIDAD
-{"- Postura y estado aparente del conductor (relajado, tenso, en movimiento, ausente)" if "driver" in str(camera_input).lower() else "- Condiciones del camino y tráfico visible"}
-{"- ¿Hay interacción anómala? (gesticulación, movimiento brusco, objetos extraños)" if "driver" in str(camera_input).lower() else "- ¿Hay obstáculos, vehículos detenidos o situaciones de riesgo?"}
-- ¿El vehículo parece estar en movimiento, detenido o en maniobra?
-
-## EVIDENCIA PARA DECISIÓN
-- Señales que sugieren EMERGENCIA REAL: (listar si hay, o "Ninguna visible")
-- Señales que sugieren FALSO POSITIVO: (listar si hay, o "Ninguna visible")
-- Elementos NO CONCLUYENTES que requieren más contexto: (listar si hay)
-
-## RECOMENDACIÓN OPERATIVA
-[INTERVENIR / MONITOREAR / DESCARTAR] + justificación en una línea
-
-Responde de forma concisa y profesional. Si la imagen está borrosa, oscura, o no permite análisis adecuado, indícalo claramente."""
+Responde SOLO con el JSON, sin texto adicional antes o después."""
                 
                 # Llamar a Vision API con imágenes en base64
                 # NOTA: Laravel ya persiste las imágenes desde las URLs de Samsara,
@@ -594,14 +675,36 @@ Responde de forma concisa y profesional. Si la imagen está borrosa, oscura, o n
                 print(analysis_text)
                 print(f"{'='*80}\n")
                 
+                # Intentar parsear el JSON estructurado
+                analysis_structured = None
+                try:
+                    # Limpiar posibles bloques de código markdown
+                    clean_text = analysis_text.strip()
+                    if clean_text.startswith("```"):
+                        # Remover bloques de código
+                        lines = clean_text.split("\n")
+                        clean_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                    analysis_structured = json.loads(clean_text)
+                except json.JSONDecodeError:
+                    # Si no es JSON válido, guardar como texto plano
+                    print(f"[WARN] Vision AI response is not valid JSON, storing as text")
+                    analysis_structured = None
+                
                 # Enviar URL de S3 de Samsara - Laravel se encargará de persistir
                 analysis = {
                     "input": camera_input,
                     "timestamp": item.get('start_time') if isinstance(item, dict) else getattr(item, 'start_time', 'unknown'),
-                    "analysis": analysis_text,
+                    "analysis": analysis_text,  # Mantener el texto original para compatibilidad
+                    "analysis_structured": analysis_structured,  # Nuevo: JSON estructurado si se pudo parsear
                     "samsara_url": url,  # URL temporal de S3 de Samsara
                     "image_size_kb": round(image_size_kb, 2)
                 }
+                
+                # Extraer campos clave para facilitar acceso
+                if analysis_structured:
+                    analysis["alert_level"] = analysis_structured.get("alert_level")
+                    analysis["recommendation"] = analysis_structured.get("recommendation")
+                    analysis["scene_description"] = analysis_structured.get("scene_description")
                 
                 analyses.append(analysis)
                 

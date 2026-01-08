@@ -469,16 +469,32 @@ class SamsaraEvent extends Model
     }
 
     /**
-     * Agregar registro de investigación al historial
+     * Agregar/actualizar registro de investigación al historial.
+     * 
+     * Si el último registro del historial es de la misma investigación (mismo count),
+     * actualiza ese registro con la razón del AI. Si no, agrega uno nuevo.
+     * 
+     * Esto evita duplicados cuando persistRevalidationWindow ya agregó
+     * la información de la ventana temporal.
      */
     public function addInvestigationRecord(string $reason): void
     {
         $history = $this->investigation_history ?? [];
-        $history[] = [
-            'timestamp' => now()->toIso8601String(),
-            'reason' => $reason,
-            'count' => $this->investigation_count,
-        ];
+        
+        // Verificar si el último registro es de esta misma investigación
+        $lastIndex = count($history) - 1;
+        if ($lastIndex >= 0 && isset($history[$lastIndex]['investigation_number'])) {
+            // Formato nuevo: actualizar el último registro con el reason del AI
+            $history[$lastIndex]['ai_reason'] = $reason;
+            $history[$lastIndex]['ai_evaluated_at'] = now()->toIso8601String();
+        } else {
+            // Formato legacy o historial vacío: agregar registro simple
+            $history[] = [
+                'timestamp' => now()->toIso8601String(),
+                'reason' => $reason,
+                'count' => $this->investigation_count,
+            ];
+        }
 
         $this->update(['investigation_history' => $history]);
     }
@@ -614,6 +630,7 @@ class SamsaraEvent extends Model
     {
         SamsaraEventActivity::logHumanAction(
             $this->id,
+            $this->company_id,
             $userId,
             SamsaraEventActivity::ACTION_HUMAN_STATUS_CHANGED,
             [
@@ -636,6 +653,7 @@ class SamsaraEvent extends Model
         // Loggear la actividad
         SamsaraEventActivity::logHumanAction(
             $this->id,
+            $this->company_id,
             $userId,
             SamsaraEventActivity::ACTION_COMMENT_ADDED,
             ['comment_id' => $comment->id]

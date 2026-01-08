@@ -41,6 +41,7 @@ class PipelineResult:
     - human_message (string, antes: message)
     - notification_decision
     - notification_execution (ejecutado por código, no LLM)
+    - camera_analysis (análisis de imágenes pre-cargadas)
     """
     success: bool = True
     
@@ -50,6 +51,9 @@ class PipelineResult:
     human_message: Optional[str] = None             # Final message (STRING)
     notification_decision: Optional[Dict[str, Any]] = None  # Decision (sin side effects)
     notification_execution: Optional[Dict[str, Any]] = None  # Execution results
+    
+    # Análisis de imágenes pre-cargadas (para que Laravel las persista)
+    camera_analysis: Optional[Dict[str, Any]] = None  # Resultado de analyze_preloaded_media
     
     # Metadatos de ejecución
     agents: List[AgentResult] = field(default_factory=list)

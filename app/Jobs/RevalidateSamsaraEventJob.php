@@ -2,8 +2,10 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Traits\PersistsEvidenceImages;
 use App\Models\SamsaraEvent;
 use App\Services\ContactResolver;
+use App\Services\SamsaraClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -19,7 +21,7 @@ use Illuminate\Support\Facades\Log;
  */
 class RevalidateSamsaraEventJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, PersistsEvidenceImages;
 
     /**
      * Número de intentos antes de fallar
@@ -92,7 +94,18 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             // Enriquecer el payload con los contactos
             $enrichedPayload = array_merge($this->event->raw_payload, $contactPayload);
 
+            // =========================================================
+            // RECARGAR DATOS DE SAMSARA CON VENTANA TEMPORAL ACTUALIZADA
+            // =========================================================
+            // Esto es CRÍTICO para revalidaciones: debemos buscar información
+            // NUEVA desde la última investigación hasta ahora, no repetir
+            // la misma ventana temporal del evento original.
+            $enrichedPayload = $this->reloadSamsaraDataForRevalidation($enrichedPayload);
+
             $aiServiceUrl = config('services.ai_engine.url');
+
+            // Timestamp actual para el contexto de revalidación
+            $currentRevalidationTime = now()->toIso8601String();
 
             // Construir contexto de revalidación
             $revalidationContext = [
@@ -100,6 +113,7 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 'original_event_time' => $this->event->occurred_at?->toIso8601String(),
                 'first_investigation_time' => $this->event->created_at->toIso8601String(),
                 'last_investigation_time' => $this->event->last_investigation_at?->toIso8601String(),
+                'current_revalidation_time' => $currentRevalidationTime,
                 'investigation_count' => $this->event->investigation_count,
                 'previous_assessment' => $this->event->ai_assessment,
                 'previous_alert_context' => $this->event->alert_context,
@@ -147,6 +161,15 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             $notificationDecision = $result['notification_decision'] ?? null;
             $notificationExecution = $result['notification_execution'] ?? null;
             $execution = $result['execution'] ?? $this->event->ai_actions;
+            $cameraAnalysis = $result['camera_analysis'] ?? null;
+
+            // Persistir imágenes de evidencia si existen
+            [$execution, $cameraAnalysis] = $this->persistEvidenceImages($execution, $cameraAnalysis);
+
+            // Agregar camera_analysis al execution para que se guarde en ai_actions
+            if ($cameraAnalysis) {
+                $execution['camera_analysis'] = $cameraAnalysis;
+            }
 
             // Extraer información de monitoreo desde el assessment
             $requiresMonitoring = $assessment['requires_monitoring'] ?? false;
@@ -229,6 +252,196 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             'event_id' => $this->event->id,
             'error' => $exception->getMessage(),
         ]);
+    }
+
+    /**
+     * Persiste la información de la ventana de tiempo consultada en el historial.
+     * 
+     * Esto permite que cada revalidación tenga un registro de:
+     * - Qué período de tiempo se consultó
+     * - Qué datos se encontraron (resumen)
+     * - Cuándo se hizo la consulta
+     * 
+     * El AI puede usar este historial para ver la "evolución" de la situación.
+     * 
+     * @param array $reloadedData Los datos recargados de Samsara
+     */
+    private function persistRevalidationWindow(array $reloadedData): void
+    {
+        $metadata = $reloadedData['_metadata'] ?? [];
+        $queryWindow = $metadata['query_window'] ?? [];
+        
+        // Construir resumen de lo que se encontró en esta ventana
+        $windowSummary = [
+            'investigation_number' => $this->event->investigation_count + 1,
+            'queried_at' => now()->toIso8601String(),
+            'time_window' => [
+                'start' => $queryWindow['start'] ?? null,
+                'end' => $queryWindow['end'] ?? null,
+                'minutes_covered' => $queryWindow['minutes_covered'] ?? 0,
+            ],
+            'findings' => [
+                'new_safety_events' => $reloadedData['safety_events_since_last_check']['total_events'] ?? 0,
+                'new_camera_items' => $reloadedData['camera_media_since_last_check']['total_items'] ?? 0,
+                'has_vehicle_stats' => !empty($reloadedData['vehicle_stats_since_last_check']),
+            ],
+            // Resumen de safety events encontrados (si los hay)
+            'safety_events_details' => $this->summarizeSafetyEvents(
+                $reloadedData['safety_events_since_last_check']['events'] ?? []
+            ),
+        ];
+        
+        // Agregar al historial existente
+        $history = $this->event->investigation_history ?? [];
+        $history[] = $windowSummary;
+        
+        // Actualizar el modelo (sin disparar el evento completo de markAsInvestigating)
+        $this->event->update(['investigation_history' => $history]);
+        
+        Log::debug('RevalidateSamsaraEventJob: Window persisted to investigation_history', [
+            'event_id' => $this->event->id,
+            'investigation_number' => $windowSummary['investigation_number'],
+            'window_start' => $windowSummary['time_window']['start'],
+            'window_end' => $windowSummary['time_window']['end'],
+        ]);
+    }
+    
+    /**
+     * Resume los safety events encontrados para el historial.
+     * 
+     * @param array $events Lista de eventos de seguridad
+     * @return array Resumen de los eventos
+     */
+    private function summarizeSafetyEvents(array $events): array
+    {
+        if (empty($events)) {
+            return [];
+        }
+        
+        return array_map(function ($event) {
+            return [
+                'behavior' => $event['behavior_label'] ?? 'unknown',
+                'severity' => $event['severity'] ?? 'unknown',
+                'time' => $event['time'] ?? null,
+            ];
+        }, array_slice($events, 0, 5)); // Máximo 5 eventos para no sobrecargar
+    }
+
+    /**
+     * Recarga datos de Samsara con una ventana temporal ACTUALIZADA.
+     * 
+     * En revalidaciones, necesitamos buscar información NUEVA:
+     * - Desde la última investigación hasta ahora
+     * - No repetir la misma ventana del evento original
+     * 
+     * Esto permite detectar cambios en la situación del vehículo
+     * y tomar decisiones basadas en información fresca.
+     * 
+     * @param array $payload El payload original del webhook
+     * @return array El payload enriquecido con datos actualizados
+     */
+    private function reloadSamsaraDataForRevalidation(array $payload): array
+    {
+        // Obtener la API key de la empresa del evento (multi-tenant)
+        $company = $this->event->company;
+        if (!$company) {
+            Log::warning('RevalidateSamsaraEventJob: No company found, skipping Samsara reload', [
+                'event_id' => $this->event->id,
+            ]);
+            return $payload;
+        }
+
+        $samsaraApiKey = $company->getSamsaraApiKey();
+        if (empty($samsaraApiKey)) {
+            Log::warning('RevalidateSamsaraEventJob: No Samsara API key, skipping reload', [
+                'event_id' => $this->event->id,
+                'company_id' => $company->id,
+            ]);
+            return $payload;
+        }
+
+        // Extraer contexto del evento
+        $context = SamsaraClient::extractEventContext($payload);
+        if (!$context) {
+            Log::warning('RevalidateSamsaraEventJob: Could not extract event context, skipping reload', [
+                'event_id' => $this->event->id,
+            ]);
+            return $payload;
+        }
+
+        $vehicleId = $context['vehicle_id'];
+        $originalEventTime = $context['happened_at_time'];
+        $lastInvestigationTime = $this->event->last_investigation_at?->toIso8601String() 
+            ?? $this->event->created_at->toIso8601String();
+        $isSafetyEvent = SamsaraClient::isSafetyEvent($payload);
+
+        Log::info('RevalidateSamsaraEventJob: Reloading Samsara data with updated time window', [
+            'event_id' => $this->event->id,
+            'vehicle_id' => $vehicleId,
+            'original_event_time' => $originalEventTime,
+            'last_investigation_time' => $lastInvestigationTime,
+            'is_safety_event' => $isSafetyEvent,
+            'investigation_count' => $this->event->investigation_count,
+        ]);
+
+        try {
+            // Crear cliente Samsara y recargar datos
+            $samsaraClient = new SamsaraClient($samsaraApiKey);
+            $reloadedData = $samsaraClient->reloadDataForRevalidation(
+                vehicleId: $vehicleId,
+                originalEventTime: $originalEventTime,
+                lastInvestigationTime: $lastInvestigationTime,
+                isSafetyEvent: $isSafetyEvent
+            );
+
+            if (empty($reloadedData)) {
+                Log::warning('RevalidateSamsaraEventJob: No data reloaded from Samsara', [
+                    'event_id' => $this->event->id,
+                ]);
+                return $payload;
+            }
+
+            // Agregar datos recargados al payload bajo una key especial
+            // Mantenemos los preloaded_data originales para referencia
+            $payload['revalidation_data'] = $reloadedData;
+
+            // Actualizar vehicle_info y driver_assignment con los datos frescos
+            // (estos pueden haber cambiado)
+            if (!empty($reloadedData['vehicle_info'])) {
+                $payload['preloaded_data']['vehicle_info'] = $reloadedData['vehicle_info'];
+            }
+            if (!empty($reloadedData['driver_assignment'])) {
+                $payload['preloaded_data']['driver_assignment'] = $reloadedData['driver_assignment'];
+            }
+
+            // =========================================================
+            // PERSISTIR HISTORIAL DE VENTANAS CONSULTADAS
+            // =========================================================
+            // Esto permite que el AI vea el "progreso" de todas las ventanas
+            // que ya se han revisado, no solo la actual.
+            $this->persistRevalidationWindow($reloadedData);
+
+            // Incluir el historial acumulado de ventanas en el payload
+            // para que el AI tenga contexto completo
+            $payload['revalidation_windows_history'] = $this->event->fresh()->investigation_history ?? [];
+
+            Log::info('RevalidateSamsaraEventJob: Samsara data reloaded successfully', [
+                'event_id' => $this->event->id,
+                'has_new_vehicle_stats' => !empty($reloadedData['vehicle_stats_since_last_check']),
+                'new_safety_events_count' => $reloadedData['safety_events_since_last_check']['total_events'] ?? 0,
+                'new_camera_items_count' => $reloadedData['camera_media_since_last_check']['total_items'] ?? 0,
+                'query_window_minutes' => $reloadedData['_metadata']['query_window']['minutes_covered'] ?? null,
+            ]);
+
+            return $payload;
+
+        } catch (\Exception $e) {
+            Log::error('RevalidateSamsaraEventJob: Failed to reload Samsara data', [
+                'event_id' => $this->event->id,
+                'error' => $e->getMessage(),
+            ]);
+            return $payload;
+        }
     }
 
     /**

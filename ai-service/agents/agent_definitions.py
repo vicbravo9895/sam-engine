@@ -15,13 +15,15 @@ from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.models.lite_llm import LiteLlm
 from config import OpenAIConfig
 
-from tools import (
-    get_vehicle_stats,
-    get_vehicle_info,
-    get_driver_assignment,
-    get_camera_media,
-    get_safety_events,
-)
+# NOTA: Las tools ya NO se usan porque Laravel pre-carga todos los datos.
+# Se mantienen los imports solo por si se necesitan en el futuro como fallback.
+# from tools import (
+#     get_vehicle_stats,
+#     get_vehicle_info,
+#     get_driver_assignment,
+#     get_camera_media,
+#     get_safety_events,
+# )
 from .prompts import (
     TRIAGE_AGENT_PROMPT,
     INVESTIGATOR_AGENT_PROMPT,
@@ -62,23 +64,22 @@ triage_agent = LlmAgent(
 # ============================================================================
 # INVESTIGATOR AGENT (antes: panic_investigator)
 # ============================================================================
-# Propósito: Investigar alertas usando tools y generar evaluación técnica
-# Modelo: GPT-4o (reasoning complejo, coordinación de tools)
-# Tools: Todas las herramientas de investigación
+# Propósito: Investigar alertas usando datos PRE-CARGADOS y generar evaluación técnica
+# Modelo: GPT-4o (reasoning complejo)
+# Tools: NINGUNA - Todos los datos vienen pre-cargados desde Laravel:
+#   - preloaded_data.vehicle_info
+#   - preloaded_data.driver_assignment
+#   - preloaded_data.vehicle_stats
+#   - preloaded_data.safety_events_correlation / safety_event_detail
+#   - preloaded_camera_analysis (análisis de Vision AI)
 # Output: assessment (JSON estructurado)
 # ============================================================================
 investigator_agent = LlmAgent(
     name="investigator_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O),
-    tools=[
-        get_vehicle_stats,
-        get_vehicle_info,
-        get_driver_assignment,
-        get_camera_media,
-        get_safety_events
-    ],
+    tools=[],  # SIN TOOLS - Todos los datos vienen pre-cargados desde Laravel
     instruction=INVESTIGATOR_AGENT_PROMPT,
-    description="Investiga alertas usando tools y genera evaluación técnica basada en evidencia",
+    description="Investiga alertas usando datos pre-cargados y genera evaluación técnica basada en evidencia",
     output_key="assessment",  # Stores assessment in state['assessment']
     output_schema=AlertAssessment
 )

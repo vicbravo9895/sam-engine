@@ -198,6 +198,22 @@ class AlertResponseBuilder:
             "agents": [_build_agent_response(a) for a in result.agents]
         }
         
+        # camera_analysis - URLs de imágenes para que Laravel las persista
+        if result.camera_analysis:
+            # Extraer las URLs de las imágenes analizadas
+            media_urls = []
+            for analysis in result.camera_analysis.get("analyses", []):
+                url = analysis.get("samsara_url")
+                if url:
+                    media_urls.append(url)
+            
+            if media_urls:
+                response["camera_analysis"] = {
+                    "total_images": result.camera_analysis.get("total_images_analyzed", 0),
+                    "media_urls": media_urls,
+                    "analyses": result.camera_analysis.get("analyses", [])
+                }
+        
         return response
     
     @staticmethod

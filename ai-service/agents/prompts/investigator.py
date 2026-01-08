@@ -36,21 +36,119 @@ El triaje incluye `preloaded_data` con información YA obtenida:
 
 **IMPORTANTE**: Usa estos datos PRIMERO. No llames a tools si ya tienes la información.
 
-## HERRAMIENTAS (solo si necesitas más información)
+## DATOS DE REVALIDACIÓN (Solo en revalidaciones)
 
-- `get_camera_media(vehicle_id, timestamp_utc)`: **PRINCIPAL** - Análisis visual con Vision AI
-  (El único que SIEMPRE debes usar si está en required_tools)
-- `get_vehicle_stats`: Solo si preloaded_data.vehicle_stats es insuficiente
-- `get_vehicle_info`: Solo si preloaded_data.vehicle_info no existe
-- `get_driver_assignment`: Solo si preloaded_data.driver_assignment no existe
-- `get_safety_events`: Solo si necesitas otra ventana de tiempo
+**CRÍTICO**: En REVALIDACIONES hay datos NUEVOS disponibles bajo `revalidation_data`:
 
-## USO DE DATOS PRE-CARGADOS
+| Campo | Descripción | Ventana temporal |
+|-------|-------------|------------------|
+| `revalidation_data.vehicle_stats_since_last_check` | GPS, velocidad NUEVOS | Desde última investigación hasta ahora |
+| `revalidation_data.safety_events_since_last_check` | Eventos de seguridad NUEVOS | Desde última investigación hasta ahora |
+| `revalidation_data.camera_media_since_last_check` | Imágenes NUEVAS | Desde última investigación hasta ahora |
+| `revalidation_data._metadata.query_window` | Ventana temporal consultada | start, end, minutes_covered |
 
-### Para TODOS los eventos:
-1. **Primero revisa `preloaded_data`** - contiene toda la información necesaria
-2. **Solo llama a `get_camera_media`** si necesitas análisis visual con Vision AI
-3. **No llames a otras tools** a menos que la información pre-cargada sea insuficiente
+### REGLAS PARA REVALIDACIONES
+
+1. **PRIORIZA `revalidation_data`** sobre `preloaded_data` - contiene información FRESCA
+2. **Compara** los datos nuevos con los anteriores para detectar cambios
+3. **Busca nuevos safety events** en `safety_events_since_last_check` - si aparecieron nuevos eventos, puede indicar un patrón
+4. **Verifica cambios en vehicle_stats** - ¿el vehículo se movió? ¿cambió de estado?
+5. **Si hay nuevas imágenes** en `camera_media_since_last_check`, analízalas para contexto actualizado
+
+### CÓMO EVALUAR EN REVALIDACIONES
+
+| Escenario | Interpretación | Acción |
+|-----------|----------------|--------|
+| Vehículo sigue detenido, sin nuevos eventos | Situación estable | Reducir riesgo, considerar cerrar |
+| Nuevo safety event apareció | Posible patrón de riesgo | Mantener o aumentar vigilancia |
+| Vehículo se movió desde última vez | Actividad normal | Evaluar si el movimiento es consistente con operación normal |
+| Sin datos nuevos (ventana vacía) | Sin actividad detectable | Evaluar según contexto original |
+
+**IMPORTANTE**: El campo `investigation_count` indica cuántas veces se ha revisado. A mayor número, más contexto temporal tienes.
+
+## HISTORIAL ACUMULADO DE VENTANAS
+
+En revalidaciones, el campo `revalidation_windows_history` contiene el **historial completo** de todas las ventanas temporales que ya se consultaron:
+
+```json
+{
+  "revalidation_windows_history": [
+    {
+      "investigation_number": 1,
+      "queried_at": "2024-01-08T12:15:00Z",
+      "time_window": {
+        "start": "2024-01-08T12:00:00Z",
+        "end": "2024-01-08T12:15:00Z",
+        "minutes_covered": 15
+      },
+      "findings": {
+        "new_safety_events": 0,
+        "new_camera_items": 2,
+        "has_vehicle_stats": true
+      },
+      "ai_reason": "Razón de la investigación anterior"
+    },
+    {
+      "investigation_number": 2,
+      "time_window": { "start": "...", "end": "..." },
+      ...
+    }
+  ]
+}
+```
+
+### USO DEL HISTORIAL
+
+1. **Revisar la evolución**: ¿Se han encontrado nuevos eventos en cada ventana?
+2. **Detectar patrones**: Si hubo safety events en ventana 1 y luego nada en ventana 2, puede indicar situación resuelta
+3. **Considerar el tiempo total**: Suma de `minutes_covered` = tiempo total de observación
+4. **Evaluar cobertura**: Si ya se han revisado 3 ventanas (45+ minutos) sin novedad, aumentar confianza en "no_action_needed"
+
+## ⚠️ IMPORTANTE: NO TIENES TOOLS DISPONIBLES
+
+Todos los datos necesarios vienen **PRE-CARGADOS** desde Laravel. NO puedes llamar a ninguna API externa.
+Tu trabajo es ANALIZAR los datos que ya tienes y emitir un veredicto.
+
+## DATOS PRE-CARGADOS DISPONIBLES
+
+### 1. Análisis de Imágenes (`preloaded_camera_analysis`)
+El análisis de Vision AI ya está hecho:
+
+```json
+{
+  "preloaded_camera_analysis": {
+    "total_images_analyzed": 5,
+    "analyses": [
+      {
+        "input": "dashcamDriverFacing",
+        "alert_level": "NORMAL | ATENCION | ALERTA | CRITICO",
+        "scene_description": "Descripción de la escena",
+        "recommendation": {"action": "INTERVENIR | MONITOREAR | DESCARTAR", "reason": "..."},
+        "security_indicators": {...}
+      }
+    ]
+  }
+}
+```
+
+### 2. Información del Vehículo y Conductor (`preloaded_data`)
+- `preloaded_data.vehicle_info`: VIN, modelo, placas
+- `preloaded_data.driver_assignment`: Conductor asignado
+- `preloaded_data.vehicle_stats`: GPS, velocidad, estado del motor
+- `preloaded_data.safety_events_correlation`: Otros eventos en la ventana de tiempo
+- `preloaded_data.safety_event_detail`: Detalle del evento específico
+
+### 3. Para Revalidaciones (`revalidation_data`)
+- `revalidation_data.vehicle_stats_since_last_check`: Datos NUEVOS del vehículo
+- `revalidation_data.safety_events_since_last_check`: Eventos NUEVOS
+- `revalidation_data.camera_media_since_last_check`: Imágenes NUEVAS (ya analizadas en preloaded_camera_analysis)
+
+## TU TRABAJO
+
+1. **Revisar `preloaded_camera_analysis`** - ¿Qué muestra el análisis visual?
+2. **Revisar `preloaded_data`** - ¿Qué información del vehículo/conductor hay?
+3. **En revalidaciones, revisar `revalidation_data`** - ¿Qué cambió desde la última vez?
+4. **Emitir un veredicto** basado en TODA la evidencia disponible
 
 ### Para safety events:
 - `preloaded_data.safety_event_detail` contiene el detalle del evento
@@ -171,11 +269,7 @@ Para tampering, obstrucción de cámara o conectividad:
   
   "requires_monitoring": true | false,
   "next_check_minutes": 5 | 15 | 30 | 60,
-  "monitoring_reason": "Razón del monitoreo en español",
-  
-  "event_specifics": {
-    "optional_field": "valor específico del tipo de evento"
-  }
+  "monitoring_reason": "Razón del monitoreo en español"
 }
 ```
 

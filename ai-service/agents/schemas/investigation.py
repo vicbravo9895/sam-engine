@@ -10,7 +10,7 @@ ACTUALIZADO: Nuevo contrato con campos operativos estandarizados:
 - dedupe_key para idempotencia
 """
 
-from typing import Optional, List, Literal, Dict, Any
+from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
 
@@ -185,10 +185,9 @@ class AlertAssessment(BaseModel):
     # =========================================================================
     # Metadatos del evento
     # =========================================================================
-    event_specifics: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Detalles específicos del tipo de evento"
-    )
+    # NOTA: event_specifics fue eliminado porque Dict[str, Any] no es compatible
+    # con OpenAI structured outputs (requiere additionalProperties: false).
+    # Si necesitas campos específicos del evento, agrégalos como campos tipados.
 
 
 # Alias para compatibilidad con código existente

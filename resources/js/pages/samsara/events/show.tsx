@@ -109,10 +109,38 @@ interface AssessmentEvidenceItem {
     value: string | Record<string, unknown>;
 }
 
+interface VisionAnalysisStructured {
+    alert_level?: 'NORMAL' | 'ATENCION' | 'ALERTA' | 'CRITICO';
+    scene_description?: string;
+    security_indicators?: {
+        driver_state?: string;
+        anomalous_interaction?: string;
+        road_conditions?: string;
+        vehicle_state?: string;
+    };
+    decision_evidence?: {
+        emergency_signals?: string[];
+        false_positive_signals?: string[];
+        inconclusive_elements?: string[];
+    };
+    recommendation?: {
+        action?: 'INTERVENIR' | 'MONITOREAR' | 'DESCARTAR';
+        reason?: string;
+    };
+    image_quality?: {
+        is_usable?: boolean;
+        issues?: string[];
+    };
+}
+
 interface MediaInsight {
     camera?: string;
     analysis?: string;
     analysis_preview?: string;
+    analysis_structured?: VisionAnalysisStructured;
+    alert_level?: string;
+    recommendation?: { action?: string; reason?: string };
+    scene_description?: string;
     url?: string | null;
     download_url?: string | null;
     source?: 'media_insights' | 'camera_evidence' | 'tool_output';
@@ -204,10 +232,16 @@ interface AlertContext {
     notification_contacts?: {
         primary?: { name?: string; phone?: string };
         fallback?: { name?: string; phone?: string };
+        operator?: { name?: string; phone?: string };
+        monitoring_team?: { name?: string; phone?: string };
+        supervisor?: { name?: string; phone?: string };
         missing_contacts?: boolean;
         contact_source?: string;
     };
     location_description?: string;
+    // Nuevos campos traducidos por Laravel
+    behavior_label?: string;
+    behavior_label_translated?: string;
 }
 
 interface InvestigationMetadata {
@@ -603,8 +637,11 @@ function NextActionsCard({ event }: NextActionsCardProps) {
     const notificationMessage = event.notification_decision?.message_text;
     const notificationContacts = event.alert_context?.notification_contacts;
     const monitoringReason = event.ai_assessment?.monitoring_reason;
+    const notificationDecisionReason = event.notification_decision?.reason;
+    const notificationChannels = event.notification_decision?.channels_to_use;
+    const escalationLevel = event.notification_decision?.escalation_level;
 
-    const hasContent = recommendedActions.length > 0 || notificationMessage || notificationContacts?.missing_contacts || monitoringReason;
+    const hasContent = recommendedActions.length > 0 || notificationMessage || notificationContacts?.missing_contacts || monitoringReason || notificationDecisionReason;
 
     if (!hasContent) return null;
 
@@ -647,6 +684,32 @@ function NextActionsCard({ event }: NextActionsCardProps) {
                             <p className="text-xs font-medium text-amber-700 dark:text-amber-300 uppercase">En monitoreo</p>
                             <p className="text-sm text-amber-900 dark:text-amber-100">{monitoringReason}</p>
                         </div>
+                    </div>
+                )}
+
+                {/* Notification Decision Info */}
+                {notificationDecisionReason && (
+                    <div className="rounded-lg border bg-background p-3">
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-medium text-muted-foreground uppercase">Decisión de notificación</p>
+                            {escalationLevel && (
+                                <Badge variant="outline" className="text-xs">
+                                    {escalationLevel}
+                                </Badge>
+                            )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{notificationDecisionReason}</p>
+                        {notificationChannels && notificationChannels.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                {notificationChannels.map((channel, idx) => (
+                                    <Badge key={idx} className="text-xs bg-slate-100 dark:bg-slate-800">
+                                        {channel === 'call' ? '📞 Llamada' : 
+                                         channel === 'whatsapp' ? '💬 WhatsApp' : 
+                                         channel === 'sms' ? '📱 SMS' : channel}
+                                    </Badge>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -799,6 +862,29 @@ function ContextCard({ event }: ContextCardProps) {
                     </div>
                 </div>
 
+                {/* Behavior Label Badge */}
+                {event.alert_context?.behavior_label_translated && (
+                    <div className="pt-2">
+                        <Badge className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 gap-1">
+                            <Zap className="size-3" />
+                            {event.alert_context.behavior_label_translated}
+                        </Badge>
+                    </div>
+                )}
+
+                {/* Triage Notes (from AI) */}
+                {event.alert_context?.triage_notes && (
+                    <div className="rounded-lg border border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 p-3">
+                        <div className="flex items-start gap-2">
+                            <Info className="size-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                            <div>
+                                <p className="text-xs font-medium text-blue-700 dark:text-blue-300 uppercase">Notas del triaje AI</p>
+                                <p className="text-sm text-blue-900 dark:text-blue-100 mt-1">{event.alert_context.triage_notes}</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Expandable Details */}
                 {showDetails && (
                     <div className="space-y-3 pt-2 border-t">
@@ -923,6 +1009,42 @@ function AIVerdictCard({ event }: AIVerdictCardProps) {
 }
 
 // ============================================================================
+// CAMERA LABEL HELPER
+// ============================================================================
+
+/**
+ * Obtiene un label legible para el tipo de cámara
+ */
+function getCameraLabel(camera?: string, fallbackIndex?: number): string {
+    if (!camera || camera === 'unknown') {
+        return fallbackIndex !== undefined ? `Cámara ${fallbackIndex + 1}` : 'Cámara de evidencia';
+    }
+    
+    const lower = camera.toLowerCase();
+    if (lower.includes('driver') || lower.includes('interior')) {
+        return 'Interior (conductor)';
+    }
+    if (lower.includes('road') || lower.includes('front') || lower.includes('exterior')) {
+        return 'Exterior (frontal)';
+    }
+    if (lower.includes('rear') || lower.includes('back')) {
+        return 'Trasera';
+    }
+    
+    // Si tiene formato de dashcam pero no reconocido
+    if (camera.includes('dashcam') || camera.includes('Dashcam')) {
+        return camera
+            .replace('dashcam', '')
+            .replace('Dashcam', '')
+            .replace('Facing', '')
+            .replace('facing', '')
+            .trim() || 'Dashcam';
+    }
+    
+    return camera;
+}
+
+// ============================================================================
 // UNIFIED EVIDENCE GALLERY COMPONENT
 // Merges images from: media_insights, camera.media_urls, tool media_urls
 // ============================================================================
@@ -931,7 +1053,10 @@ interface UnifiedMediaItem {
     url: string;
     camera?: string;
     analysis?: string;
-    source: 'media_insights' | 'camera_evidence' | 'tool_output';
+    analysis_structured?: VisionAnalysisStructured;
+    alert_level?: string;
+    recommendation?: { action?: string; reason?: string };
+    source: 'media_insights' | 'camera_evidence' | 'tool_output' | 'camera_analysis';
 }
 
 interface EvidenceGalleryProps {
@@ -941,11 +1066,12 @@ interface EvidenceGalleryProps {
 
 function EvidenceGallery({ event, onSelectImage }: EvidenceGalleryProps) {
     // Merge all image sources and deduplicate by URL
+    // Priority: media_insights (persisted) > tool_output (persisted) > camera_evidence (S3 temp URLs)
     const allMedia = useMemo<UnifiedMediaItem[]>(() => {
         const urlSet = new Set<string>();
         const items: UnifiedMediaItem[] = [];
 
-        // Source 1: media_insights from event (already processed)
+        // Source 1: media_insights from event (already processed and persisted)
         event.media_insights
             .filter(m => m.download_url)
             .forEach(m => {
@@ -955,27 +1081,47 @@ function EvidenceGallery({ event, onSelectImage }: EvidenceGalleryProps) {
                         url: m.download_url!,
                         camera: m.camera,
                         analysis: m.analysis,
+                        analysis_structured: m.analysis_structured,
+                        alert_level: m.alert_level,
+                        recommendation: m.recommendation,
                         source: 'media_insights',
                     });
                 }
             });
 
-        // Source 2: camera.media_urls from ai_assessment.supporting_evidence
-        const cameraUrls = event.ai_assessment?.supporting_evidence?.camera?.media_urls ?? [];
-        cameraUrls.forEach((url, idx) => {
-            if (!urlSet.has(url)) {
-                urlSet.add(url);
-                items.push({
-                    url,
-                    camera: `Cámara ${idx + 1}`,
-                    source: 'camera_evidence',
-                });
-            }
-        });
-
-        // Source 3: tool media_urls from ai_actions.agents[].tools_used[].media_urls
-        event.ai_actions.agents.forEach(agent => {
-            agent.tools_used.forEach(tool => {
+        // Source 2: camera_analysis from ai_actions.camera_analysis (NEW - preferred)
+        // This is where preloaded and analyzed images are stored with local URLs
+        const cameraAnalysis = event.ai_actions?.camera_analysis;
+        if (cameraAnalysis?.analyses) {
+            cameraAnalysis.analyses.forEach((analysis: { 
+                local_url?: string; 
+                samsara_url?: string; 
+                input?: string; 
+                scene_description?: string; 
+                alert_level?: string;
+                analysis_structured?: VisionAnalysisStructured;
+                recommendation?: { action?: string; reason?: string };
+            }, idx: number) => {
+                // Prefer local_url over samsara_url
+                const url = analysis.local_url || analysis.samsara_url;
+                if (url && !urlSet.has(url)) {
+                    urlSet.add(url);
+                    items.push({
+                        url,
+                        camera: analysis.input || `Cámara ${idx + 1}`,
+                        analysis: analysis.scene_description || analysis.alert_level,
+                        analysis_structured: analysis.analysis_structured,
+                        alert_level: analysis.alert_level,
+                        recommendation: analysis.recommendation,
+                        source: 'camera_analysis',
+                    });
+                }
+            });
+        }
+        
+        // Source 3: tool media_urls from ai_actions.agents[].tools_used[].media_urls (legacy)
+        event.ai_actions.agents?.forEach(agent => {
+            agent.tools_used?.forEach(tool => {
                 (tool.media_urls ?? []).forEach((url, idx) => {
                     if (!urlSet.has(url)) {
                         urlSet.add(url);
@@ -990,6 +1136,24 @@ function EvidenceGallery({ event, onSelectImage }: EvidenceGalleryProps) {
             });
         });
 
+        // Source 4: camera.media_urls from ai_assessment.supporting_evidence
+        // ONLY add these if we don't already have images from other sources
+        // These are temporary S3 URLs that expire, so prefer persisted URLs
+        if (items.length === 0) {
+            const cameraUrls = event.ai_assessment?.supporting_evidence?.camera?.media_urls ?? [];
+            cameraUrls.forEach((url, idx) => {
+                // Skip S3 URLs if we already have persisted images
+                if (!urlSet.has(url)) {
+                    urlSet.add(url);
+                    items.push({
+                        url,
+                        camera: `Cámara ${idx + 1}`,
+                        source: 'camera_evidence',
+                    });
+                }
+            });
+        }
+
         return items;
     }, [event.media_insights, event.ai_assessment, event.ai_actions]);
 
@@ -999,6 +1163,7 @@ function EvidenceGallery({ event, onSelectImage }: EvidenceGalleryProps) {
         media_insights: 'Procesado',
         camera_evidence: 'Cámara',
         tool_output: 'Herramienta',
+        camera_analysis: 'Analizado',
     };
 
     return (
@@ -1018,37 +1183,42 @@ function EvidenceGallery({ event, onSelectImage }: EvidenceGalleryProps) {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {allMedia.map((item, idx) => (
-                    <button
-                        key={`${item.url}-${idx}`}
-                        onClick={() => onSelectImage(item)}
-                        className="group relative aspect-video cursor-pointer overflow-hidden rounded-xl border bg-muted text-left transition-all hover:ring-2 hover:ring-primary hover:ring-offset-2"
-                    >
-                        <img
-                            src={item.url}
-                            alt={item.camera ?? `Evidencia ${idx + 1}`}
-                            className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                            loading="lazy"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="flex items-center justify-between">
-                                <Badge className="bg-black/60 text-white backdrop-blur-sm text-xs">
-                                    {item.camera ?? `Imagen ${idx + 1}`}
-                                </Badge>
-                                <Badge variant="outline" className="bg-black/40 text-white/80 border-white/30 text-xs">
-                                    {sourceLabels[item.source]}
+                {allMedia.map((item, idx) => {
+                    const cameraLabel = getCameraLabel(item.camera, idx);
+                    return (
+                        <button
+                            key={`${item.url}-${idx}`}
+                            onClick={() => onSelectImage(item)}
+                            className="group relative aspect-video cursor-pointer overflow-hidden rounded-xl border bg-muted text-left transition-all hover:ring-2 hover:ring-primary hover:ring-offset-2"
+                        >
+                            <img
+                                src={item.url}
+                                alt={cameraLabel}
+                                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                loading="lazy"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex items-center justify-between">
+                                    <Badge className="bg-black/60 text-white backdrop-blur-sm text-xs">
+                                        <Camera className="size-3 mr-1" />
+                                        {cameraLabel}
+                                    </Badge>
+                                    <Badge variant="outline" className="bg-black/40 text-white/80 border-white/30 text-xs">
+                                        {sourceLabels[item.source]}
+                                    </Badge>
+                                </div>
+                            </div>
+                            {/* Always visible camera label */}
+                            <div className="absolute top-2 left-2">
+                                <Badge className="bg-black/50 text-white backdrop-blur-sm text-xs">
+                                    <Camera className="size-3 mr-1" />
+                                    {cameraLabel}
                                 </Badge>
                             </div>
-                        </div>
-                        {/* Always visible camera label */}
-                        <div className="absolute top-2 left-2">
-                            <Badge className="bg-black/50 text-white backdrop-blur-sm text-xs">
-                                {item.camera ?? `#${idx + 1}`}
-                            </Badge>
-                        </div>
-                    </button>
-                ))}
+                        </button>
+                    );
+                })}
             </div>
         </section>
     );
@@ -1064,28 +1234,243 @@ interface ImageLightboxProps {
 }
 
 function ImageLightbox({ image, onClose }: ImageLightboxProps) {
+    const alertLevelConfig: Record<string, { bg: string; text: string; label: string; border: string }> = {
+        'NORMAL': { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', label: 'Normal', border: 'border-emerald-500/30' },
+        'ATENCION': { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', label: 'Atención', border: 'border-amber-500/30' },
+        'ALERTA': { bg: 'bg-orange-500/10', text: 'text-orange-600 dark:text-orange-400', label: 'Alerta', border: 'border-orange-500/30' },
+        'CRITICO': { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400', label: 'Crítico', border: 'border-red-500/30' },
+        'INDETERMINADO': { bg: 'bg-slate-500/10', text: 'text-slate-600 dark:text-slate-400', label: 'Indeterminado', border: 'border-slate-500/30' },
+    };
+
+    const recommendationConfig: Record<string, { bg: string; text: string; icon: LucideIcon; border: string }> = {
+        'INTERVENIR': { bg: 'bg-red-500/15', text: 'text-red-700 dark:text-red-300', icon: ShieldAlert, border: 'border-red-500/40' },
+        'MONITOREAR': { bg: 'bg-amber-500/15', text: 'text-amber-700 dark:text-amber-300', icon: Eye, border: 'border-amber-500/40' },
+        'DESCARTAR': { bg: 'bg-emerald-500/15', text: 'text-emerald-700 dark:text-emerald-300', icon: Check, border: 'border-emerald-500/40' },
+    };
+
+    const structured = image?.analysis_structured;
+    const alertConfig = structured?.alert_level ? alertLevelConfig[structured.alert_level] : null;
+    const recConfig = structured?.recommendation?.action ? recommendationConfig[structured.recommendation.action] : null;
+    const RecIcon = recConfig?.icon ?? Eye;
+    
+    const cameraLabel = image?.camera ? getCameraLabel(image.camera) : 'Evidencia visual';
+
     return (
         <Dialog open={!!image} onOpenChange={() => onClose()}>
-            <DialogContent className="max-w-4xl p-0 overflow-hidden">
-                <DialogHeader className="p-4 pb-2">
-                    <DialogTitle className="flex items-center gap-2">
-                        <Camera className="size-4" />
-                        {image?.camera ?? 'Evidencia visual'}
-                    </DialogTitle>
-                </DialogHeader>
+            <DialogContent className="max-w-[95vw] w-full lg:max-w-7xl p-0 overflow-hidden h-[95vh] max-h-[95vh] bg-black/95 border-none">
+                {/* Close button */}
+                <button
+                    onClick={onClose}
+                    className="absolute right-4 top-4 z-50 rounded-full bg-black/60 p-2 text-white/80 hover:bg-black/80 hover:text-white transition-colors"
+                >
+                    <X className="size-5" />
+                </button>
+                
                 {image && (
-                    <div className="relative">
-                        <img
-                            src={image.url}
-                            alt={image.camera ?? 'Evidencia'}
-                            className="w-full h-auto max-h-[70vh] object-contain bg-black"
-                        />
-                        {image.analysis && (
-                            <div className="p-4 border-t bg-muted/50">
-                                <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Análisis AI</p>
-                                <p className="text-sm">{image.analysis}</p>
+                    <div className="flex flex-col lg:flex-row h-full">
+                        {/* Image Section - Takes most of the space */}
+                        <div className="relative flex-1 flex items-center justify-center bg-black min-h-[40vh] lg:min-h-full">
+                            <img
+                                src={image.url}
+                                alt={cameraLabel}
+                                className="max-w-full max-h-[60vh] lg:max-h-[90vh] object-contain"
+                            />
+                            
+                            {/* Camera label overlay on image */}
+                            <div className="absolute top-4 left-4">
+                                <Badge className="bg-black/70 text-white backdrop-blur-sm text-sm px-3 py-1.5">
+                                    <Camera className="size-4 mr-2" />
+                                    {cameraLabel}
+                                </Badge>
                             </div>
-                        )}
+                            
+                            {/* Alert level badge */}
+                            {alertConfig && (
+                                <div className="absolute top-4 right-16">
+                                    <Badge className={`${alertConfig.bg} ${alertConfig.text} border ${alertConfig.border} text-sm px-3 py-1.5 backdrop-blur-sm`}>
+                                        {alertConfig.label}
+                                    </Badge>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Analysis Panel - Right side on desktop, bottom on mobile */}
+                        <div className="w-full lg:w-[420px] bg-background border-t lg:border-t-0 lg:border-l overflow-y-auto max-h-[35vh] lg:max-h-full">
+                            <div className="p-5 space-y-5">
+                                {/* Header */}
+                                <div>
+                                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                                        <Sparkles className="size-5 text-primary" />
+                                        Análisis de Vision AI
+                                    </h3>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        Evaluación automática de la imagen capturada
+                                    </p>
+                                </div>
+                                
+                                <Separator />
+                                
+                                {/* Recommendation Banner - Prominent */}
+                                {recConfig && structured?.recommendation && (
+                                    <div className={`rounded-xl p-4 ${recConfig.bg} border ${recConfig.border}`}>
+                                        <div className="flex items-start gap-3">
+                                            <div className={`rounded-full p-2 ${recConfig.bg}`}>
+                                                <RecIcon className={`size-6 ${recConfig.text}`} />
+                                            </div>
+                                            <div className="flex-1">
+                                                <p className={`text-lg font-bold ${recConfig.text}`}>
+                                                    {structured.recommendation.action}
+                                                </p>
+                                                {structured.recommendation.reason && (
+                                                    <p className={`text-sm mt-1 ${recConfig.text} opacity-90`}>
+                                                        {structured.recommendation.reason}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Scene Description */}
+                                {structured?.scene_description && (
+                                    <div className="rounded-lg border bg-muted/30 p-4">
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                                            Descripción de la escena
+                                        </p>
+                                        <p className="text-sm leading-relaxed">{structured.scene_description}</p>
+                                    </div>
+                                )}
+
+                                {/* Security Indicators */}
+                                {structured?.security_indicators && (
+                                    <div>
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                                            Indicadores de seguridad
+                                        </p>
+                                        <div className="grid gap-2">
+                                            {structured.security_indicators.vehicle_state && structured.security_indicators.vehicle_state !== 'indeterminado' && (
+                                                <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
+                                                    <Truck className="size-5 text-muted-foreground shrink-0" />
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">Estado del vehículo</p>
+                                                        <p className="text-sm font-medium capitalize">{structured.security_indicators.vehicle_state}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {structured.security_indicators.driver_state && 
+                                             structured.security_indicators.driver_state !== 'null - cámara exterior' && 
+                                             structured.security_indicators.driver_state !== 'indeterminado' && (
+                                                <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
+                                                    <User className="size-5 text-muted-foreground shrink-0" />
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">Estado del conductor</p>
+                                                        <p className="text-sm font-medium">{structured.security_indicators.driver_state}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {structured.security_indicators.road_conditions && 
+                                             structured.security_indicators.road_conditions !== 'null - cámara interior' &&
+                                             structured.security_indicators.road_conditions !== 'indeterminado' && (
+                                                <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
+                                                    <MapPin className="size-5 text-muted-foreground shrink-0" />
+                                                    <div>
+                                                        <p className="text-xs text-muted-foreground">Condiciones del camino</p>
+                                                        <p className="text-sm font-medium">{structured.security_indicators.road_conditions}</p>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Decision Evidence */}
+                                {structured?.decision_evidence && (
+                                    <div className="space-y-3">
+                                        {structured.decision_evidence.emergency_signals && structured.decision_evidence.emergency_signals.length > 0 && (
+                                            <div className="rounded-xl border-2 border-red-500/40 bg-red-500/10 p-4">
+                                                <p className="text-xs font-bold text-red-700 dark:text-red-300 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                                    <ShieldAlert className="size-4" />
+                                                    Señales de emergencia
+                                                </p>
+                                                <ul className="text-sm text-red-900 dark:text-red-100 space-y-1.5">
+                                                    {structured.decision_evidence.emergency_signals.map((signal, idx) => (
+                                                        <li key={idx} className="flex items-start gap-2">
+                                                            <span className="text-red-500 mt-0.5">•</span>
+                                                            {signal}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                        {structured.decision_evidence.false_positive_signals && structured.decision_evidence.false_positive_signals.length > 0 && (
+                                            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                                                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                                    <Check className="size-4" />
+                                                    Señales de falso positivo
+                                                </p>
+                                                <ul className="text-sm text-emerald-900 dark:text-emerald-100 space-y-1.5">
+                                                    {structured.decision_evidence.false_positive_signals.map((signal, idx) => (
+                                                        <li key={idx} className="flex items-start gap-2">
+                                                            <span className="text-emerald-500 mt-0.5">•</span>
+                                                            {signal}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                        {structured.decision_evidence.inconclusive_elements && structured.decision_evidence.inconclusive_elements.length > 0 && (
+                                            <div className="rounded-xl border border-slate-500/30 bg-slate-500/10 p-4">
+                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                                    <Info className="size-4" />
+                                                    Elementos inconclusos
+                                                </p>
+                                                <ul className="text-sm text-slate-900 dark:text-slate-100 space-y-1.5">
+                                                    {structured.decision_evidence.inconclusive_elements.map((element, idx) => (
+                                                        <li key={idx} className="flex items-start gap-2">
+                                                            <span className="text-slate-500 mt-0.5">•</span>
+                                                            {element}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Image Quality Issues */}
+                                {structured?.image_quality?.issues && structured.image_quality.issues.length > 0 && (
+                                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                                        <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide mb-1.5 flex items-center gap-2">
+                                            <AlertTriangle className="size-3.5" />
+                                            Problemas de imagen
+                                        </p>
+                                        <p className="text-sm text-amber-900 dark:text-amber-100 capitalize">
+                                            {structured.image_quality.issues.join(', ')}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {/* Fallback: Raw Analysis Text */}
+                                {!structured && image.analysis && (
+                                    <div className="rounded-lg border bg-muted/30 p-4">
+                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                                            Análisis AI
+                                        </p>
+                                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{image.analysis}</p>
+                                    </div>
+                                )}
+                                
+                                {/* No analysis available */}
+                                {!structured && !image.analysis && (
+                                    <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-center">
+                                        <Camera className="size-8 text-muted-foreground mx-auto mb-2" />
+                                        <p className="text-sm text-muted-foreground">
+                                            No hay análisis detallado disponible para esta imagen
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 )}
             </DialogContent>

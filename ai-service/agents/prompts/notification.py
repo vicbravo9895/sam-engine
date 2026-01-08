@@ -65,7 +65,7 @@ Los contactos vienen en formato:
       "priority": 1
     }
   ],
-  "message_text": "COPIAR AQUÍ EL CONTENIDO LITERAL DE human_message",
+  "message_text": "COPIAR el contenido COMPLETO de state['human_message']. Debe empezar con emoji (ℹ️, ⚠️, 🚨) y contener Unidad, Operador, Hora, Evaluación. NO copies el reasoning ni resumas.",
   "call_script": "Versión corta para TTS (máx 200 chars)",
   "dedupe_key": "copiar del assessment",
   "reason": "Explicación de la decisión"
@@ -92,7 +92,13 @@ Para llamadas, genera un mensaje TTS corto:
 
 1. **NO ejecutes tools** - Solo genera la decisión JSON
 2. **dedupe_key**: Copiar EXACTAMENTE del campo dedupe_key del assessment
-3. **message_text**: Copiar el CONTENIDO COMPLETO Y LITERAL de human_message (NO escribas "El mensaje de human_message", copia el texto real)
+3. **message_text**: IMPORTANTE - Copiar el CONTENIDO COMPLETO Y LITERAL de state['human_message']. 
+   - El mensaje debe empezar con un emoji (ℹ️, ⚠️, 🚨)
+   - Debe contener: Unidad, Operador, Hora, Evaluación
+   - NO copies el reasoning del investigador
+   - NO resumas ni parafrasees
+   - Ejemplo correcto: "ℹ️ ALERTA - Detección de Pasajeros\n\nUnidad: T-012021..."
+   - Ejemplo INCORRECTO: "La alerta de detección de pasajeros indicó una posible situación..."
 4. **recipients**: Ordenar por prioridad (1=más alta)
 5. **channels_to_use**: Solo los canales según la matriz de escalación
 
