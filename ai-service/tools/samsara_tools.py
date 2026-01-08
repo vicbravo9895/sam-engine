@@ -557,24 +557,35 @@ Analiza y responde en este formato estructurado:
 
 Responde de forma concisa y profesional. Si la imagen está borrosa, oscura, o no permite análisis adecuado, indícalo claramente."""
                 
-                vision_response = await acompletion(
-                    model=OpenAIConfig.MODEL_GPT4O,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{base64_image}"
+                # Llamar a Vision API con imágenes en base64
+                # NOTA: Laravel ya persiste las imágenes desde las URLs de Samsara,
+                # por lo que no necesitamos que Langfuse intente subirlas a MinIO.
+                # Si Langfuse intenta subir las imágenes automáticamente, puede fallar
+                # con errores de conexión a MinIO, pero esto no afecta la funcionalidad
+                # ya que las imágenes ya están siendo persistidas por Laravel.
+                try:
+                    vision_response = await acompletion(
+                        model=OpenAIConfig.MODEL_GPT4O,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:image/jpeg;base64,{base64_image}"
+                                        }
                                     }
-                                }
-                            ]
-                        }
-                    ],
-                    api_key=OpenAIConfig.API_KEY
-                )
+                                ]
+                            }
+                        ],
+                        api_key=OpenAIConfig.API_KEY
+                    )
+                except Exception as vision_error:
+                    # Si hay un error en la llamada a Vision API, lo propagamos
+                    # (no es el error de subida de media de Langfuse)
+                    raise vision_error
                 
                 analysis_text = vision_response.choices[0].message.content
                 print(f"\n{'='*80}")

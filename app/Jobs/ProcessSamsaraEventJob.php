@@ -58,11 +58,37 @@ class ProcessSamsaraEventJob implements ShouldQueue
      */
     public function handle(ContactResolver $contactResolver): void
     {
+        // Refrescar el evento desde la BD para obtener el estado más reciente
+        $this->event->refresh();
+
         Log::info("Processing Samsara event", [
             'event_id' => $this->event->id,
             'event_type' => $this->event->event_type,
             'severity' => $this->event->severity,
+            'current_status' => $this->event->ai_status,
         ]);
+
+        // Protección contra procesamiento duplicado
+        // Si el evento ya está completado o en investigación, no procesarlo de nuevo
+        if (in_array($this->event->ai_status, [
+            SamsaraEvent::STATUS_COMPLETED,
+            SamsaraEvent::STATUS_INVESTIGATING,
+        ])) {
+            Log::info("Event already processed, skipping", [
+                'event_id' => $this->event->id,
+                'current_status' => $this->event->ai_status,
+            ]);
+            return;
+        }
+
+        // Si está en processing pero no es un reintento, podría ser un job duplicado
+        // Solo continuar si es el primer intento o si el evento está en pending
+        if ($this->event->ai_status === SamsaraEvent::STATUS_PROCESSING && $this->attempts() === 1) {
+            Log::warning("Event already being processed, but continuing (possible duplicate job)", [
+                'event_id' => $this->event->id,
+                'attempt' => $this->attempts(),
+            ]);
+        }
 
         try {
             // Marcar como procesando

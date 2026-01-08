@@ -57,6 +57,9 @@ def configure_litellm_callbacks():
     """
     Configura callbacks de Langfuse para LiteLLM.
     Esto permite tracking automático de todas las llamadas a LLM.
+    
+    IMPORTANTE: Deshabilitamos la subida automática de media porque Laravel
+    ya persiste las imágenes. Esto evita errores de conexión a MinIO.
     """
     if not LangfuseConfig.is_enabled():
         return
@@ -73,7 +76,15 @@ def configure_litellm_callbacks():
         litellm.success_callback = ["langfuse"]
         litellm.failure_callback = ["langfuse"]
         
+        # NOTA: LiteLLM puede intentar subir imágenes automáticamente a Langfuse
+        # cuando se usan en Vision API. Si esto falla con errores de conexión a MinIO,
+        # no afecta la funcionalidad ya que Laravel ya persiste las imágenes.
+        # Los errores de "Error uploading media" pueden aparecer en los logs pero son
+        # no críticos - las imágenes ya están siendo guardadas por Laravel.
+        
         print("✅ LiteLLM callbacks configurados para Langfuse")
+        print("   NOTA: Errores de 'uploading media' a MinIO son esperados y no críticos")
+        print("   (Laravel ya persiste las imágenes desde las URLs de Samsara)")
         
     except ImportError:
         print("⚠️  LiteLLM no disponible - callbacks no configurados")

@@ -122,7 +122,9 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'attempt' => $this->attempts(),
                     'ai_stats' => $stats,
                 ]);
-                throw new \Exception("AI service at capacity. Active: {$stats['active_requests'] ?? '?'}, Pending: {$stats['pending_requests'] ?? '?'}");
+                $activeRequests = $stats['active_requests'] ?? '?';
+                $pendingRequests = $stats['pending_requests'] ?? '?';
+                throw new \Exception("AI service at capacity. Active: {$activeRequests}, Pending: {$pendingRequests}");
             }
 
             if ($response->failed()) {
