@@ -21,8 +21,12 @@ services:
       target: production
     container_name: sam-app
     restart: unless-stopped
-    ports:
-      - "${APP_PORT:-80}:80"
+    # Port 80 is handled by Traefik in Dokploy - don't expose directly
+    # Uncomment for local testing only:
+    # ports:
+    #   - "${APP_PORT:-80}:80"
+    expose:
+      - "80"
     environment:
       APP_ENV: production
       APP_DEBUG: "false"
