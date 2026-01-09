@@ -145,10 +145,9 @@ services:
   # PostgreSQL Database
   # ---------------------------------------------------------------------------
   pgsql:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: sam-pgsql
     restart: unless-stopped
-    user: postgres
     environment:
       POSTGRES_DB: "${DB_DATABASE:-sam}"
       POSTGRES_USER: "${DB_USERNAME:-sam}"
