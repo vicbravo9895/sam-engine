@@ -74,12 +74,17 @@ RUN npm run build
 
 # Remove dev dependencies and optimize for production
 # Also remove the build-time .env (production will use env vars)
+# Clear package cache to remove references to dev-only service providers
 RUN composer install \
     --no-dev \
     --no-scripts \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader \
+    && php artisan package:discover --ansi \
+    && php artisan config:clear \
+    && php artisan route:clear \
+    && php artisan view:clear \
     && rm -rf node_modules \
     && rm -f .env
 
