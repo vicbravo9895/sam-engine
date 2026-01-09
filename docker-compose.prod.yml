@@ -1,0 +1,199 @@
+# =============================================================================
+# SAM - Docker Compose Production Configuration
+# Use for local production testing or as reference for Dokploy
+# =============================================================================
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml logs -f
+#   docker compose -f docker-compose.prod.yml down
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Laravel Application (nginx + PHP-FPM)
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: sam-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-80}:80"
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: "${APP_KEY}"
+      APP_URL: "${APP_URL:-http://localhost}"
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: pgsql
+      DB_HOST: pgsql
+      DB_PORT: 5432
+      DB_DATABASE: "${DB_DATABASE:-sam}"
+      DB_USERNAME: "${DB_USERNAME:-sam}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      AI_SERVICE_BASE_URL: http://ai-service:8000
+      SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - sam-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Laravel Horizon (Queue Worker)
+  # ---------------------------------------------------------------------------
+  horizon:
+    build:
+      context: .
+      dockerfile: Dockerfile.horizon
+    container_name: sam-horizon
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: "${APP_KEY}"
+      APP_URL: "${APP_URL:-http://localhost}"
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: pgsql
+      DB_HOST: pgsql
+      DB_PORT: 5432
+      DB_DATABASE: "${DB_DATABASE:-sam}"
+      DB_USERNAME: "${DB_USERNAME:-sam}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      AI_SERVICE_BASE_URL: http://ai-service:8000
+      SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+    depends_on:
+      pgsql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - sam-network
+
+  # ---------------------------------------------------------------------------
+  # AI Service (FastAPI + Google ADK)
+  # ---------------------------------------------------------------------------
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: sam-ai-service
+    restart: unless-stopped
+    environment:
+      # OpenAI / LLM
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      
+      # Samsara
+      SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
+      
+      # Twilio (notifications)
+      TWILIO_ACCOUNT_SID: "${TWILIO_ACCOUNT_SID}"
+      TWILIO_AUTH_TOKEN: "${TWILIO_AUTH_TOKEN}"
+      TWILIO_PHONE_NUMBER: "${TWILIO_PHONE_NUMBER}"
+      TWILIO_WHATSAPP_NUMBER: "${TWILIO_WHATSAPP_NUMBER}"
+      
+      # Langfuse (observability) - using cloud
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY}"
+      LANGFUSE_HOST: "${LANGFUSE_HOST:-https://cloud.langfuse.com}"
+      
+      # Redis
+      REDIS_URL: redis://redis:6379
+      
+      # Concurrency settings
+      MAX_CONCURRENT_REQUESTS: "${AI_MAX_CONCURRENT_REQUESTS:-5}"
+      SEMAPHORE_TIMEOUT: "${AI_SEMAPHORE_TIMEOUT:-30.0}"
+      RATE_LIMITING_ENABLED: "${AI_RATE_LIMITING_ENABLED:-true}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - sam-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  pgsql:
+    image: postgres:18-alpine
+    container_name: sam-pgsql
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${DB_DATABASE:-sam}"
+      POSTGRES_USER: "${DB_USERNAME:-sam}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - sam-pgsql-data:/var/lib/postgresql/data
+    networks:
+      - sam-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-sam} -d ${DB_DATABASE:-sam}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis (Cache + Queue)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: sam-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - sam-redis-data:/data
+    networks:
+      - sam-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  sam-network:
+    driver: bridge
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  sam-pgsql-data:
+    driver: local
+  sam-redis-data:
+    driver: local

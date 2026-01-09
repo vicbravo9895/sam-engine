@@ -17,13 +17,13 @@ ENV PYTHONUNBUFFERED=1 \
     POETRY_VERSION=1.8.0
 
 # Instalar dependencias del sistema y Poetry
+# Keep curl for health checks
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     pip install --upgrade pip && \
     pip install poetry==${POETRY_VERSION} && \
     poetry --version && \
-    apt-get purge -y curl && \
-    apt-get autoremove -y && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Configurar Poetry: no crear venv virtual (instalar directamente en el sistema)
@@ -42,5 +42,10 @@ COPY . .
 # Exponer el puerto interno
 EXPOSE 8000
 
-# Comando para levantar FastAPI con Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Production: Run with multiple workers (no --reload)
+# Workers = 2 * CPU cores + 1 (adjust based on server capacity)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
