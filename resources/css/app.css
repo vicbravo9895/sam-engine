@@ -170,4 +170,47 @@
     .animate-pulse-border {
         animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
+
+    /* Safe area utilities for PWA (iOS home indicator, notch, etc.) */
+    .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+
+    .pt-safe {
+        padding-top: env(safe-area-inset-top, 0);
+    }
+
+    .pl-safe {
+        padding-left: env(safe-area-inset-left, 0);
+    }
+
+    .pr-safe {
+        padding-right: env(safe-area-inset-right, 0);
+    }
+
+    .mb-safe {
+        margin-bottom: env(safe-area-inset-bottom, 0);
+    }
+
+    .mt-safe {
+        margin-top: env(safe-area-inset-top, 0);
+    }
+
+    /* Combined safe area padding */
+    .p-safe {
+        padding-top: env(safe-area-inset-top, 0);
+        padding-right: env(safe-area-inset-right, 0);
+        padding-bottom: env(safe-area-inset-bottom, 0);
+        padding-left: env(safe-area-inset-left, 0);
+    }
+
+    /* Min-height accounting for safe areas */
+    .min-h-screen-safe {
+        min-height: calc(100vh - env(safe-area-inset-top, 0) - env(safe-area-inset-bottom, 0));
+    }
+
+    /* Height accounting for safe areas */
+    .h-screen-safe {
+        height: calc(100vh - env(safe-area-inset-top, 0) - env(safe-area-inset-bottom, 0));
+    }
 }

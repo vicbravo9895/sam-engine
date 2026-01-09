@@ -72,6 +72,8 @@ export default function Copilot() {
     const [conversationTokens, setConversationTokens] = useState<number>(
         currentConversation?.total_tokens || 0
     );
+    // Estado para indicar que el componente está listo (hidratado)
+    const [isHydrated, setIsHydrated] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -312,6 +314,12 @@ export default function Copilot() {
         };
     }, [closeEventSource]);
 
+    // Marcar el componente como hidratado después de montar
+    // Esto es importante para PWA donde la primera carga puede tener problemas
+    useEffect(() => {
+        setIsHydrated(true);
+    }, []);
+
     // Helper para determinar si un mensaje debe animarse
     const shouldAnimateMessage = (messageId: number): boolean => {
         if (animatedMessagesRef.current.has(messageId)) {
@@ -335,8 +343,35 @@ export default function Copilot() {
         }
     }, [input]);
 
+    // Helper para obtener CSRF token (con fallback para PWA)
+    const getCsrfToken = (): string | null => {
+        // Primero intentar del meta tag
+        const metaToken = document.querySelector<HTMLMetaElement>(
+            'meta[name="csrf-token"]',
+        )?.content;
+        
+        if (metaToken) {
+            return metaToken;
+        }
+        
+        // Fallback: buscar en cookies (Laravel también lo guarda ahí)
+        const cookieMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+        if (cookieMatch) {
+            return decodeURIComponent(cookieMatch[1]);
+        }
+        
+        return null;
+    };
+
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
+        
+        // Verificar que el componente está hidratado y listo
+        if (!isHydrated) {
+            console.warn('[Copilot] Component not hydrated yet, ignoring submit');
+            return;
+        }
+        
         if (!input.trim() || isStreaming) return;
 
         const userMessage = input.trim();
@@ -355,13 +390,14 @@ export default function Copilot() {
         setLocalMessages((prev) => [...prev, tempUserMessage]);
 
         try {
-            // Obtener CSRF token del meta tag
-            const csrfToken = document.querySelector<HTMLMetaElement>(
-                'meta[name="csrf-token"]',
-            )?.content;
+            // Obtener CSRF token
+            const csrfToken = getCsrfToken();
 
             if (!csrfToken) {
-                throw new Error('CSRF token no encontrado');
+                // En PWA, si no hay CSRF token, recargar la página para obtener uno nuevo
+                console.error('[Copilot] CSRF token not found, reloading page');
+                window.location.reload();
+                return;
             }
 
             const response = await fetch(send.url(), {
@@ -370,6 +406,7 @@ export default function Copilot() {
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': csrfToken,
+                    'X-XSRF-TOKEN': csrfToken,
                     'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                 },
@@ -379,8 +416,16 @@ export default function Copilot() {
                 }),
             });
 
+            // Si el servidor devuelve 419 (CSRF token mismatch), recargar para obtener nuevo token
+            if (response.status === 419) {
+                console.error('[Copilot] CSRF token expired, reloading page');
+                window.location.reload();
+                return;
+            }
+
             if (!response.ok) {
-                throw new Error('Error en la respuesta del servidor');
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.message || 'Error en la respuesta del servidor');
             }
 
             const data = await response.json();
@@ -414,15 +459,18 @@ export default function Copilot() {
                 connectToStream(newThreadId, false);
             }
         } catch (error) {
+            console.error('[Copilot] Error sending message:', error);
             setIsStreaming(false);
             setStreamingContent('');
             setActiveTool(null);
 
-            // Mostrar mensaje de error
+            // Mostrar mensaje de error más descriptivo
             const errorMessage: Message = {
                 id: Date.now() + 1,
                 role: 'assistant',
-                content: 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.',
+                content: error instanceof Error && error.message !== 'Error en la respuesta del servidor'
+                    ? `Lo siento, hubo un error: ${error.message}. Por favor, intenta de nuevo.`
+                    : 'Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.',
                 created_at: new Date().toISOString(),
             };
             setLocalMessages((prev) => [...prev, errorMessage]);
@@ -674,15 +722,15 @@ export default function Copilot() {
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder="Escribe tu mensaje..."
+                            placeholder={isHydrated ? "Escribe tu mensaje..." : "Cargando..."}
                             className="placeholder:text-muted-foreground max-h-[120px] min-h-[40px] flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none md:max-h-[200px] md:min-h-[44px] md:px-3 md:py-2.5"
                             rows={1}
-                            disabled={isStreaming}
+                            disabled={isStreaming || !isHydrated}
                         />
                         <Button
                             type="submit"
                             size="icon"
-                            disabled={!input.trim() || isStreaming}
+                            disabled={!input.trim() || isStreaming || !isHydrated}
                             className="size-9 flex-shrink-0 rounded-xl md:size-10"
                         >
                             <Send className="size-4" />

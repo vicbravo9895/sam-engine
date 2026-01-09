@@ -3,7 +3,7 @@
  * Estrategias de caching para funcionamiento offline y rendimiento optimizado
  */
 
-const CACHE_VERSION = 'v1.0.6';
+const CACHE_VERSION = 'v1.0.7';
 const STATIC_CACHE = `sam-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `sam-dynamic-${CACHE_VERSION}`;
 const API_CACHE = `sam-api-${CACHE_VERSION}`;
@@ -30,6 +30,7 @@ const NETWORK_ONLY_PATTERNS = [
   /\/register/,
   /\/csrf-cookie/,
   /\/storage\//,  // Archivos almacenados que requieren autenticación
+  /\/copilot/,    // Copilot siempre necesita datos frescos
   /hot$/,
 ];
 

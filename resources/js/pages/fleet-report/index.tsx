@@ -28,6 +28,8 @@ import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
+import html2canvas from 'html2canvas-pro';
+import { jsPDF } from 'jspdf';
 import {
     Activity,
     Car,
@@ -35,6 +37,8 @@ import {
     ChevronUp,
     Clock,
     ExternalLink,
+    FileImage,
+    FileText,
     Filter,
     MapPin,
     Navigation,
@@ -44,7 +48,7 @@ import {
     Tag,
     Truck,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 interface VehicleStat {
     id: number;
@@ -125,6 +129,54 @@ export default function FleetReportIndex({
     const [searchTerm, setSearchTerm] = useState(filters.search || '');
     const [tagFilter, setTagFilter] = useState(filters.tag_id || '');
     const [statusFilter, setStatusFilter] = useState(filters.status || 'all');
+    const [tagSearchTerm, setTagSearchTerm] = useState('');
+    const [isExporting, setIsExporting] = useState(false);
+    const reportRef = useRef<HTMLDivElement>(null);
+
+    // Filtrar tags basado en búsqueda
+    const filteredTags = tags.filter((tag) =>
+        tag.name.toLowerCase().includes(tagSearchTerm.toLowerCase())
+    );
+
+    const handleExportImage = async () => {
+        if (!reportRef.current || isExporting) return;
+        setIsExporting(true);
+        try {
+            const canvas = await html2canvas(reportRef.current, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+            });
+            const link = document.createElement('a');
+            link.download = `reporte-flota-${new Date().toISOString().split('T')[0]}.jpg`;
+            link.href = canvas.toDataURL('image/jpeg', 0.9);
+            link.click();
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleExportPDF = async () => {
+        if (!reportRef.current || isExporting) return;
+        setIsExporting(true);
+        try {
+            const canvas = await html2canvas(reportRef.current, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+            });
+            const imgData = canvas.toDataURL('image/jpeg', 0.9);
+            const pdf = new jsPDF({
+                orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+                unit: 'px',
+                format: [canvas.width, canvas.height],
+            });
+            pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+            pdf.save(`reporte-flota-${new Date().toISOString().split('T')[0]}.pdf`);
+        } finally {
+            setIsExporting(false);
+        }
+    };
 
     const handleSearch = () => {
         router.get(
@@ -250,8 +302,30 @@ export default function FleetReportIndex({
                             Última sincronización: {formatLastSync(summary.lastSync)}
                         </p>
                     </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleExportImage}
+                            disabled={isExporting}
+                        >
+                            <FileImage className="mr-1.5 size-4" />
+                            JPG
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleExportPDF}
+                            disabled={isExporting}
+                        >
+                            <FileText className="mr-1.5 size-4" />
+                            PDF
+                        </Button>
+                    </div>
                 </header>
 
+                {/* Report Content - For Export */}
+                <div ref={reportRef} className="flex flex-col gap-6 rounded-lg bg-background p-4">
                 {/* Summary Stats */}
                 <section className="grid gap-4 md:grid-cols-3">
                     <Card className="bg-gradient-to-b from-background to-muted/30">
@@ -320,19 +394,36 @@ export default function FleetReportIndex({
                                 <Label>Tag / Grupo</Label>
                                 <Select
                                     value={tagFilter || '__all__'}
-                                    onValueChange={(v) => setTagFilter(v === '__all__' ? '' : v)}
+                                    onValueChange={(v) => {
+                                        setTagFilter(v === '__all__' ? '' : v);
+                                        setTagSearchTerm('');
+                                    }}
+                                    onOpenChange={(open) => {
+                                        if (!open) setTagSearchTerm('');
+                                    }}
                                 >
                                     <SelectTrigger className="mt-1">
                                         <SelectValue placeholder="Todos los tags" />
                                     </SelectTrigger>
                                     <SelectContent>
+                                        <div className="relative mb-1 px-1">
+                                            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                                            <input
+                                                type="text"
+                                                value={tagSearchTerm}
+                                                onChange={(e) => setTagSearchTerm(e.target.value)}
+                                                placeholder="Buscar tag..."
+                                                className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-2 text-sm outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                            />
+                                        </div>
                                         <SelectItem value="__all__">
                                             <div className="flex items-center gap-2">
                                                 <Tag className="size-3" />
                                                 Todos los tags
                                             </div>
                                         </SelectItem>
-                                        {tags.map((tag) => (
+                                        {filteredTags.map((tag) => (
                                             <SelectItem key={tag.id} value={tag.id}>
                                                 <div className="flex items-center justify-between gap-2">
                                                     <span>{tag.name}</span>
@@ -342,6 +433,11 @@ export default function FleetReportIndex({
                                                 </div>
                                             </SelectItem>
                                         ))}
+                                        {filteredTags.length === 0 && tagSearchTerm && (
+                                            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                                                No se encontraron tags
+                                            </div>
+                                        )}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -621,6 +717,7 @@ export default function FleetReportIndex({
                         </div>
                     </CardContent>
                 </Card>
+                </div>
 
                 {/* Pagination */}
                 {vehicleStats.last_page > 1 && (

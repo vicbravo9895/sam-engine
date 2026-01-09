@@ -38,8 +38,8 @@ from .schemas.investigation import PanicAssessment
 # ============================================================================
 # MODELOS DISPONIBLES
 # ============================================================================
-# GPT-4o: Modelo principal para tareas complejas con tools
-# GPT-4o-mini: Modelo rápido y económico para tareas simples
+# GPT-5: Modelo principal para razonamiento complejo
+# GPT-5-mini: Modelo rápido y económico para tareas simples
 # ============================================================================
 
 
@@ -47,13 +47,13 @@ from .schemas.investigation import PanicAssessment
 # TRIAGE AGENT (antes: ingestion_agent)
 # ============================================================================
 # Propósito: Clasificar la alerta y preparar instrucciones para el investigador
-# Modelo: GPT-4o-mini (task simple: extracción y clasificación)
+# Modelo: GPT-5-mini (task simple: extracción y clasificación)
 # Tools: Ninguna (solo analiza el payload)
 # Output: alert_context (JSON estructurado)
 # ============================================================================
 triage_agent = LlmAgent(
     name="triage_agent",
-    model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5_MINI),
     instruction=TRIAGE_AGENT_PROMPT,
     description="Clasifica alertas de Samsara, extrae datos y genera estrategia de investigación",
     output_key="alert_context",  # Stores structured triage data in state['alert_context']
@@ -65,7 +65,7 @@ triage_agent = LlmAgent(
 # INVESTIGATOR AGENT (antes: panic_investigator)
 # ============================================================================
 # Propósito: Investigar alertas usando datos PRE-CARGADOS y generar evaluación técnica
-# Modelo: GPT-4o (reasoning complejo)
+# Modelo: GPT-5 (reasoning complejo)
 # Tools: NINGUNA - Todos los datos vienen pre-cargados desde Laravel:
 #   - preloaded_data.vehicle_info
 #   - preloaded_data.driver_assignment
@@ -76,7 +76,7 @@ triage_agent = LlmAgent(
 # ============================================================================
 investigator_agent = LlmAgent(
     name="investigator_agent",
-    model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O),
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5),
     tools=[],  # SIN TOOLS - Todos los datos vienen pre-cargados desde Laravel
     instruction=INVESTIGATOR_AGENT_PROMPT,
     description="Investiga alertas usando datos pre-cargados y genera evaluación técnica basada en evidencia",
@@ -89,13 +89,13 @@ investigator_agent = LlmAgent(
 # FINAL AGENT
 # ============================================================================
 # Propósito: Generar mensaje en español para operadores
-# Modelo: GPT-4o-mini (síntesis de texto, no requiere reasoning complejo)
+# Modelo: GPT-5-mini (síntesis de texto, no requiere reasoning complejo)
 # Tools: Ninguna
 # Output: human_message (STRING, no JSON)
 # ============================================================================
 final_agent = LlmAgent(
     name="final_agent",
-    model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5_MINI),
     instruction=FINAL_AGENT_PROMPT,
     description="Genera mensaje final en español para el equipo de monitoreo",
     output_key="human_message"  # Stores final message in state['human_message']
@@ -107,13 +107,13 @@ final_agent = LlmAgent(
 # NOTIFICATION DECISION AGENT
 # ============================================================================
 # Propósito: Decidir qué notificaciones enviar (SIN ejecutar)
-# Modelo: GPT-4o-mini (reglas claras, decisión estructurada)
+# Modelo: GPT-5-mini (reglas claras, decisión estructurada)
 # Tools: NINGUNA - Solo decide, la ejecución la hace código
 # Output: notification_decision (JSON estructurado)
 # ============================================================================
 notification_decision_agent = LlmAgent(
     name="notification_decision_agent",
-    model=LiteLlm(model=OpenAIConfig.MODEL_GPT4O_MINI),
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5_MINI),
     tools=[],  # SIN TOOLS - Solo decide
     instruction=NOTIFICATION_DECISION_PROMPT,
     description="Decide qué notificaciones enviar según nivel de escalación (no ejecuta)",
@@ -183,10 +183,10 @@ def get_recommended_model(task_type: str) -> str:
         Nombre del modelo recomendado para LiteLLM
     """
     model_map = {
-        "classification": OpenAIConfig.MODEL_GPT4O_MINI,  # Triage
-        "investigation": OpenAIConfig.MODEL_GPT4O,         # Reasoning con tools
-        "synthesis": OpenAIConfig.MODEL_GPT4O_MINI,        # Generación de mensajes
-        "decision": OpenAIConfig.MODEL_GPT4O_MINI,         # Decisiones estructuradas
+        "classification": OpenAIConfig.MODEL_GPT5_MINI,  # Triage
+        "investigation": OpenAIConfig.MODEL_GPT5,         # Reasoning complejo
+        "synthesis": OpenAIConfig.MODEL_GPT5_MINI,        # Generación de mensajes
+        "decision": OpenAIConfig.MODEL_GPT5_MINI,         # Decisiones estructuradas
     }
-    return model_map.get(task_type, OpenAIConfig.MODEL_GPT4O_MINI)
+    return model_map.get(task_type, OpenAIConfig.MODEL_GPT5_MINI)
 
