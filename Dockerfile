@@ -18,6 +18,7 @@ RUN apk add --no-cache \
     unzip \
     icu-dev \
     oniguruma-dev \
+    linux-headers \
     && docker-php-ext-install \
         pdo_pgsql \
         pgsql \
@@ -26,7 +27,9 @@ RUN apk add --no-cache \
         opcache \
         intl \
         mbstring \
-        bcmath
+        bcmath \
+    && pecl install redis \
+    && docker-php-ext-enable redis
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
