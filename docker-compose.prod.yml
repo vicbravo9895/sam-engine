@@ -47,6 +47,9 @@ services:
       AI_SERVICE_BASE_URL: http://ai-service:8000
       SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
+    volumes:
+      # Persistent storage for uploaded files (dashcam images, evidence, etc.)
+      - sam-storage:/var/www/html/storage/app/public
     depends_on:
       pgsql:
         condition: service_healthy
@@ -89,6 +92,9 @@ services:
       AI_SERVICE_BASE_URL: http://ai-service:8000
       SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
+    volumes:
+      # Share storage volume with app (horizon saves evidence images)
+      - sam-storage:/var/www/html/storage/app/public
     depends_on:
       pgsql:
         condition: service_healthy
@@ -199,4 +205,6 @@ volumes:
   sam-pgsql-data:
     driver: local
   sam-redis-data:
+    driver: local
+  sam-storage:
     driver: local

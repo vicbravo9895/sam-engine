@@ -104,6 +104,11 @@ RUN addgroup -g 82 -S www-data 2>/dev/null || true \
 # Copy application from builder (without node_modules)
 COPY --from=builder /var/www/html /var/www/html
 
+# Create storage symlink for public files (evidence images, etc.)
+# Also ensure the evidence directory exists
+RUN mkdir -p /var/www/html/storage/app/public/evidence \
+    && ln -sf /var/www/html/storage/app/public /var/www/html/public/storage
+
 # Copy Docker configuration files
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisord.conf /etc/supervisord.conf

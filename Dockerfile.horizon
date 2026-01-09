@@ -47,8 +47,9 @@ COPY . .
 # Run post-install scripts
 RUN composer dump-autoload --optimize
 
-# Set proper permissions for storage
+# Set proper permissions for storage (including public storage for evidence/dashcam images)
 RUN mkdir -p storage/logs storage/framework/cache storage/framework/sessions storage/framework/views \
+    storage/app/public/evidence storage/app/public/dashcam-media \
     && chmod -R 775 storage bootstrap/cache
 
 # Health check - Horizon has a built-in status command
