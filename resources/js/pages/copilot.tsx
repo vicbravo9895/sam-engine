@@ -441,6 +441,48 @@ export default function Copilot() {
         return icons[iconName] || <Loader2 className="size-4 animate-spin" />;
     };
 
+    // Helper para obtener descripción contextual de la herramienta
+    const getToolContext = (label: string): { description: string; colorClass: string } => {
+        const labelLower = label.toLowerCase();
+        
+        // Vehicle/Fleet related
+        if (labelLower.includes('ubicación') || labelLower.includes('location')) {
+            return { description: 'Consultando GPS del vehículo...', colorClass: 'from-blue-500/20 to-cyan-500/20' };
+        }
+        if (labelLower.includes('vehículo') || labelLower.includes('vehicle') || labelLower.includes('stats')) {
+            return { description: 'Obteniendo estadísticas del vehículo...', colorClass: 'from-indigo-500/20 to-purple-500/20' };
+        }
+        if (labelLower.includes('conductor') || labelLower.includes('driver')) {
+            return { description: 'Buscando información del conductor...', colorClass: 'from-green-500/20 to-emerald-500/20' };
+        }
+        if (labelLower.includes('flota') || labelLower.includes('fleet')) {
+            return { description: 'Generando reporte de flota...', colorClass: 'from-blue-600/20 to-blue-400/20' };
+        }
+        
+        // Safety related
+        if (labelLower.includes('seguridad') || labelLower.includes('safety') || labelLower.includes('evento')) {
+            return { description: 'Analizando eventos de seguridad...', colorClass: 'from-red-500/20 to-orange-500/20' };
+        }
+        
+        // Media related
+        if (labelLower.includes('cámara') || labelLower.includes('dashcam') || labelLower.includes('media') || labelLower.includes('imagen')) {
+            return { description: 'Procesando imágenes de dashcam...', colorClass: 'from-purple-500/20 to-pink-500/20' };
+        }
+        
+        // Trips related
+        if (labelLower.includes('viaje') || labelLower.includes('trip') || labelLower.includes('ruta')) {
+            return { description: 'Consultando historial de viajes...', colorClass: 'from-green-500/20 to-teal-500/20' };
+        }
+        
+        // Notifications
+        if (labelLower.includes('notificación') || labelLower.includes('sms') || labelLower.includes('whatsapp') || labelLower.includes('llamada')) {
+            return { description: 'Enviando notificación...', colorClass: 'from-amber-500/20 to-yellow-500/20' };
+        }
+        
+        // Default
+        return { description: 'Procesando solicitud...', colorClass: 'from-blue-500/20 to-purple-500/20' };
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -568,38 +610,49 @@ export default function Copilot() {
                             )}
 
                             {/* Indicador de herramienta activa */}
-                            {isStreaming && !streamingContent && activeTool && (
-                                <div className="animate-in fade-in slide-in-from-left-4 mb-4 flex gap-2 duration-300 md:mb-6 md:gap-4">
-                                    <div className="bg-primary/10 animate-in zoom-in flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
-                                        <Bot className="text-primary size-4 md:size-5" />
-                                    </div>
-                                    <div className="bg-muted border-primary/20 animate-in fade-in zoom-in flex items-center gap-2 rounded-2xl border px-3 py-2 duration-200 md:gap-3 md:px-4 md:py-3">
-                                        <div className="text-primary flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/20 md:size-8">
-                                            {getToolIcon(activeTool.icon)}
+                            {isStreaming && !streamingContent && activeTool && (() => {
+                                const toolContext = getToolContext(activeTool.label);
+                                return (
+                                    <div className="animate-in fade-in slide-in-from-left-4 mb-4 flex gap-2 duration-300 md:mb-6 md:gap-4">
+                                        <div className="bg-primary/10 animate-in zoom-in flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
+                                            <Bot className="text-primary size-4 md:size-5" />
                                         </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-medium md:text-sm">{activeTool.label}</span>
-                                            <div className="mt-1 flex items-center gap-1">
-                                                <span className="bg-primary size-1.5 animate-pulse rounded-full"></span>
-                                                <span className="bg-primary size-1.5 animate-pulse rounded-full [animation-delay:150ms]"></span>
-                                                <span className="bg-primary size-1.5 animate-pulse rounded-full [animation-delay:300ms]"></span>
+                                        <div className="bg-muted border-primary/20 animate-in fade-in zoom-in flex items-center gap-3 rounded-2xl border px-3 py-2.5 duration-200 md:gap-4 md:px-4 md:py-3">
+                                            <div className={`text-primary flex size-9 items-center justify-center rounded-xl bg-gradient-to-br ${toolContext.colorClass} md:size-10`}>
+                                                {getToolIcon(activeTool.icon)}
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-xs font-semibold md:text-sm">{activeTool.label}</span>
+                                                <span className="text-muted-foreground text-[10px] md:text-xs">{toolContext.description}</span>
+                                                <div className="mt-0.5 flex items-center gap-1">
+                                                    <span className="bg-primary/70 size-1.5 animate-pulse rounded-full"></span>
+                                                    <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:150ms]"></span>
+                                                    <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:300ms]"></span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
 
                             {/* Indicador de carga genérico */}
                             {isStreaming && !streamingContent && !activeTool && (
                                 <div className="animate-in fade-in slide-in-from-left-4 mb-4 flex gap-2 duration-300 md:mb-6 md:gap-4">
                                     <div className="bg-primary/10 animate-in zoom-in flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
-                                        <Bot className="text-primary size-4 animate-pulse md:size-5" />
+                                        <Bot className="text-primary size-4 md:size-5" />
                                     </div>
-                                    <div className="bg-muted rounded-2xl px-3 py-2 md:px-4 md:py-3">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="bg-foreground/50 size-2 animate-bounce rounded-full [animation-delay:-0.3s]"></span>
-                                            <span className="bg-foreground/50 size-2 animate-bounce rounded-full [animation-delay:-0.15s]"></span>
-                                            <span className="bg-foreground/50 size-2 animate-bounce rounded-full"></span>
+                                    <div className="bg-muted border-muted-foreground/10 flex items-center gap-3 rounded-2xl border px-3 py-2.5 md:px-4 md:py-3">
+                                        <div className="text-primary flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 md:size-10">
+                                            <Sparkles className="size-4 animate-pulse" />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-xs font-semibold md:text-sm">Pensando...</span>
+                                            <span className="text-muted-foreground text-[10px] md:text-xs">Analizando tu solicitud</span>
+                                            <div className="mt-0.5 flex items-center gap-1">
+                                                <span className="bg-primary/70 size-1.5 animate-pulse rounded-full"></span>
+                                                <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:150ms]"></span>
+                                                <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:300ms]"></span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

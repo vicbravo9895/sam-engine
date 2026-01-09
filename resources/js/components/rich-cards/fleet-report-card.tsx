@@ -351,11 +351,11 @@ export function FleetReportCard({ data }: FleetReportCardProps) {
                 </div>
 
                 {/* Summary Highlights */}
-                {summary.highlights.length > 0 && (
+                {(summary.highlights?.length ?? 0) > 0 && (
                     <div className="mt-4 rounded-lg bg-white/10 backdrop-blur-sm p-3">
                         <p className="text-xs font-semibold uppercase tracking-wide text-blue-100 mb-2">Resumen Ejecutivo</p>
                         <div className="space-y-1.5">
-                            {summary.highlights.map((highlight, idx) => (
+                            {summary.highlights?.map((highlight, idx) => (
                                 <div key={idx} className="flex items-start gap-2 text-sm text-white">
                                     <span className="mt-0.5 text-blue-200">•</span>
                                     <span>{highlight}</span>
@@ -692,7 +692,7 @@ export function FleetReportCard({ data }: FleetReportCardProps) {
                                                         Eventos Recientes
                                                     </p>
                                                     <div className="space-y-2 max-h-96 overflow-y-auto">
-                                                        {safetyEvents.events.map((vehicleEvents, vehicleIdx) => (
+                                                        {(safetyEvents.events ?? []).map((vehicleEvents, vehicleIdx) => (
                                                             vehicleEvents.events && vehicleEvents.events.length > 0 && (
                                                                 <div key={vehicleIdx} className="space-y-2">
                                                                     {vehicleEvents.events.slice(0, 10).map((event: any, eventIdx: number) => {
@@ -900,7 +900,7 @@ export function FleetReportCard({ data }: FleetReportCardProps) {
                                                         Viajes Recientes
                                                     </p>
                                                     <div className="space-y-2 max-h-96 overflow-y-auto">
-                                                        {trips.trips.map((vehicleTrips, vehicleIdx) => (
+                                                        {(trips.trips ?? []).map((vehicleTrips, vehicleIdx) => (
                                                             vehicleTrips.trips && vehicleTrips.trips.length > 0 && (
                                                                 <div key={vehicleIdx} className="space-y-2">
                                                                     {vehicleTrips.trips.slice(0, 10).map((trip: any, tripIdx: number) => {
@@ -1116,7 +1116,7 @@ export function FleetReportCard({ data }: FleetReportCardProps) {
                                                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
                                         )}
                                     >
-                                        Todo ({dashcamMedia.images.length})
+                                        Todo ({dashcamMedia.images?.length ?? 0})
                                     </button>
                                     <button
                                         onClick={() => setDashcamTab('dashcamRoadFacing')}
@@ -1127,7 +1127,7 @@ export function FleetReportCard({ data }: FleetReportCardProps) {
                                                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
                                         )}
                                     >
-                                        🚗 Carretera ({dashcamMedia.images.filter(img => img.type === 'dashcamRoadFacing').length})
+                                        🚗 Carretera ({dashcamMedia.images?.filter(img => img.type === 'dashcamRoadFacing').length ?? 0})
                                     </button>
                                     <button
                                         onClick={() => setDashcamTab('dashcamDriverFacing')}
@@ -1138,7 +1138,7 @@ export function FleetReportCard({ data }: FleetReportCardProps) {
                                                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
                                         )}
                                     >
-                                        👤 Conductor ({dashcamMedia.images.filter(img => img.type === 'dashcamDriverFacing').length})
+                                        👤 Conductor ({dashcamMedia.images?.filter(img => img.type === 'dashcamDriverFacing').length ?? 0})
                                     </button>
                                 </div>
                             </div>
@@ -1205,14 +1205,14 @@ export function FleetReportCard({ data }: FleetReportCardProps) {
                 )}
 
                 {/* Notes Section - Full Width */}
-                {summary.notes.length > 0 && (
+                {(summary.notes?.length ?? 0) > 0 && (
                     <div className="mt-6 overflow-hidden rounded-lg border border-yellow-200 bg-gradient-to-r from-yellow-50 to-amber-50 p-4 shadow-sm dark:border-yellow-900/30 dark:from-yellow-950/20 dark:to-amber-950/20">
                         <div className="flex items-center gap-2 mb-3">
                             <AlertTriangle className="size-5 text-yellow-600 dark:text-yellow-400" />
                             <h4 className="text-sm font-semibold text-yellow-800 dark:text-yellow-400">Notas Adicionales</h4>
                         </div>
                         <ul className="space-y-2">
-                            {summary.notes.map((note, idx) => (
+                            {summary.notes?.map((note, idx) => (
                                 <li key={idx} className="flex items-start gap-2 text-sm text-yellow-700 dark:text-yellow-300">
                                     <span className="mt-0.5 text-yellow-500">•</span>
                                     <span>{note}</span>

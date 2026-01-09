@@ -70,10 +70,15 @@ class GetTags extends Tool
         ];
     }
 
+    /**
+     * Maximum response size in characters to prevent context overflow.
+     */
+    private const MAX_RESPONSE_SIZE = 8000;
+
     public function __invoke(
         bool $force_sync = false,
         ?string $search = null,
-        int $limit = 50,
+        int $limit = 20,
         bool $include_hierarchy = false,
         bool $with_vehicles = false
     ): string {
@@ -85,6 +90,9 @@ class GetTags extends Tool
             if (!$this->hasSamsaraAccess()) {
                 return $this->noSamsaraAccessResponse();
             }
+
+            // Enforce reasonable limits to prevent context overflow
+            $limit = min($limit, 30);
 
             // Check if we need to sync from API
             $shouldSync = $force_sync || $this->shouldSyncFromApi();
@@ -110,76 +118,65 @@ class GetTags extends Tool
             // Get total count before limiting
             $totalCount = $query->count();
 
-            // Build response
+            // Build compact response
             $response = [
                 'total_tags' => $totalCount,
-                'sync_status' => $shouldSync
-                    ? ($syncResult ?? 'Sincronizado')
-                    : 'Datos desde caché (última sincronización: ' . $this->getLastSyncTime() . ')',
+                'showing' => 0,
             ];
 
             // Get limited tags for the listing
             $tags = $query->orderBy('name')->limit($limit)->get();
 
             $response['showing'] = $tags->count();
-            $response['limit'] = $limit;
-            $response['tags'] = $tags->map(function ($tag) use ($include_hierarchy) {
+            
+            // Build compact tag list (exclude vehicles by default to save space)
+            $response['tags'] = $tags->map(function ($tag) use ($include_hierarchy, $with_vehicles) {
                 $tagData = [
                     'id' => $tag->samsara_id,
                     'name' => $tag->name,
-                    'parent_tag_id' => $tag->parent_tag_id,
-                    'vehicle_count' => $tag->vehicle_count,
-                    'driver_count' => $tag->driver_count,
-                    'asset_count' => $tag->asset_count,
+                    'vehicles' => $tag->vehicle_count ?? 0,
+                    'drivers' => $tag->driver_count ?? 0,
                 ];
 
-                // Include associated vehicles (just names/IDs for reference)
-                if (!empty($tag->vehicles)) {
-                    $tagData['vehicles'] = array_map(function ($v) {
-                        return [
-                            'id' => $v['id'] ?? null,
-                            'name' => $v['name'] ?? null,
-                        ];
-                    }, array_slice($tag->vehicles, 0, 10)); // Limit to first 10
-                    
-                    if (count($tag->vehicles) > 10) {
-                        $tagData['vehicles_note'] = 'Mostrando 10 de ' . count($tag->vehicles) . ' vehículos';
+                // Only include vehicle list if explicitly requested AND searching
+                if ($with_vehicles && !empty($tag->vehicles)) {
+                    // Only show first 5 vehicles to save space
+                    $vehicleNames = array_slice(
+                        array_map(fn($v) => $v['name'] ?? 'Sin nombre', $tag->vehicles),
+                        0,
+                        5
+                    );
+                    $tagData['vehicle_names'] = $vehicleNames;
+                    if (count($tag->vehicles) > 5) {
+                        $tagData['more_vehicles'] = count($tag->vehicles) - 5;
                     }
                 }
 
-                // Include hierarchy if requested
-                if ($include_hierarchy) {
-                    if ($tag->parent) {
-                        $tagData['parent'] = [
-                            'id' => $tag->parent->samsara_id,
-                            'name' => $tag->parent->name,
-                        ];
-                    }
-                    
-                    $children = $tag->children;
-                    if ($children->count() > 0) {
-                        $tagData['children'] = $children->map(function ($child) {
-                            return [
-                                'id' => $child->samsara_id,
-                                'name' => $child->name,
-                            ];
-                        })->toArray();
-                    }
-                    
-                    $tagData['hierarchy_path'] = $tag->getHierarchyPath();
+                // Include hierarchy only if requested
+                if ($include_hierarchy && $tag->parent_tag_id) {
+                    $tagData['parent_id'] = $tag->parent_tag_id;
                 }
 
                 return $tagData;
             })->toArray();
 
             if ($totalCount > $limit) {
-                $response['note'] = "Mostrando {$limit} de {$totalCount} tags. Usa el parámetro 'limit' para ver más o 'search' para filtrar.";
+                $response['note'] = "Mostrando {$limit} de {$totalCount}. Usa 'search' para filtrar.";
             }
 
-            // Add summary statistics
-            $response['summary'] = $this->getTagSummary();
+            // Generate response and check size
+            $jsonResponse = json_encode($response, JSON_UNESCAPED_UNICODE);
+            
+            // If response is too large, truncate tags list
+            if (strlen($jsonResponse) > self::MAX_RESPONSE_SIZE) {
+                $truncatedLimit = max(5, intval($limit / 2));
+                $response['tags'] = array_slice($response['tags'], 0, $truncatedLimit);
+                $response['showing'] = count($response['tags']);
+                $response['note'] = "Respuesta truncada a {$truncatedLimit} tags por límite de tamaño. Usa 'search' para filtrar.";
+                $jsonResponse = json_encode($response, JSON_UNESCAPED_UNICODE);
+            }
 
-            return json_encode($response, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            return $jsonResponse;
 
         } catch (\Exception $e) {
             return json_encode([

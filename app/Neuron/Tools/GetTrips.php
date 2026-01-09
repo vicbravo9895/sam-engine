@@ -281,6 +281,9 @@ class GetTrips extends Tool
         // Generate card data for frontend
         $result['_cardData'] = $this->generateCardData($result);
 
+        // Add usage hint (anti-redundancy)
+        $result['_hint'] = 'USA: :::trips\\n{_cardData.trips}\\n::: — NO describas viajes en texto, los datos ya están en la card.';
+
         return $result;
     }
 

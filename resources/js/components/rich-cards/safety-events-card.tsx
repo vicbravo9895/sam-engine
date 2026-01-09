@@ -177,7 +177,7 @@ export function SafetyEventsCard({ data }: SafetyEventsCardProps) {
 
                     {/* Events */}
                     <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                        {vehicleEvents.events.map((event, index) => {
+                        {(vehicleEvents.events ?? []).map((event, index) => {
                             const IconComponent = eventTypeIcons[event.type_description] || AlertTriangle;
 
                             return (

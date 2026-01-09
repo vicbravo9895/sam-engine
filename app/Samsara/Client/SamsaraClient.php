@@ -342,6 +342,91 @@ class SamsaraClient
     }
 
     /**
+     * Get all vehicle stats with automatic pagination handling.
+     * 
+     * This method fetches stats for ALL vehicles in the organization,
+     * handling pagination automatically. Ideal for sync operations.
+     * 
+     * @param array $types Array of stat types to retrieve (defaults to gps, engineStates, obdOdometerMeters)
+     * @return array All vehicle stats data combined from all pages
+     * 
+     * @see https://developers.samsara.com/reference/getvehiclestatsfeed
+     */
+    public function getAllVehicleStats(array $types = ['gps', 'engineStates', 'obdOdometerMeters']): array
+    {
+        $allVehicles = [];
+        $cursor = null;
+        $hasNextPage = true;
+
+        // Chunk types into groups of 3 (API limit)
+        $typeChunks = array_chunk($types, self::MAX_TYPES_PER_REQUEST);
+
+        // First, get all vehicles with the first chunk of types
+        $firstChunk = $typeChunks[0] ?? $types;
+
+        while ($hasNextPage) {
+            $response = $this->getVehicleStatsFeed([], $firstChunk, $cursor);
+
+            // Merge vehicles from this page
+            if (isset($response['data']) && is_array($response['data'])) {
+                foreach ($response['data'] as $vehicleData) {
+                    $vehicleId = $vehicleData['id'] ?? null;
+                    if (!$vehicleId) continue;
+
+                    if (!isset($allVehicles[$vehicleId])) {
+                        $allVehicles[$vehicleId] = $vehicleData;
+                    } else {
+                        // Merge stat fields
+                        foreach ($firstChunk as $type) {
+                            if (isset($vehicleData[$type])) {
+                                $allVehicles[$vehicleId][$type] = $vehicleData[$type];
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check for next page
+            $hasNextPage = $response['pagination']['hasNextPage'] ?? false;
+            $cursor = $response['pagination']['endCursor'] ?? null;
+        }
+
+        // If we have more type chunks, fetch those for all vehicles we found
+        if (count($typeChunks) > 1) {
+            $vehicleIds = array_keys($allVehicles);
+            
+            for ($i = 1; $i < count($typeChunks); $i++) {
+                $typeChunk = $typeChunks[$i];
+                $chunkCursor = null;
+                $chunkHasNextPage = true;
+
+                while ($chunkHasNextPage) {
+                    $response = $this->getVehicleStatsFeed($vehicleIds, $typeChunk, $chunkCursor);
+
+                    if (isset($response['data']) && is_array($response['data'])) {
+                        foreach ($response['data'] as $vehicleData) {
+                            $vehicleId = $vehicleData['id'] ?? null;
+                            if (!$vehicleId || !isset($allVehicles[$vehicleId])) continue;
+
+                            // Merge stat fields
+                            foreach ($typeChunk as $type) {
+                                if (isset($vehicleData[$type])) {
+                                    $allVehicles[$vehicleId][$type] = $vehicleData[$type];
+                                }
+                            }
+                        }
+                    }
+
+                    $chunkHasNextPage = $response['pagination']['hasNextPage'] ?? false;
+                    $chunkCursor = $response['pagination']['endCursor'] ?? null;
+                }
+            }
+        }
+
+        return array_values($allVehicles);
+    }
+
+    /**
      * Available media input types for dashcam media.
      */
     public const MEDIA_INPUTS = [

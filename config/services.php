@@ -41,8 +41,11 @@ return [
 
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
-        'standard_model' => env('OPENAI_STANDARD_MODEL', 'gpt-4o-mini'),
-        'advanced_model' => env('OPENAI_ADVANCED_MODEL', 'gpt-4o'),
+        // GPT-5 Hybrid Strategy:
+        // - standard: gpt-5-mini (rápido, económico) para consultas normales
+        // - advanced: gpt-5 (máxima calidad) para reportes complejos
+        'standard_model' => env('OPENAI_STANDARD_MODEL', 'gpt-5-mini'),
+        'advanced_model' => env('OPENAI_ADVANCED_MODEL', 'gpt-5'),
     ],
 
     'samsara' => [

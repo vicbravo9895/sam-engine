@@ -14,10 +14,11 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { AlertTriangle, BookOpen, Building2, Folder, LayoutGrid, Shield, Sparkles, Users } from 'lucide-react';
+import { AlertTriangle, BookOpen, Building2, Folder, LayoutGrid, Shield, Sparkles, Truck, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 const SAMSARA_ALERTS_URL = '/samsara/alerts';
+const FLEET_REPORT_URL = '/fleet-report';
 const CONTACTS_URL = '/contacts';
 const COPILOT_URL = '/copilot';
 
@@ -36,6 +37,11 @@ const mainNavItems: NavItem[] = [
         title: 'Alertas Samsara',
         href: SAMSARA_ALERTS_URL,
         icon: AlertTriangle,
+    },
+    {
+        title: 'Reporte de Flota',
+        href: FLEET_REPORT_URL,
+        icon: Truck,
     },
     {
         title: 'Contactos',

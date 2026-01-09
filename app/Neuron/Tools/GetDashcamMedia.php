@@ -297,8 +297,8 @@ class GetDashcamMedia extends Tool
             ];
         }
 
-        // Add usage hint
-        $result['_hint'] = 'Para mostrar las imágenes de dashcam, usa el bloque :::dashcamMedia con los datos de _cardData.';
+        // Add usage hint (anti-redundancy)
+        $result['_hint'] = 'USA: :::dashcamMedia\\n{_cardData.dashcamMedia}\\n::: — NO describas las imágenes en texto, NO uses ![img](url).';
 
         return $result;
     }

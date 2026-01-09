@@ -4,6 +4,7 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CopilotController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\SamsaraEventController;
 use App\Http\Controllers\StorageController;
 use App\Http\Controllers\UserController;
@@ -49,6 +50,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/', [SamsaraEventController::class, 'index'])->name('index');
         Route::get('/{samsaraEvent}', [SamsaraEventController::class, 'show'])->name('show');
     });
+
+    // Fleet Report
+    Route::get('fleet-report', [FleetReportController::class, 'index'])->name('fleet-report.index');
 
     // Contacts Management
     Route::resource('contacts', ContactController::class);

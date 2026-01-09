@@ -4,7 +4,9 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DashcamMediaCard } from './rich-cards/dashcam-media-card';
 import { FleetReportCard } from './rich-cards/fleet-report-card';
+import { FleetStatusCard } from './rich-cards/fleet-status-card';
 import { LocationCard } from './rich-cards/location-card';
+import { RichBlockSkeleton, type RichBlockType } from './rich-cards/rich-block-skeleton';
 import { SafetyEventsCard } from './rich-cards/safety-events-card';
 import { TripsCard } from './rich-cards/trips-card';
 import { VehicleStatsCard } from './rich-cards/vehicle-stats-card';
@@ -19,14 +21,15 @@ interface MarkdownContentProps {
 // Flexible format: allows spaces, newlines, and common typos
 // Updated to be more robust: matches :::type followed by whitespace/newlines, then JSON object, then closing :::
 // Uses a balanced brace matcher approach by finding the first { and matching until the closing } at the same level
-const RICH_BLOCK_REGEX = /:::(location|vehicleStats|dashcamMedia|dashamMedia|safetyEvents|trips|fleetReport)[\s\n]*(\{[\s\S]*?\})[\s\n]*:::/g;
+const RICH_BLOCK_REGEX = /:::(location|vehicleStats|dashcamMedia|dashamMedia|safetyEvents|trips|fleetReport|fleetStatus)[\s\n]*(\{[\s\S]*?\})[\s\n]*:::/g;
+
+// Regex to detect the START of an incomplete rich block (opened but not closed)
+const INCOMPLETE_BLOCK_START_REGEX = /:::(location|vehicleStats|dashcamMedia|dashamMedia|safetyEvents|trips|fleetReport|fleetStatus)[\s\n]*\{/;
 
 // Map typos to correct types
 const TYPE_CORRECTIONS: Record<string, string> = {
     dashamMedia: 'dashcamMedia',
 };
-
-type RichBlockType = 'location' | 'vehicleStats' | 'dashcamMedia' | 'safetyEvents' | 'trips' | 'fleetReport';
 
 interface RichBlock {
     type: RichBlockType;
@@ -34,15 +37,112 @@ interface RichBlock {
 }
 
 interface ContentPart {
-    type: 'markdown' | 'richBlock';
+    type: 'markdown' | 'richBlock' | 'incompleteBlock';
     content?: string;
     block?: RichBlock;
+    incompleteBlockType?: RichBlockType;
 }
 
-function parseContent(content: string): ContentPart[] {
+interface ParseResult {
+    parts: ContentPart[];
+    hasIncompleteBlock: boolean;
+    incompleteBlockType: RichBlockType | null;
+}
+
+/**
+ * Detects if content has an incomplete rich block that started but hasn't closed.
+ * Returns the type of incomplete block and the index where it starts.
+ */
+function detectIncompleteBlock(content: string): { type: RichBlockType | null; startIndex: number } {
+    // Find all positions where a block starts with :::type {
+    const blockTypes = ['location', 'vehicleStats', 'dashcamMedia', 'dashamMedia', 'safetyEvents', 'trips', 'fleetReport', 'fleetStatus'];
+    
+    let lastIncompleteStart = -1;
+    let lastIncompleteType: RichBlockType | null = null;
+    
+    for (const blockType of blockTypes) {
+        // Find all occurrences of :::type
+        const startPattern = new RegExp(`:::${blockType}`, 'g');
+        let startMatch;
+        
+        while ((startMatch = startPattern.exec(content)) !== null) {
+            const startIdx = startMatch.index;
+            
+            // Look for opening brace after the type
+            const afterType = content.slice(startIdx);
+            const braceMatch = afterType.match(/^:::\w+[\s\n]*\{/);
+            
+            if (braceMatch) {
+                // Found an opening brace, now check if there's a proper closing
+                const braceStart = startIdx + braceMatch[0].indexOf('{');
+                
+                // Count braces to find if it's balanced
+                let braceCount = 0;
+                let inString = false;
+                let escapeNext = false;
+                let isComplete = false;
+                let jsonEnd = -1;
+                
+                for (let i = braceStart; i < content.length; i++) {
+                    const char = content[i];
+                    
+                    if (escapeNext) {
+                        escapeNext = false;
+                        continue;
+                    }
+                    
+                    if (char === '\\') {
+                        escapeNext = true;
+                        continue;
+                    }
+                    
+                    if (char === '"' && !escapeNext) {
+                        inString = !inString;
+                        continue;
+                    }
+                    
+                    if (!inString) {
+                        if (char === '{') {
+                            braceCount++;
+                        } else if (char === '}') {
+                            braceCount--;
+                            if (braceCount === 0) {
+                                jsonEnd = i + 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if (jsonEnd > 0) {
+                    // Check if there's a closing ::: after the JSON
+                    const afterJson = content.slice(jsonEnd);
+                    const closingMatch = afterJson.match(/^[\s\n]*:::/);
+                    if (closingMatch) {
+                        isComplete = true;
+                    }
+                }
+                
+                // If this block is incomplete and is the furthest one, track it
+                if (!isComplete && startIdx > lastIncompleteStart) {
+                    lastIncompleteStart = startIdx;
+                    const correctedType = TYPE_CORRECTIONS[blockType] || blockType;
+                    lastIncompleteType = correctedType as RichBlockType;
+                }
+            }
+        }
+    }
+    
+    return { type: lastIncompleteType, startIndex: lastIncompleteStart };
+}
+
+function parseContent(content: string, isStreaming: boolean = false): ParseResult {
     const parts: ContentPart[] = [];
     let lastIndex = 0;
     let match;
+    
+    // Check for incomplete blocks first (only relevant during streaming)
+    const incompleteBlock = isStreaming ? detectIncompleteBlock(content) : { type: null, startIndex: -1 };
 
     // Reset regex
     RICH_BLOCK_REGEX.lastIndex = 0;
@@ -166,15 +266,29 @@ function parseContent(content: string): ContentPart[] {
         }
     }
 
-    // Add remaining markdown
+    // Add remaining markdown (but strip incomplete block content if present)
     if (lastIndex < content.length) {
-        parts.push({
-            type: 'markdown',
-            content: content.slice(lastIndex),
-        });
+        let remainingContent = content.slice(lastIndex);
+        
+        // If there's an incomplete block, strip it from the remaining content
+        if (incompleteBlock.startIndex >= lastIndex) {
+            const relativeStart = incompleteBlock.startIndex - lastIndex;
+            remainingContent = remainingContent.slice(0, relativeStart);
+        }
+        
+        if (remainingContent.trim()) {
+            parts.push({
+                type: 'markdown',
+                content: remainingContent,
+            });
+        }
     }
 
-    return parts;
+    return {
+        parts,
+        hasIncompleteBlock: incompleteBlock.type !== null,
+        incompleteBlockType: incompleteBlock.type,
+    };
 }
 
 function RichBlockRenderer({ block }: { block: RichBlock }) {
@@ -191,6 +305,8 @@ function RichBlockRenderer({ block }: { block: RichBlock }) {
             return <TripsCard data={block.data} />;
         case 'fleetReport':
             return <FleetReportCard data={block.data} />;
+        case 'fleetStatus':
+            return <FleetStatusCard data={block.data} />;
         default:
             return null;
     }
@@ -350,19 +466,35 @@ function StreamingIndicator({ isHeavy }: { isHeavy: boolean }) {
 }
 
 export function MarkdownContent({ content, className, isStreaming = false }: MarkdownContentProps) {
-    const parts = useMemo(() => parseContent(content), [content]);
+    const parseResult = useMemo(() => parseContent(content, isStreaming), [content, isStreaming]);
+    const parts = parseResult?.parts ?? [];
+    const hasIncompleteBlock = parseResult?.hasIncompleteBlock ?? false;
+    const incompleteBlockType = parseResult?.incompleteBlockType ?? null;
     const hasHeavy = useMemo(() => hasHeavyContent(content), [content]);
 
     return (
         <div className={cn('prose prose-sm dark:prose-invert max-w-none min-w-0 overflow-hidden break-words', className)}>
             {parts.map((part, index) => {
                 if (part.type === 'richBlock' && part.block) {
-                    return <RichBlockRenderer key={index} block={part.block} />;
+                    return (
+                        <div key={index} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <RichBlockRenderer block={part.block} />
+                        </div>
+                    );
                 }
 
                 return <MarkdownRenderer key={index} content={part.content || ''} />;
             })}
-            {isStreaming && <StreamingIndicator isHeavy={hasHeavy && content.length > 100} />}
+            
+            {/* Show skeleton for incomplete block during streaming */}
+            {isStreaming && hasIncompleteBlock && incompleteBlockType && (
+                <RichBlockSkeleton type={incompleteBlockType} />
+            )}
+            
+            {/* Show generic streaming indicator only when NOT generating a rich block */}
+            {isStreaming && !hasIncompleteBlock && (
+                <StreamingIndicator isHeavy={hasHeavy && content.length > 100} />
+            )}
         </div>
     );
 }

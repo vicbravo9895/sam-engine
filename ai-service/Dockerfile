@@ -46,6 +46,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Production: Run with multiple workers (no --reload)
-# Workers = 2 * CPU cores + 1 (adjust based on server capacity)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Production: Run with limited workers to avoid OOM
+# Each worker consumes ~300-500MB with LiteLLM + ADK
+# Use --limit-max-requests to recycle workers and prevent memory leaks
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--limit-max-requests", "100"]

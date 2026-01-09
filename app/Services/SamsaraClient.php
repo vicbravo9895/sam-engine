@@ -401,6 +401,13 @@ class SamsaraClient
             return [];
         }
 
+        // Filtrar elementos null o no-arrays que pueden venir de la API
+        $media = array_filter($media, fn($item) => is_array($item));
+        
+        if (empty($media)) {
+            return [];
+        }
+
         // Separar por tipo de cámara
         $driverImages = [];
         $roadImages = [];

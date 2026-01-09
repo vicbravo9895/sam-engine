@@ -365,8 +365,8 @@ class GetVehicleStats extends Tool
             $result['vehicles'][] = $formattedVehicle;
         }
 
-        // Add usage hint for the agent
-        $result['_hint'] = 'Para mostrar ubicación con mapa interactivo, usa el bloque :::location con _cardData.location. Para stats completas usa :::vehicleStats con _cardData.vehicleStats.';
+        // Add usage hint (anti-redundancy)
+        $result['_hint'] = 'USA: :::location\\n{_cardData.location}\\n::: o :::vehicleStats\\n{_cardData.vehicleStats}\\n::: — NO repitas ubicación/velocidad/motor en texto.';
 
         return $result;
     }

@@ -61,8 +61,9 @@ export function DashcamMediaCard({ data }: DashcamMediaCardProps) {
         }
     };
 
-    // Filter images based on active tab
-    const filteredImages = data.images.filter((img) => {
+    // Filter images based on active tab (with defensive check)
+    const images = data.images ?? [];
+    const filteredImages = images.filter((img) => {
         if (activeTab === 'all') return true;
         if (activeTab === 'road') return img.type === 'dashcamRoadFacing';
         if (activeTab === 'driver') return img.type === 'dashcamDriverFacing';
@@ -70,8 +71,8 @@ export function DashcamMediaCard({ data }: DashcamMediaCardProps) {
     });
 
     // Group images by type for summary
-    const roadFacingCount = data.images.filter((img) => img.type === 'dashcamRoadFacing').length;
-    const driverFacingCount = data.images.filter((img) => img.type === 'dashcamDriverFacing').length;
+    const roadFacingCount = images.filter((img) => img.type === 'dashcamRoadFacing').length;
+    const driverFacingCount = images.filter((img) => img.type === 'dashcamDriverFacing').length;
 
     const handlePrevImage = () => {
         if (selectedImageIndex !== null && selectedImageIndex > 0) {

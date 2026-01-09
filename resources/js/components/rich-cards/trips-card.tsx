@@ -203,7 +203,7 @@ export function TripsCard({ data }: TripsCardProps) {
 
                     {/* Trips */}
                     <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                        {vehicleTrips.trips.map((trip, index) => {
+                        {(vehicleTrips.trips ?? []).map((trip, index) => {
                             const statusStyle = statusColors[trip.status] || statusColors[trip.status_description] || defaultStatusColor;
                             const StatusIcon = statusStyle.icon;
                             const startTime = formatDateTime(trip.trip_start_time);

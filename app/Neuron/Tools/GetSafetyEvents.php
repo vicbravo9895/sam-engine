@@ -322,6 +322,9 @@ class GetSafetyEvents extends Tool
         // Generate card data for frontend
         $result['_cardData'] = $this->generateCardData($result);
 
+        // Add usage hint (anti-redundancy)
+        $result['_hint'] = 'USA: :::safetyEvents\\n{_cardData.safetyEvents}\\n::: — NO listes eventos en texto, los datos ya están en la card.';
+
         return $result;
     }
 

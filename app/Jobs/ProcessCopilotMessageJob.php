@@ -85,7 +85,17 @@ class ProcessCopilotMessageJob implements ShouldQueue
         Log::info('Job started, Redis stream should already be initialized', ['thread_id' => $this->threadId]);
 
         try {
-            $model = config('services.openai.standard_model');
+            // Detectar si es una consulta compleja que requiere GPT-5 avanzado
+            $useAdvancedModel = $this->isComplexQuery($this->message);
+            $model = $useAdvancedModel 
+                ? config('services.openai.advanced_model')   // gpt-5
+                : config('services.openai.standard_model');  // gpt-5-mini
+            
+            Log::info('Model selection', [
+                'thread_id' => $this->threadId,
+                'model' => $model,
+                'is_complex' => $useAdvancedModel,
+            ]);
             
             // Asegurar que las clases estén cargadas
             if (!class_exists(\NeuronAI\Agent::class)) {
@@ -111,6 +121,7 @@ class ProcessCopilotMessageJob implements ShouldQueue
             $agent = (new FleetAgent())
                 ->forUser($user)
                 ->withThread($this->threadId)
+                ->withAdvancedModel($useAdvancedModel)
                 ->observe(new LogObserver($logger))
                 ->observe($tokenObserver);
 
@@ -266,6 +277,45 @@ class ProcessCopilotMessageJob implements ShouldQueue
         }
     }
     
+    /**
+     * Detectar si el mensaje requiere el modelo avanzado (GPT-5).
+     * 
+     * Usa GPT-5 para:
+     * - Reportes completos/detallados
+     * - Análisis multi-vehículo
+     * - Consultas que requieren múltiples tools
+     */
+    private function isComplexQuery(string $message): bool
+    {
+        $messageLower = mb_strtolower($message);
+        
+        // Patrones que indican consulta compleja
+        $complexPatterns = [
+            'reporte completo',
+            'reporte detallado',
+            'estado completo',
+            'resumen completo',
+            'análisis completo',
+            'informe completo',
+            'dame todo',
+            'toda la información',
+            'todos los datos',
+            'reporte de flota',
+            'estado de la flota',
+            'todos los vehículos',
+            'comparar',
+            'comparativo',
+        ];
+        
+        foreach ($complexPatterns as $pattern) {
+            if (str_contains($messageLower, $pattern)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
     /**
      * Obtener información de display para cada herramienta
      */
