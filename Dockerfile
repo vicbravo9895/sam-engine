@@ -41,23 +41,18 @@ FROM base AS builder
 # Install Node.js (required for Vite build with Wayfinder plugin)
 RUN apk add --no-cache nodejs npm
 
-# Copy composer files first for caching
-COPY composer.json composer.lock ./
+# Copy ALL application code first (needed for artisan)
+COPY . .
 
-# Install PHP dependencies (including dev for artisan commands during build)
+# Install PHP dependencies (skip scripts first, run after setup)
 RUN composer install \
+    --no-scripts \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader
 
-# Copy package files
-COPY package.json package-lock.json ./
-
 # Install Node dependencies
 RUN npm ci --include=dev || npm install --include=dev
-
-# Copy all application code
-COPY . .
 
 # Create minimal .env for artisan commands during build
 # Wayfinder needs to run php artisan to generate route types
@@ -69,9 +64,10 @@ RUN if [ -f .env.example ]; then cp .env.example .env; else \
     echo "DB_CONNECTION=sqlite" >> .env; \
     fi
 
-# Ensure bootstrap/cache exists and generate key
+# Ensure directories exist, generate key, and run post-install scripts
 RUN mkdir -p bootstrap/cache storage/framework/{cache,sessions,views} \
-    && php artisan key:generate --force 2>/dev/null || true
+    && php artisan key:generate --force \
+    && composer run-script post-autoload-dump 2>/dev/null || true
 
 # Build frontend assets (wayfinder will generate route types)
 RUN npm run build
@@ -80,6 +76,7 @@ RUN npm run build
 # Also remove the build-time .env (production will use env vars)
 RUN composer install \
     --no-dev \
+    --no-scripts \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader \
