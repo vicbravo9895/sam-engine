@@ -43,8 +43,8 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm ci --include=dev
+# Install dependencies (ignore optional platform-specific binaries that may not match)
+RUN npm ci --include=dev --ignore-scripts || npm install --include=dev
 
 # Copy source files needed for build
 COPY resources/ ./resources/
