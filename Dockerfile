@@ -34,62 +34,69 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
 
 # -----------------------------------------------------------------------------
-# Stage 2: Node.js builder for frontend assets
+# Stage 2: Builder with PHP + Node.js (needed for Wayfinder plugin)
 # -----------------------------------------------------------------------------
-FROM node:22-alpine AS node-builder
+FROM base AS builder
 
-WORKDIR /app
+# Install Node.js (required for Vite build with Wayfinder plugin)
+RUN apk add --no-cache nodejs npm
 
-# Copy package files first for better caching
-COPY package.json package-lock.json ./
-
-# Install dependencies (ignore optional platform-specific binaries that may not match)
-RUN npm ci --include=dev --ignore-scripts || npm install --include=dev
-
-# Copy source files needed for build
-COPY resources/ ./resources/
-COPY vite.config.ts tsconfig.json components.json tailwind.config.* ./
-COPY public/ ./public/
-
-# Build frontend assets
-RUN npm run build
-
-# -----------------------------------------------------------------------------
-# Stage 3: PHP dependencies builder
-# -----------------------------------------------------------------------------
-FROM base AS php-builder
-
-# Copy composer files
+# Copy composer files first for caching
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies (production only)
+# Install PHP dependencies (including dev for artisan commands during build)
 RUN composer install \
-    --no-dev \
-    --no-scripts \
     --no-interaction \
     --prefer-dist \
     --optimize-autoloader
 
-# Copy application code
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install Node dependencies
+RUN npm ci --include=dev || npm install --include=dev
+
+# Copy all application code
 COPY . .
 
-# Run post-install scripts
-RUN composer dump-autoload --optimize
+# Create minimal .env for artisan commands during build
+# Wayfinder needs to run php artisan to generate route types
+RUN if [ -f .env.example ]; then cp .env.example .env; else \
+    echo "APP_NAME=SAM" > .env && \
+    echo "APP_ENV=production" >> .env && \
+    echo "APP_KEY=" >> .env && \
+    echo "APP_DEBUG=false" >> .env && \
+    echo "DB_CONNECTION=sqlite" >> .env; \
+    fi
+
+# Ensure bootstrap/cache exists and generate key
+RUN mkdir -p bootstrap/cache storage/framework/{cache,sessions,views} \
+    && php artisan key:generate --force 2>/dev/null || true
+
+# Build frontend assets (wayfinder will generate route types)
+RUN npm run build
+
+# Remove dev dependencies and optimize for production
+# Also remove the build-time .env (production will use env vars)
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --prefer-dist \
+    --optimize-autoloader \
+    && rm -rf node_modules \
+    && rm -f .env
 
 # -----------------------------------------------------------------------------
-# Stage 4: Production image
+# Stage 3: Production image (minimal)
 # -----------------------------------------------------------------------------
 FROM base AS production
 
-# Create www-data user if not exists and set up directories
+# Create www-data user if not exists
 RUN addgroup -g 82 -S www-data 2>/dev/null || true \
     && adduser -u 82 -D -S -G www-data www-data 2>/dev/null || true
 
-# Copy PHP dependencies and application from builder
-COPY --from=php-builder /var/www/html /var/www/html
-
-# Copy built frontend assets from node builder
-COPY --from=node-builder /app/public/build /var/www/html/public/build
+# Copy application from builder (without node_modules)
+COPY --from=builder /var/www/html /var/www/html
 
 # Copy Docker configuration files
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
