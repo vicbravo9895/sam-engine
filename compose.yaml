@@ -91,6 +91,7 @@ services:
     ai-service:
         volumes:
             - ./ai-service:/app
+            - ai-service-logs:/app/logs
         build:
             context: ./ai-service
             dockerfile: Dockerfile
@@ -103,6 +104,10 @@ services:
             MAX_CONCURRENT_REQUESTS: ${AI_MAX_CONCURRENT_REQUESTS:-5}
             SEMAPHORE_TIMEOUT: ${AI_SEMAPHORE_TIMEOUT:-30.0}
             RATE_LIMITING_ENABLED: ${AI_RATE_LIMITING_ENABLED:-true}
+            # Logging
+            ENVIRONMENT: ${APP_ENV:-local}
+            LOG_LEVEL: ${LOG_LEVEL:-INFO}
+            LOG_FILE: /app/logs/ai-service.json
         ports:
             - '8000:8000'
         networks:
@@ -121,6 +126,32 @@ services:
         # 1. Remover container_name y ports
         # 2. Usar un load balancer (nginx, traefik, etc.)
         # 3. Ejecutar: docker compose up --scale ai-service=3
+    
+    # ============================================================================
+    # GRAFANA ALLOY - Log Collector for Grafana Cloud
+    # ============================================================================
+    # Collects JSON logs from Laravel and AI Service, ships to Grafana Cloud Loki
+    grafana-alloy:
+        image: grafana/alloy:latest
+        container_name: grafana-alloy
+        restart: unless-stopped
+        volumes:
+            - ./storage/logs:/var/log/app:ro
+            - ai-service-logs:/var/log/ai-service:ro
+            - ./docker/alloy-config.alloy:/etc/alloy/config.alloy:ro
+        environment:
+            GRAFANA_LOKI_URL: ${GRAFANA_LOKI_URL:-}
+            GRAFANA_LOKI_USER: ${GRAFANA_LOKI_USER:-}
+            GRAFANA_LOKI_TOKEN: ${GRAFANA_LOKI_TOKEN:-}
+            CLUSTER_NAME: ${CLUSTER_NAME:-local}
+        networks:
+            - sail
+        depends_on:
+            - laravel.test
+            - ai-service
+        command: ["run", "/etc/alloy/config.alloy"]
+        profiles:
+            - logging  # Only start with: docker compose --profile logging up
     
     # ============================================================================
     # LANGFUSE OBSERVABILITY PLATFORM
@@ -306,4 +337,6 @@ volumes:
     sail-clickhouse-logs:
         driver: local
     sail-minio-data:
+        driver: local
+    ai-service-logs:
         driver: local

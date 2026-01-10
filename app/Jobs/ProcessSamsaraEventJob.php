@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Log;
 class ProcessSamsaraEventJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, PersistsEvidenceImages;
+    use Traits\LogsWithTenantContext;
 
     /**
      * Número de intentos antes de fallar
@@ -61,31 +62,44 @@ class ProcessSamsaraEventJob implements ShouldQueue
     {
         // Refrescar el evento desde la BD para obtener el estado más reciente
         $this->event->refresh();
+        
+        // Registrar contexto de empresa para todos los logs de este job
+        $this->setLogContext($this->event->company);
+        
+        $jobStartTime = microtime(true);
+        $traceId = $this->getTraceId();
 
-        Log::info("Processing Samsara event", [
+        Log::info("Job started: ProcessSamsaraEvent", [
+            'trace_id' => $traceId,
             'event_id' => $this->event->id,
+            'samsara_event_id' => $this->event->samsara_event_id,
             'event_type' => $this->event->event_type,
+            'event_description' => $this->event->event_description,
+            'vehicle_name' => $this->event->vehicle_name,
             'severity' => $this->event->severity,
             'current_status' => $this->event->ai_status,
+            'job_attempt' => $this->attempts(),
+            'max_attempts' => $this->tries,
         ]);
 
         // Protección contra procesamiento duplicado
-        // Si el evento ya está completado o en investigación, no procesarlo de nuevo
         if (in_array($this->event->ai_status, [
             SamsaraEvent::STATUS_COMPLETED,
             SamsaraEvent::STATUS_INVESTIGATING,
         ])) {
-            Log::info("Event already processed, skipping", [
+            Log::info("Job skipped: Event already processed", [
+                'trace_id' => $traceId,
                 'event_id' => $this->event->id,
                 'current_status' => $this->event->ai_status,
+                'reason' => 'duplicate_processing',
             ]);
             return;
         }
 
         // Si está en processing pero no es un reintento, podría ser un job duplicado
-        // Solo continuar si es el primer intento o si el evento está en pending
         if ($this->event->ai_status === SamsaraEvent::STATUS_PROCESSING && $this->attempts() === 1) {
-            Log::warning("Event already being processed, but continuing (possible duplicate job)", [
+            Log::warning("Job warning: Possible duplicate job", [
+                'trace_id' => $traceId,
                 'event_id' => $this->event->id,
                 'attempt' => $this->attempts(),
             ]);
@@ -146,7 +160,13 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Llamar al servicio de IA (FastAPI)
             $aiServiceUrl = config('services.ai_engine.url');
 
+            // Agregar company_id al payload para que el AI Service pueda extraerlo
+            $enrichedPayload['company_id'] = $company->id;
+
             $response = Http::timeout(300)
+                ->withHeaders([
+                    'X-Trace-ID' => $traceId, // Propagar trace_id para trazabilidad distribuida
+                ])
                 ->post("{$aiServiceUrl}/alerts/ingest", [
                     'event_id' => $this->event->id,
                     'payload' => $enrichedPayload,
@@ -233,8 +253,11 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     ->delay($scheduledAt)
                     ->onQueue('samsara-revalidation');
 
+                $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
+
                 // Log al canal de revalidation para tracking completo
                 $revalidationLogContext = [
+                    'trace_id' => $traceId,
                     'event_id' => $this->event->id,
                     'samsara_event_id' => $this->event->samsara_event_id,
                     'vehicle_name' => $this->event->vehicle_name,
@@ -245,15 +268,22 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'monitoring_reason' => $monitoringReason,
                     'proactive_flag' => $alertContext['proactive_flag'] ?? false,
+                    'duration_ms' => $jobDuration,
                 ];
                 
                 Log::channel('revalidation')->info('[REVALIDATION] ========== FIRST REVALIDATION SCHEDULED ==========', $revalidationLogContext);
 
-                Log::info("Event marked for investigation", [
+                Log::info("Job completed: ProcessSamsaraEvent (monitoring)", [
+                    'trace_id' => $traceId,
                     'event_id' => $this->event->id,
+                    'samsara_event_id' => $this->event->samsara_event_id,
+                    'vehicle_name' => $this->event->vehicle_name,
+                    'final_status' => 'investigating',
                     'next_check_minutes' => $nextCheckMinutes,
+                    'verdict' => $assessment['verdict'] ?? 'unknown',
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'proactive_flag' => $alertContext['proactive_flag'] ?? false,
+                    'duration_ms' => $jobDuration,
                 ]);
             } else {
                 // Flujo normal - completar
@@ -269,19 +299,36 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
                 $this->persistTwilioCallSid($notificationExecution);
 
-                Log::info("Samsara event processed successfully", [
+                    $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
+                
+                Log::info("Job completed: ProcessSamsaraEvent", [
+                    'trace_id' => $traceId,
                     'event_id' => $this->event->id,
+                    'samsara_event_id' => $this->event->samsara_event_id,
+                    'vehicle_name' => $this->event->vehicle_name,
+                    'final_status' => 'completed',
                     'verdict' => $assessment['verdict'] ?? 'unknown',
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'notification_attempted' => $notificationExecution['attempted'] ?? false,
+                    'duration_ms' => $jobDuration,
                 ]);
             }
 
         } catch (\Exception $e) {
-            Log::error("Failed to process Samsara event", [
+            $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
+            
+            Log::error("Job failed: ProcessSamsaraEvent", [
+                'trace_id' => $traceId,
                 'event_id' => $this->event->id,
+                'samsara_event_id' => $this->event->samsara_event_id,
                 'error' => $e->getMessage(),
-                'attempt' => $this->attempts(),
+                'error_class' => get_class($e),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'job_attempt' => $this->attempts(),
+                'max_attempts' => $this->tries,
+                'will_retry' => $this->attempts() < $this->tries,
+                'duration_ms' => $jobDuration,
             ]);
 
             // Si es el último intento, marcar como fallido
@@ -299,9 +346,12 @@ class ProcessSamsaraEventJob implements ShouldQueue
      */
     public function failed(\Throwable $exception): void
     {
-        Log::error("Samsara event job failed permanently", [
+        Log::error("Job failed permanently: ProcessSamsaraEvent", [
             'event_id' => $this->event->id,
+            'samsara_event_id' => $this->event->samsara_event_id,
             'error' => $exception->getMessage(),
+            'error_class' => get_class($exception),
+            'total_attempts' => $this->attempts(),
         ]);
 
         $this->event->markAsFailed($exception->getMessage());

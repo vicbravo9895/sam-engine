@@ -19,9 +19,14 @@ class SamsaraWebhookController extends Controller
     public function handle(Request $request)
     {
         $payload = $request->all();
+        $traceId = $request->header('X-Trace-ID', 'unknown');
+        $payloadSize = strlen(json_encode($payload));
 
-        Log::info('Samsara webhook received', [
+        Log::info('Webhook received from Samsara', [
+            'trace_id' => $traceId,
+            'payload_size_bytes' => $payloadSize,
             'payload_keys' => array_keys($payload),
+            'samsara_event_id' => $payload['eventId'] ?? $payload['id'] ?? null,
         ]);
 
         try {
@@ -32,14 +37,13 @@ class SamsaraWebhookController extends Controller
             $companyId = $this->determineCompanyId($eventData['vehicle_id'] ?? null);
             
             if (!$companyId) {
-                Log::warning('Samsara webhook: Could not determine company_id', [
+                Log::warning('Webhook rejected: Unknown vehicle', [
+                    'trace_id' => $traceId,
                     'vehicle_id' => $eventData['vehicle_id'] ?? null,
                     'event_type' => $eventData['event_type'] ?? null,
-                    'payload_keys' => array_keys($payload),
+                    'reason' => 'vehicle_not_registered',
                 ]);
                 
-                // Rechazar el webhook si no podemos determinar la empresa
-                // Esto previene eventos huérfanos en un sistema multi-tenant
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Could not determine company for this vehicle. Vehicle may not be registered in the system.',
@@ -51,9 +55,11 @@ class SamsaraWebhookController extends Controller
             // Verificar que la empresa tenga API key configurada
             $company = \App\Models\Company::find($companyId);
             if (!$company || !$company->hasSamsaraApiKey()) {
-                Log::warning('Samsara webhook: Company does not have API key configured', [
+                Log::warning('Webhook rejected: No API key', [
+                    'trace_id' => $traceId,
                     'company_id' => $companyId,
                     'company_name' => $company?->name,
+                    'reason' => 'missing_api_key',
                 ]);
                 
                 return response()->json([
@@ -62,21 +68,24 @@ class SamsaraWebhookController extends Controller
                 ], 400);
             }
 
-            Log::info('Samsara webhook: Company determined', [
-                'company_id' => $companyId,
-                'company_name' => $company->name,
-                'vehicle_id' => $eventData['vehicle_id'],
-            ]);
-
             // Crear el evento en la base de datos
             $event = SamsaraEvent::create($eventData);
 
             // Encolar el procesamiento con IA (Redis queue)
             ProcessSamsaraEventJob::dispatch($event);
 
-            Log::info('Samsara event created and queued', [
+            Log::info('Webhook processed successfully', [
+                'trace_id' => $traceId,
                 'event_id' => $event->id,
+                'samsara_event_id' => $event->samsara_event_id,
                 'event_type' => $event->event_type,
+                'event_description' => $event->event_description,
+                'vehicle_id' => $event->vehicle_id,
+                'vehicle_name' => $event->vehicle_name,
+                'severity' => $event->severity,
+                'company_id' => $companyId,
+                'company_name' => $company->name,
+                'queue' => 'samsara-events',
             ]);
 
             // Responder inmediatamente a Samsara
@@ -87,9 +96,12 @@ class SamsaraWebhookController extends Controller
             ], 202); // 202 Accepted
 
         } catch (\Exception $e) {
-            Log::error('Failed to process Samsara webhook', [
+            Log::error('Webhook processing failed', [
+                'trace_id' => $traceId,
                 'error' => $e->getMessage(),
-                'payload' => $payload,
+                'error_class' => get_class($e),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
             ]);
 
             return response()->json([

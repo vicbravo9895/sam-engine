@@ -2,6 +2,8 @@
 
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RequestLogger;
+use App\Http\Middleware\TraceId;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -31,6 +33,12 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Add CORS middleware globally
         $middleware->prepend(HandleCors::class);
+
+        // Add TraceId middleware globally (first, to ensure trace_id is available)
+        $middleware->prepend(TraceId::class);
+
+        // Add RequestLogger middleware globally (after TraceId)
+        $middleware->append(RequestLogger::class);
 
         $middleware->web(append: [
             HandleAppearance::class,

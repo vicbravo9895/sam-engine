@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Log;
 class RevalidateSamsaraEventJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, PersistsEvidenceImages;
+    use Traits\LogsWithTenantContext;
 
     /**
      * Número de intentos antes de fallar
@@ -73,7 +74,13 @@ class RevalidateSamsaraEventJob implements ShouldQueue
      */
     public function handle(ContactResolver $contactResolver): void
     {
+        $jobStartTime = microtime(true);
+        
+        // Registrar contexto de empresa para todos los logs de este job
+        $this->setLogContext($this->event->company);
+        
         $this->log('info', '========== REVALIDATION JOB STARTED ==========', [
+            'trace_id' => $this->getTraceId(),
             'samsara_event_id' => $this->event->samsara_event_id,
             'vehicle_name' => $this->event->vehicle_name,
             'current_ai_status' => $this->event->ai_status,
@@ -189,14 +196,21 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             // - Carga del servicio de OpenAI
             $httpTimeout = 300; // 5 minutos
             
+            // Agregar company_id al payload para trazabilidad multi-tenant
+            $enrichedPayload['company_id'] = $this->event->company_id;
+
             $this->log('info', 'STEP 4: Calling AI Service /alerts/revalidate', [
                 'endpoint' => "{$aiServiceUrl}/alerts/revalidate",
                 'timeout_seconds' => $httpTimeout,
+                'trace_id' => $this->getTraceId(),
             ]);
 
             $requestStartTime = microtime(true);
 
             $response = Http::timeout($httpTimeout)
+                ->withHeaders([
+                    'X-Trace-ID' => $this->getTraceId(), // Propagar trace_id para trazabilidad distribuida
+                ])
                 ->post("{$aiServiceUrl}/alerts/revalidate", [
                     'event_id' => $this->event->id,
                     'payload' => $enrichedPayload,
@@ -328,10 +342,14 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     ->delay($scheduledAt)
                     ->onQueue('samsara-revalidation');
 
+                $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
+                
                 $this->log('info', '========== REVALIDATION JOB COMPLETED - CONTINUES MONITORING ==========', [
+                    'trace_id' => $this->getTraceId(),
                     'verdict' => $assessment['verdict'] ?? 'unknown',
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'next_revalidation_at' => $scheduledAt->toIso8601String(),
+                    'duration_ms' => $jobDuration,
                 ]);
 
             } else {
@@ -352,20 +370,28 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
                 $this->persistTwilioCallSid($notificationExecution);
 
+                $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
+                
                 $this->log('info', '========== REVALIDATION JOB COMPLETED - INVESTIGATION FINISHED ==========', [
+                    'trace_id' => $this->getTraceId(),
                     'final_verdict' => $assessment['verdict'] ?? 'unknown',
                     'final_risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'total_investigations' => $this->event->investigation_count,
+                    'duration_ms' => $jobDuration,
                 ]);
             }
 
         } catch (\Exception $e) {
+            $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
+            
             $this->log('error', 'REVALIDATION JOB FAILED', [
+                'trace_id' => $this->getTraceId(),
                 'error_message' => $e->getMessage(),
                 'error_class' => get_class($e),
                 'error_file' => $e->getFile(),
                 'error_line' => $e->getLine(),
                 'will_retry' => $this->attempts() < $this->tries,
+                'duration_ms' => $jobDuration,
             ]);
 
             // En caso de error, programar reintento
@@ -380,7 +406,11 @@ class RevalidateSamsaraEventJob implements ShouldQueue
      */
     public function failed(\Throwable $exception): void
     {
+        // Registrar contexto de empresa para el log de fallo
+        $this->setLogContext($this->event->company);
+        
         $this->log('error', '========== REVALIDATION JOB FAILED PERMANENTLY ==========', [
+            'trace_id' => $this->getTraceId(),
             'error_message' => $exception->getMessage(),
             'error_class' => get_class($exception),
             'total_attempts' => $this->attempts(),

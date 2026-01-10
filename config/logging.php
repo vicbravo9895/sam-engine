@@ -1,5 +1,6 @@
 <?php
 
+use App\Logging\JsonFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -54,7 +55,7 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            'channels' => explode(',', (string) env('LOG_STACK', 'daily,grafana')),
             'ignore_exceptions' => false,
         ],
 
@@ -71,6 +72,24 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'days' => env('LOG_DAILY_DAYS', 14),
             'replace_placeholders' => true,
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Grafana/Loki JSON Channel
+        |--------------------------------------------------------------------------
+        |
+        | Structured JSON logs for Grafana Loki ingestion via Grafana Alloy.
+        | This channel outputs logs in a standardized JSON format with:
+        | - timestamp, level, service, environment, trace_id, message, context
+        |
+        */
+        'grafana' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/app.json'),
+            'level' => env('LOG_LEVEL', 'info'),
+            'days' => 7,
+            'formatter' => JsonFormatter::class,
         ],
 
         'slack' => [
@@ -136,10 +155,10 @@ return [
 
         'revalidation' => [
             'driver' => 'daily',
-            'path' => storage_path('logs/revalidation.log'),
+            'path' => storage_path('logs/revalidation.json'),
             'level' => 'debug',
             'days' => 14,
-            'replace_placeholders' => true,
+            'formatter' => JsonFormatter::class,
         ],
     ],
 

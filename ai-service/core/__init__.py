@@ -9,6 +9,17 @@ from .concurrency import (
     get_concurrency_stats,
     ConcurrencyLimitExceeded,
 )
+from .structured_logging import (
+    setup_logging,
+    get_logger,
+    get_trace_id,
+    set_trace_id,
+    get_event_id,
+    set_event_id,
+    get_company_id,
+    set_company_id,
+    set_request_context,
+)
 
 __all__ = [
     "runner",
@@ -16,4 +27,13 @@ __all__ = [
     "acquire_slot",
     "get_concurrency_stats",
     "ConcurrencyLimitExceeded",
+    "setup_logging",
+    "get_logger",
+    "get_trace_id",
+    "set_trace_id",
+    "get_event_id",
+    "set_event_id",
+    "get_company_id",
+    "set_company_id",
+    "set_request_context",
 ]

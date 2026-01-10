@@ -1,0 +1,182 @@
+// ============================================================================
+// Grafana Alloy Configuration for SAM Application
+// ============================================================================
+// Este archivo configura Grafana Alloy para:
+// 1. Leer logs JSON de Laravel y AI Service
+// 2. Enviarlos a Grafana Cloud Loki
+// ============================================================================
+
+// ============================================================================
+// LOKI DESTINATION (Grafana Cloud)
+// ============================================================================
+loki.write "grafana_cloud_loki" {
+    endpoint {
+        url = env("GRAFANA_LOKI_URL")
+        
+        basic_auth {
+            username = env("GRAFANA_LOKI_USER")
+            password = env("GRAFANA_LOKI_TOKEN")
+        }
+    }
+}
+
+
+// ============================================================================
+// LARAVEL LOGS SOURCE
+// ============================================================================
+local.file_match "laravel_logs" {
+    path_targets = [{
+        __address__ = "localhost",
+        __path__    = "/var/log/app/*.json",
+        job         = "sam-laravel",
+        service     = "laravel",
+        app         = "sam",
+    }]
+}
+
+loki.source.file "laravel" {
+    targets    = local.file_match.laravel_logs.targets
+    forward_to = [loki.process.laravel_pipeline.receiver]
+}
+
+loki.process "laravel_pipeline" {
+    // Parse JSON and extract labels
+    stage.json {
+        expressions = {
+            level       = "level",
+            service     = "service",
+            environment = "environment",
+            trace_id    = "trace_id",
+            channel     = "channel",
+            company_id  = "company_id",
+            user_id     = "user_id",
+        }
+    }
+    
+    // Set labels from extracted values
+    stage.labels {
+        values = {
+            level       = "",
+            service     = "",
+            environment = "",
+            channel     = "",
+            company_id  = "",
+        }
+    }
+    
+    // Add static labels
+    stage.static_labels {
+        values = {
+            app    = "sam",
+            source = "laravel",
+        }
+    }
+    
+    forward_to = [loki.write.grafana_cloud_loki.receiver]
+}
+
+
+// ============================================================================
+// AI SERVICE LOGS SOURCE
+// ============================================================================
+local.file_match "ai_service_logs" {
+    path_targets = [{
+        __address__ = "localhost",
+        __path__    = "/var/log/ai-service/*.json",
+        job         = "sam-ai-service",
+        service     = "ai-service",
+        app         = "sam",
+    }]
+}
+
+loki.source.file "ai_service" {
+    targets    = local.file_match.ai_service_logs.targets
+    forward_to = [loki.process.ai_service_pipeline.receiver]
+}
+
+loki.process "ai_service_pipeline" {
+    // Parse JSON and extract labels
+    stage.json {
+        expressions = {
+            level       = "level",
+            service     = "service",
+            environment = "environment",
+            trace_id    = "trace_id",
+            logger      = "logger",
+            event_id    = "event_id",
+            company_id  = "company_id",
+        }
+    }
+    
+    // Set labels from extracted values
+    stage.labels {
+        values = {
+            level       = "",
+            service     = "",
+            environment = "",
+            logger      = "",
+            company_id  = "",
+        }
+    }
+    
+    // Add static labels
+    stage.static_labels {
+        values = {
+            app    = "sam",
+            source = "ai-service",
+        }
+    }
+    
+    forward_to = [loki.write.grafana_cloud_loki.receiver]
+}
+
+
+// ============================================================================
+// REVALIDATION LOGS SOURCE (Specialized channel)
+// ============================================================================
+local.file_match "revalidation_logs" {
+    path_targets = [{
+        __address__ = "localhost",
+        __path__    = "/var/log/app/revalidation*.json",
+        job         = "sam-revalidation",
+        service     = "horizon",
+        app         = "sam",
+    }]
+}
+
+loki.source.file "revalidation" {
+    targets    = local.file_match.revalidation_logs.targets
+    forward_to = [loki.process.revalidation_pipeline.receiver]
+}
+
+loki.process "revalidation_pipeline" {
+    // Parse JSON and extract labels
+    stage.json {
+        expressions = {
+            level       = "level",
+            service     = "service",
+            environment = "environment",
+            trace_id    = "trace_id",
+        }
+    }
+    
+    // Set labels from extracted values
+    stage.labels {
+        values = {
+            level       = "",
+            service     = "",
+            environment = "",
+        }
+    }
+    
+    // Add static labels
+    stage.static_labels {
+        values = {
+            app     = "sam",
+            source  = "revalidation",
+            channel = "revalidation",
+        }
+    }
+    
+    forward_to = [loki.write.grafana_cloud_loki.receiver]
+}
