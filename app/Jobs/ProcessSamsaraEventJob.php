@@ -227,9 +227,27 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 $this->persistTwilioCallSid($notificationExecution);
 
                 // Programar revalidación
+                $scheduledAt = now()->addMinutes($nextCheckMinutes);
+                
                 RevalidateSamsaraEventJob::dispatch($this->event)
-                    ->delay(now()->addMinutes($nextCheckMinutes))
+                    ->delay($scheduledAt)
                     ->onQueue('samsara-revalidation');
+
+                // Log al canal de revalidation para tracking completo
+                $revalidationLogContext = [
+                    'event_id' => $this->event->id,
+                    'samsara_event_id' => $this->event->samsara_event_id,
+                    'vehicle_name' => $this->event->vehicle_name,
+                    'next_check_minutes' => $nextCheckMinutes,
+                    'scheduled_at' => $scheduledAt->toIso8601String(),
+                    'queue' => 'samsara-revalidation',
+                    'verdict' => $assessment['verdict'] ?? 'unknown',
+                    'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
+                    'monitoring_reason' => $monitoringReason,
+                    'proactive_flag' => $alertContext['proactive_flag'] ?? false,
+                ];
+                
+                Log::channel('revalidation')->info('[REVALIDATION] ========== FIRST REVALIDATION SCHEDULED ==========', $revalidationLogContext);
 
                 Log::info("Event marked for investigation", [
                     'event_id' => $this->event->id,

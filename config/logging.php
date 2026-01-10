@@ -133,6 +133,14 @@ return [
             'days' => 7,
             'replace_placeholders' => true,
         ],
+
+        'revalidation' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/revalidation.log'),
+            'level' => 'debug',
+            'days' => 14,
+            'replace_placeholders' => true,
+        ],
     ],
 
 ];

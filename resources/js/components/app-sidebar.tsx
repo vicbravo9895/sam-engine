@@ -14,45 +14,54 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { AlertTriangle, BookOpen, Building2, Folder, LayoutGrid, Shield, Sparkles, Truck, Users } from 'lucide-react';
+import { AlertTriangle, Building2, Contact, LayoutGrid, Settings, Shield, Sparkles, Truck, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
-const SAMSARA_ALERTS_URL = '/samsara/alerts';
-const FLEET_REPORT_URL = '/fleet-report';
-const CONTACTS_URL = '/contacts';
-const COPILOT_URL = '/copilot';
+// ============================================
+// Navigation Groups
+// ============================================
 
-const mainNavItems: NavItem[] = [
+// General - Punto de entrada principal
+const generalNavItems: NavItem[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
         icon: LayoutGrid,
     },
+];
+
+// Centro de Control - Herramientas operativas del día a día
+const controlCenterNavItems: NavItem[] = [
     {
-        title: 'Copilot',
-        href: COPILOT_URL,
-        icon: Sparkles,
-    },
-    {
-        title: 'Alertas Samsara',
-        href: SAMSARA_ALERTS_URL,
+        title: 'Alertas',
+        href: '/samsara/alerts',
         icon: AlertTriangle,
     },
     {
-        title: 'Reporte de Flota',
-        href: FLEET_REPORT_URL,
+        title: 'Copilot',
+        href: '/copilot',
+        icon: Sparkles,
+    },
+];
+
+// Flota - Gestión de recursos y vehículos
+const fleetNavItems: NavItem[] = [
+    {
+        title: 'Vehículos',
+        href: '/fleet-report',
         icon: Truck,
     },
     {
         title: 'Contactos',
-        href: CONTACTS_URL,
-        icon: Users,
+        href: '/contacts',
+        icon: Contact,
     },
 ];
 
+// Super Admin - Gestión global del sistema
 const superAdminNavItems: NavItem[] = [
     {
-        title: 'Panel Admin',
+        title: 'Panel',
         href: '/super-admin',
         icon: Shield,
     },
@@ -62,38 +71,38 @@ const superAdminNavItems: NavItem[] = [
         icon: Building2,
     },
     {
-        title: 'Todos los Usuarios',
+        title: 'Usuarios',
         href: '/super-admin/users',
         icon: Users,
     },
 ];
 
-const footerNavItems: NavItem[] = [
-];
+const footerNavItems: NavItem[] = [];
 
 export function AppSidebar() {
     const { auth } = usePage<SharedData>().props;
     const userRole = auth?.user?.role as string | undefined;
     const isSuperAdmin = userRole === 'super_admin';
+    const isAdmin = userRole === 'admin';
+    const isManager = userRole === 'manager';
+    const canManageUsers = isAdmin || isManager;
+
+    // Build admin nav items dynamically based on role
+    const adminNavItems: NavItem[] = [];
     
-    // Build nav items based on user role
-    const navItems: NavItem[] = [...mainNavItems];
-    
-    // Add management items for admins and managers (not super_admin, they use separate section)
-    if (userRole === 'admin' || userRole === 'manager') {
-        navItems.push({
+    if (canManageUsers) {
+        adminNavItems.push({
             title: 'Usuarios',
             href: '/users',
             icon: Users,
         });
     }
     
-    // Add company settings for admins only (not super_admin)
-    if (userRole === 'admin') {
-        navItems.push({
+    if (isAdmin) {
+        adminNavItems.push({
             title: 'Empresa',
             href: '/company',
-            icon: Building2,
+            icon: Settings,
         });
     }
 
@@ -112,9 +121,21 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={navItems} />
+                {/* General */}
+                <NavMain items={generalNavItems} label="General" />
                 
-                {/* Super Admin Section */}
+                {/* Centro de Control - Operaciones diarias */}
+                <NavMain items={controlCenterNavItems} label="Centro de Control" />
+                
+                {/* Flota - Gestión de recursos */}
+                <NavMain items={fleetNavItems} label="Flota" />
+                
+                {/* Administración - Solo para admin/manager */}
+                {adminNavItems.length > 0 && (
+                    <NavMain items={adminNavItems} label="Administración" />
+                )}
+                
+                {/* Super Admin - Gestión global */}
                 {isSuperAdmin && (
                     <>
                         <SidebarSeparator className="my-2" />

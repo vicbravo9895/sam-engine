@@ -18,6 +18,8 @@ use Illuminate\Support\Facades\Log;
  * Job para revalidar eventos de Samsara que requieren monitoreo continuo.
  * 
  * ACTUALIZADO: Nuevo contrato de respuesta del AI Service.
+ * 
+ * Logs de este job van al canal 'revalidation' para diagnóstico independiente.
  */
 class RevalidateSamsaraEventJob implements ShouldQueue
 {
@@ -43,21 +45,58 @@ class RevalidateSamsaraEventJob implements ShouldQueue
     }
 
     /**
+     * Log helper que escribe tanto al canal revalidation como al default.
+     */
+    private function log(string $level, string $message, array $context = []): void
+    {
+        // Siempre incluir event_id y timestamp
+        $context = array_merge([
+            'event_id' => $this->event->id,
+            'job_attempt' => $this->attempts(),
+            'timestamp' => now()->toIso8601String(),
+        ], $context);
+
+        // Log al canal específico de revalidation
+        Log::channel('revalidation')->{$level}("[REVALIDATION] {$message}", $context);
+        
+        // También al canal default para trazabilidad general
+        Log::{$level}("[REVALIDATION] {$message}", $context);
+    }
+
+    /**
      * Execute the job.
      */
     public function handle(ContactResolver $contactResolver): void
     {
+        $this->log('info', '========== REVALIDATION JOB STARTED ==========', [
+            'samsara_event_id' => $this->event->samsara_event_id,
+            'vehicle_name' => $this->event->vehicle_name,
+            'current_ai_status' => $this->event->ai_status,
+            'investigation_count' => $this->event->investigation_count,
+            'last_investigation_at' => $this->event->last_investigation_at?->toIso8601String(),
+            'occurred_at' => $this->event->occurred_at?->toIso8601String(),
+        ]);
+
         // Verificar que el evento aún esté en investigating
         if ($this->event->ai_status !== SamsaraEvent::STATUS_INVESTIGATING) {
-            Log::info("Event no longer investigating, skipping revalidation", [
-                'event_id' => $this->event->id,
-                'current_status' => $this->event->ai_status,
+            $this->log('warning', 'Event no longer in INVESTIGATING status - SKIPPING', [
+                'expected_status' => SamsaraEvent::STATUS_INVESTIGATING,
+                'actual_status' => $this->event->ai_status,
+                'reason' => 'El evento cambió de estado antes de que se ejecutara la revalidación',
             ]);
             return;
         }
 
+        $this->log('debug', 'Status check passed - event is still INVESTIGATING');
+
         // Verificar límite de investigaciones
-        if ($this->event->investigation_count >= SamsaraEvent::getMaxInvestigations()) {
+        $maxInvestigations = SamsaraEvent::getMaxInvestigations();
+        if ($this->event->investigation_count >= $maxInvestigations) {
+            $this->log('warning', 'Max investigations limit reached - marking as needs_review', [
+                'investigation_count' => $this->event->investigation_count,
+                'max_investigations' => $maxInvestigations,
+            ]);
+
             $this->event->markAsCompleted(
                 assessment: array_merge($this->event->ai_assessment ?? [], [
                     'verdict' => 'needs_review',
@@ -67,47 +106,54 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'risk_escalation' => 'warn',
                     'requires_monitoring' => false,
                 ]),
-                humanMessage: 'Este evento requiere revisión manual después de ' . SamsaraEvent::getMaxInvestigations() . ' análisis automáticos.',
+                humanMessage: 'Este evento requiere revisión manual después de ' . $maxInvestigations . ' análisis automáticos.',
                 alertContext: $this->event->alert_context,
                 notificationDecision: $this->event->notification_decision,
                 notificationExecution: null,
                 execution: $this->event->ai_actions
             );
 
-            Log::warning("Event reached max investigations", [
-                'event_id' => $this->event->id,
-                'investigation_count' => $this->event->investigation_count,
-            ]);
+            $this->log('info', 'Event marked as needs_review due to max investigations');
             return;
         }
 
-        Log::info("Revalidating event", [
-            'event_id' => $this->event->id,
-            'investigation_count' => $this->event->investigation_count,
+        $this->log('debug', 'Investigation limit check passed', [
+            'current_count' => $this->event->investigation_count,
+            'max_allowed' => $maxInvestigations,
         ]);
 
         try {
-            // Resolver contactos para notificaciones
+            // =========================================================
+            // PASO 1: Resolver contactos para notificaciones
+            // =========================================================
+            $this->log('debug', 'STEP 1: Resolving contacts for notifications');
+            
             $contacts = $contactResolver->resolveForEvent($this->event);
             $contactPayload = $contactResolver->formatForPayload($contacts);
+
+            $this->log('debug', 'Contacts resolved', [
+                'contacts_count' => count($contacts),
+                'contact_payload_keys' => array_keys($contactPayload),
+            ]);
 
             // Enriquecer el payload con los contactos
             $enrichedPayload = array_merge($this->event->raw_payload, $contactPayload);
 
             // =========================================================
-            // RECARGAR DATOS DE SAMSARA CON VENTANA TEMPORAL ACTUALIZADA
+            // PASO 2: Recargar datos de Samsara con ventana temporal actualizada
             // =========================================================
-            // Esto es CRÍTICO para revalidaciones: debemos buscar información
-            // NUEVA desde la última investigación hasta ahora, no repetir
-            // la misma ventana temporal del evento original.
+            $this->log('debug', 'STEP 2: Reloading Samsara data with updated time window');
+            
             $enrichedPayload = $this->reloadSamsaraDataForRevalidation($enrichedPayload);
 
-            $aiServiceUrl = config('services.ai_engine.url');
+            // =========================================================
+            // PASO 3: Preparar contexto de revalidación
+            // =========================================================
+            $this->log('debug', 'STEP 3: Preparing revalidation context');
 
-            // Timestamp actual para el contexto de revalidación
+            $aiServiceUrl = config('services.ai_engine.url');
             $currentRevalidationTime = now()->toIso8601String();
 
-            // Construir contexto de revalidación
             $revalidationContext = [
                 'is_revalidation' => true,
                 'original_event_time' => $this->event->occurred_at?->toIso8601String(),
@@ -120,6 +166,24 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 'investigation_history' => $this->event->investigation_history ?? [],
             ];
 
+            $this->log('info', 'Revalidation context prepared', [
+                'ai_service_url' => $aiServiceUrl,
+                'context_keys' => array_keys($revalidationContext),
+                'previous_verdict' => $this->event->ai_assessment['verdict'] ?? 'none',
+                'previous_risk_escalation' => $this->event->ai_assessment['risk_escalation'] ?? 'none',
+                'history_entries' => count($revalidationContext['investigation_history']),
+            ]);
+
+            // =========================================================
+            // PASO 4: Llamar al AI Service
+            // =========================================================
+            $this->log('info', 'STEP 4: Calling AI Service /alerts/revalidate', [
+                'endpoint' => "{$aiServiceUrl}/alerts/revalidate",
+                'timeout' => 120,
+            ]);
+
+            $requestStartTime = microtime(true);
+
             $response = Http::timeout(120)
                 ->post("{$aiServiceUrl}/alerts/revalidate", [
                     'event_id' => $this->event->id,
@@ -127,13 +191,19 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'context' => $revalidationContext,
                 ]);
 
-            // Manejar 503 (Service at Capacity) - el AI Service está sobrecargado
-            // Laravel reintentará automáticamente después del backoff
+            $requestDuration = round((microtime(true) - $requestStartTime) * 1000, 2);
+
+            $this->log('debug', 'AI Service response received', [
+                'status_code' => $response->status(),
+                'duration_ms' => $requestDuration,
+                'response_size_bytes' => strlen($response->body()),
+            ]);
+
+            // Manejar 503 (Service at Capacity)
             if ($response->status() === 503) {
                 $stats = $response->json('stats', []);
-                Log::warning("AI service at capacity during revalidation, will retry", [
-                    'event_id' => $this->event->id,
-                    'attempt' => $this->attempts(),
+                $this->log('warning', 'AI Service at capacity - will retry', [
+                    'status_code' => 503,
                     'ai_stats' => $stats,
                 ]);
                 $activeRequests = $stats['active_requests'] ?? '?';
@@ -142,19 +212,31 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             }
 
             if ($response->failed()) {
+                $this->log('error', 'AI Service returned error', [
+                    'status_code' => $response->status(),
+                    'response_body' => substr($response->body(), 0, 1000),
+                ]);
                 throw new \Exception("AI service returned error: " . $response->body());
             }
 
             $result = $response->json();
 
-            Log::info("Revalidation response received", [
-                'event_id' => $this->event->id,
+            $this->log('info', 'AI Service response parsed successfully', [
                 'status' => $result['status'] ?? 'unknown',
+                'has_alert_context' => isset($result['alert_context']),
                 'has_assessment' => isset($result['assessment']),
                 'has_human_message' => isset($result['human_message']),
+                'has_notification_decision' => isset($result['notification_decision']),
+                'has_notification_execution' => isset($result['notification_execution']),
+                'has_execution' => isset($result['execution']),
+                'has_camera_analysis' => isset($result['camera_analysis']),
             ]);
 
-            // Extraer datos del nuevo contrato
+            // =========================================================
+            // PASO 5: Extraer y procesar datos de respuesta
+            // =========================================================
+            $this->log('debug', 'STEP 5: Extracting response data');
+
             $alertContext = $result['alert_context'] ?? $this->event->alert_context;
             $assessment = $result['assessment'] ?? [];
             $humanMessage = $result['human_message'] ?? 'Revalidación completada';
@@ -163,10 +245,20 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             $execution = $result['execution'] ?? $this->event->ai_actions;
             $cameraAnalysis = $result['camera_analysis'] ?? null;
 
+            $this->log('debug', 'Assessment extracted from response', [
+                'verdict' => $assessment['verdict'] ?? 'NOT_PRESENT',
+                'likelihood' => $assessment['likelihood'] ?? 'NOT_PRESENT',
+                'confidence' => $assessment['confidence'] ?? 'NOT_PRESENT',
+                'risk_escalation' => $assessment['risk_escalation'] ?? 'NOT_PRESENT',
+                'requires_monitoring' => $assessment['requires_monitoring'] ?? 'NOT_PRESENT',
+                'next_check_minutes' => $assessment['next_check_minutes'] ?? 'NOT_PRESENT',
+                'monitoring_reason' => $assessment['monitoring_reason'] ?? 'NOT_PRESENT',
+            ]);
+
             // Persistir imágenes de evidencia si existen
+            $this->log('debug', 'Persisting evidence images if any');
             [$execution, $cameraAnalysis] = $this->persistEvidenceImages($execution, $cameraAnalysis);
 
-            // Agregar camera_analysis al execution para que se guarde en ai_actions
             if ($cameraAnalysis) {
                 $execution['camera_analysis'] = $cameraAnalysis;
             }
@@ -176,8 +268,21 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             $nextCheckMinutes = $assessment['next_check_minutes'] ?? 30;
             $monitoringReason = $assessment['monitoring_reason'] ?? null;
 
-            // Verificar si aún requiere monitoreo
+            $this->log('info', 'Monitoring decision extracted', [
+                'requires_monitoring' => $requiresMonitoring,
+                'next_check_minutes' => $nextCheckMinutes,
+                'monitoring_reason' => $monitoringReason,
+            ]);
+
+            // =========================================================
+            // PASO 6: Actualizar evento según resultado
+            // =========================================================
             if ($requiresMonitoring) {
+                $this->log('info', 'STEP 6: Event CONTINUES under investigation', [
+                    'action' => 'markAsInvestigating',
+                    'next_check_minutes' => $nextCheckMinutes,
+                ]);
+
                 $this->event->markAsInvestigating(
                     assessment: $assessment,
                     humanMessage: $humanMessage,
@@ -195,20 +300,34 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
                 $this->persistTwilioCallSid($notificationExecution);
 
-                // Programar siguiente revalidación
+                // =========================================================
+                // PASO 7: Programar siguiente revalidación
+                // =========================================================
+                $scheduledAt = now()->addMinutes($nextCheckMinutes);
+                
+                $this->log('info', 'STEP 7: Scheduling NEXT revalidation', [
+                    'next_check_minutes' => $nextCheckMinutes,
+                    'scheduled_at' => $scheduledAt->toIso8601String(),
+                    'queue' => 'samsara-revalidation',
+                    'new_investigation_count' => $this->event->investigation_count,
+                ]);
+
                 self::dispatch($this->event)
-                    ->delay(now()->addMinutes($nextCheckMinutes))
+                    ->delay($scheduledAt)
                     ->onQueue('samsara-revalidation');
 
-                Log::info("Event continues under investigation", [
-                    'event_id' => $this->event->id,
-                    'next_check_minutes' => $nextCheckMinutes,
-                    'investigation_count' => $this->event->investigation_count,
+                $this->log('info', '========== REVALIDATION JOB COMPLETED - CONTINUES MONITORING ==========', [
                     'verdict' => $assessment['verdict'] ?? 'unknown',
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
+                    'next_revalidation_at' => $scheduledAt->toIso8601String(),
                 ]);
+
             } else {
-                // La AI ahora está segura - completar
+                $this->log('info', 'STEP 6: Event investigation COMPLETED', [
+                    'action' => 'markAsCompleted',
+                    'final_verdict' => $assessment['verdict'] ?? 'unknown',
+                ]);
+
                 $this->event->markAsCompleted(
                     assessment: $assessment,
                     humanMessage: $humanMessage,
@@ -221,19 +340,20 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
                 $this->persistTwilioCallSid($notificationExecution);
 
-                Log::info("Event investigation completed", [
-                    'event_id' => $this->event->id,
+                $this->log('info', '========== REVALIDATION JOB COMPLETED - INVESTIGATION FINISHED ==========', [
                     'final_verdict' => $assessment['verdict'] ?? 'unknown',
-                    'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
+                    'final_risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'total_investigations' => $this->event->investigation_count,
                 ]);
             }
 
         } catch (\Exception $e) {
-            Log::error("Failed to revalidate event", [
-                'event_id' => $this->event->id,
-                'error' => $e->getMessage(),
-                'attempt' => $this->attempts(),
+            $this->log('error', 'REVALIDATION JOB FAILED', [
+                'error_message' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'will_retry' => $this->attempts() < $this->tries,
             ]);
 
             // En caso de error, programar reintento
@@ -248,30 +368,21 @@ class RevalidateSamsaraEventJob implements ShouldQueue
      */
     public function failed(\Throwable $exception): void
     {
-        Log::error("Revalidation job failed permanently", [
-            'event_id' => $this->event->id,
-            'error' => $exception->getMessage(),
+        $this->log('error', '========== REVALIDATION JOB FAILED PERMANENTLY ==========', [
+            'error_message' => $exception->getMessage(),
+            'error_class' => get_class($exception),
+            'total_attempts' => $this->attempts(),
         ]);
     }
 
     /**
      * Persiste la información de la ventana de tiempo consultada en el historial.
-     * 
-     * Esto permite que cada revalidación tenga un registro de:
-     * - Qué período de tiempo se consultó
-     * - Qué datos se encontraron (resumen)
-     * - Cuándo se hizo la consulta
-     * 
-     * El AI puede usar este historial para ver la "evolución" de la situación.
-     * 
-     * @param array $reloadedData Los datos recargados de Samsara
      */
     private function persistRevalidationWindow(array $reloadedData): void
     {
         $metadata = $reloadedData['_metadata'] ?? [];
         $queryWindow = $metadata['query_window'] ?? [];
         
-        // Construir resumen de lo que se encontró en esta ventana
         $windowSummary = [
             'investigation_number' => $this->event->investigation_count + 1,
             'queried_at' => now()->toIso8601String(),
@@ -285,32 +396,27 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 'new_camera_items' => $reloadedData['camera_media_since_last_check']['total_items'] ?? 0,
                 'has_vehicle_stats' => !empty($reloadedData['vehicle_stats_since_last_check']),
             ],
-            // Resumen de safety events encontrados (si los hay)
             'safety_events_details' => $this->summarizeSafetyEvents(
                 $reloadedData['safety_events_since_last_check']['events'] ?? []
             ),
         ];
         
-        // Agregar al historial existente
         $history = $this->event->investigation_history ?? [];
         $history[] = $windowSummary;
         
-        // Actualizar el modelo (sin disparar el evento completo de markAsInvestigating)
         $this->event->update(['investigation_history' => $history]);
         
-        Log::debug('RevalidateSamsaraEventJob: Window persisted to investigation_history', [
-            'event_id' => $this->event->id,
+        $this->log('debug', 'Window persisted to investigation_history', [
             'investigation_number' => $windowSummary['investigation_number'],
             'window_start' => $windowSummary['time_window']['start'],
             'window_end' => $windowSummary['time_window']['end'],
+            'new_safety_events' => $windowSummary['findings']['new_safety_events'],
+            'new_camera_items' => $windowSummary['findings']['new_camera_items'],
         ]);
     }
     
     /**
      * Resume los safety events encontrados para el historial.
-     * 
-     * @param array $events Lista de eventos de seguridad
-     * @return array Resumen de los eventos
      */
     private function summarizeSafetyEvents(array $events): array
     {
@@ -324,48 +430,34 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 'severity' => $event['severity'] ?? 'unknown',
                 'time' => $event['time'] ?? null,
             ];
-        }, array_slice($events, 0, 5)); // Máximo 5 eventos para no sobrecargar
+        }, array_slice($events, 0, 5));
     }
 
     /**
      * Recarga datos de Samsara con una ventana temporal ACTUALIZADA.
-     * 
-     * En revalidaciones, necesitamos buscar información NUEVA:
-     * - Desde la última investigación hasta ahora
-     * - No repetir la misma ventana del evento original
-     * 
-     * Esto permite detectar cambios en la situación del vehículo
-     * y tomar decisiones basadas en información fresca.
-     * 
-     * @param array $payload El payload original del webhook
-     * @return array El payload enriquecido con datos actualizados
      */
     private function reloadSamsaraDataForRevalidation(array $payload): array
     {
-        // Obtener la API key de la empresa del evento (multi-tenant)
         $company = $this->event->company;
         if (!$company) {
-            Log::warning('RevalidateSamsaraEventJob: No company found, skipping Samsara reload', [
-                'event_id' => $this->event->id,
+            $this->log('warning', 'No company found - skipping Samsara data reload', [
+                'company_id' => $this->event->company_id,
             ]);
             return $payload;
         }
 
         $samsaraApiKey = $company->getSamsaraApiKey();
         if (empty($samsaraApiKey)) {
-            Log::warning('RevalidateSamsaraEventJob: No Samsara API key, skipping reload', [
-                'event_id' => $this->event->id,
+            $this->log('warning', 'No Samsara API key configured - skipping reload', [
                 'company_id' => $company->id,
+                'company_name' => $company->name,
             ]);
             return $payload;
         }
 
-        // Extraer contexto del evento
         $context = SamsaraClient::extractEventContext($payload);
         if (!$context) {
-            Log::warning('RevalidateSamsaraEventJob: Could not extract event context, skipping reload', [
-                'event_id' => $this->event->id,
-            ]);
+            $this->log('warning', 'Could not extract event context from payload - skipping reload');
             return $payload;
         }
 
@@ -375,17 +467,14 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             ?? $this->event->created_at->toIso8601String();
         $isSafetyEvent = SamsaraClient::isSafetyEvent($payload);
 
-        Log::info('RevalidateSamsaraEventJob: Reloading Samsara data with updated time window', [
-            'event_id' => $this->event->id,
+        $this->log('info', 'Reloading Samsara data with updated time window', [
             'vehicle_id' => $vehicleId,
             'original_event_time' => $originalEventTime,
             'last_investigation_time' => $lastInvestigationTime,
             'is_safety_event' => $isSafetyEvent,
-            'investigation_count' => $this->event->investigation_count,
         ]);
 
         try {
-            // Crear cliente Samsara y recargar datos
             $samsaraClient = new SamsaraClient($samsaraApiKey);
             $reloadedData = $samsaraClient->reloadDataForRevalidation(
                 vehicleId: $vehicleId,
@@ -395,18 +484,12 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             );
 
             if (empty($reloadedData)) {
-                Log::warning('RevalidateSamsaraEventJob: No data reloaded from Samsara', [
-                    'event_id' => $this->event->id,
-                ]);
+                $this->log('warning', 'No data reloaded from Samsara API');
                 return $payload;
             }
 
-            // Agregar datos recargados al payload bajo una key especial
-            // Mantenemos los preloaded_data originales para referencia
             $payload['revalidation_data'] = $reloadedData;
 
-            // Actualizar vehicle_info y driver_assignment con los datos frescos
-            // (estos pueden haber cambiado)
             if (!empty($reloadedData['vehicle_info'])) {
                 $payload['preloaded_data']['vehicle_info'] = $reloadedData['vehicle_info'];
             }
@@ -414,19 +497,11 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 $payload['preloaded_data']['driver_assignment'] = $reloadedData['driver_assignment'];
             }
 
-            // =========================================================
-            // PERSISTIR HISTORIAL DE VENTANAS CONSULTADAS
-            // =========================================================
-            // Esto permite que el AI vea el "progreso" de todas las ventanas
-            // que ya se han revisado, no solo la actual.
             $this->persistRevalidationWindow($reloadedData);
 
-            // Incluir el historial acumulado de ventanas en el payload
-            // para que el AI tenga contexto completo
             $payload['revalidation_windows_history'] = $this->event->fresh()->investigation_history ?? [];
 
-            Log::info('RevalidateSamsaraEventJob: Samsara data reloaded successfully', [
-                'event_id' => $this->event->id,
+            $this->log('info', 'Samsara data reloaded successfully', [
                 'has_new_vehicle_stats' => !empty($reloadedData['vehicle_stats_since_last_check']),
                 'new_safety_events_count' => $reloadedData['safety_events_since_last_check']['total_events'] ?? 0,
                 'new_camera_items_count' => $reloadedData['camera_media_since_last_check']['total_items'] ?? 0,
@@ -436,19 +511,16 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             return $payload;
 
         } catch (\Exception $e) {
-            Log::error('RevalidateSamsaraEventJob: Failed to reload Samsara data', [
-                'event_id' => $this->event->id,
-                'error' => $e->getMessage(),
+            $this->log('error', 'Failed to reload Samsara data', [
+                'error_message' => $e->getMessage(),
+                'error_class' => get_class($e),
             ]);
             return $payload;
         }
     }
 
     /**
-     * Guarda el twilio_call_sid del primer call exitoso para que el
-     * TwilioCallbackController pueda encontrar el evento por CallSid.
-     * 
-     * @param array|null $notificationExecution Resultados de ejecución de notificaciones
+     * Guarda el twilio_call_sid del primer call exitoso para callbacks.
      */
     private function persistTwilioCallSid(?array $notificationExecution): void
     {
@@ -459,7 +531,6 @@ class RevalidateSamsaraEventJob implements ShouldQueue
         $results = $notificationExecution['results'] ?? [];
         
         foreach ($results as $result) {
-            // Buscar el primer call exitoso con call_sid
             if (
                 ($result['channel'] ?? '') === 'call' &&
                 ($result['success'] ?? false) &&
@@ -471,14 +542,12 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'notification_sent_at' => now(),
                 ]);
 
-                Log::debug("Twilio call_sid persisted for callbacks (revalidation)", [
-                    'event_id' => $this->event->id,
+                $this->log('debug', 'Twilio call_sid persisted for callbacks', [
                     'call_sid' => $result['call_sid'],
                 ]);
 
-                break; // Solo guardamos el primer call_sid
+                break;
             }
         }
     }
 }
-
