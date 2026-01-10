@@ -78,19 +78,20 @@ RUN mkdir -p bootstrap/cache storage/framework/{cache,sessions,views} \
 RUN npm run build
 
 # Remove dev dependencies and optimize for production
-# Also remove the build-time .env (production will use env vars)
-# Clear ALL caches before re-discovering packages without dev dependencies
 RUN composer install \
     --no-dev \
     --no-scripts \
     --no-interaction \
     --prefer-dist \
-    --optimize-autoloader \
-    && rm -f bootstrap/cache/packages.php \
+    --optimize-autoloader
+
+# Clear caches and rediscover packages
+RUN rm -f bootstrap/cache/packages.php \
     && rm -f bootstrap/cache/services.php \
-    && php artisan package:discover --ansi \
-    && rm -rf node_modules \
-    && rm -f .env
+    && php artisan package:discover --ansi
+
+# Cleanup build artifacts
+RUN rm -rf node_modules && rm -f .env
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production image (minimal)
