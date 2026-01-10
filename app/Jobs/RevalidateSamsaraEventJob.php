@@ -31,9 +31,14 @@ class RevalidateSamsaraEventJob implements ShouldQueue
     public $tries = 2;
 
     /**
-     * Timeout en segundos (5 minutos)
+     * Timeout en segundos (7 minutos)
+     * 
+     * El HTTP timeout es 5 minutos, más margen para:
+     * - Recarga de datos de Samsara (~1-2s)
+     * - Persistencia de imágenes (~5-10s)
+     * - Overhead de procesamiento
      */
-    public $timeout = 300;
+    public $timeout = 420;
 
     /**
      * Create a new job instance.
@@ -177,14 +182,21 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             // =========================================================
             // PASO 4: Llamar al AI Service
             // =========================================================
+            // Timeout aumentado a 5 minutos porque el pipeline de revalidación
+            // puede tardar más debido a:
+            // - Llamadas múltiples al LLM (investigator + final + notification)
+            // - Análisis de imágenes de cámara con Vision
+            // - Carga del servicio de OpenAI
+            $httpTimeout = 300; // 5 minutos
+            
             $this->log('info', 'STEP 4: Calling AI Service /alerts/revalidate', [
                 'endpoint' => "{$aiServiceUrl}/alerts/revalidate",
-                'timeout' => 120,
+                'timeout_seconds' => $httpTimeout,
             ]);
 
             $requestStartTime = microtime(true);
 
-            $response = Http::timeout(120)
+            $response = Http::timeout($httpTimeout)
                 ->post("{$aiServiceUrl}/alerts/revalidate", [
                     'event_id' => $this->event->id,
                     'payload' => $enrichedPayload,
