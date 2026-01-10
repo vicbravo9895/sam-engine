@@ -28,7 +28,7 @@ export default function CopilotLayout({
                 conversations={conversations}
                 currentThreadId={currentThreadId}
             />
-            <AppContent variant="sidebar" className="flex h-svh max-h-svh flex-col overflow-hidden">
+            <AppContent variant="sidebar" className="flex h-svh max-h-svh flex-col overflow-hidden pb-[env(safe-area-inset-bottom)]">
                 <CopilotHeader />
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {children}
