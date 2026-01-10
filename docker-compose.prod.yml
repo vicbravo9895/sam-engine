@@ -32,7 +32,8 @@ services:
       APP_DEBUG: "false"
       APP_KEY: "${APP_KEY}"
       APP_URL: "${APP_URL:-http://localhost}"
-      LOG_CHANNEL: stderr
+      LOG_CHANNEL: stack
+      LOG_STACK: "daily,grafana"
       DB_CONNECTION: pgsql
       DB_HOST: pgsql
       DB_PORT: 5432
@@ -50,6 +51,8 @@ services:
     volumes:
       # Persistent storage for uploaded files (dashcam images, evidence, etc.)
       - sam-storage:/var/www/html/storage/app/public
+      # Shared logs volume for Grafana Alloy
+      - sam-logs:/var/www/html/storage/logs
     depends_on:
       pgsql:
         condition: service_healthy
@@ -78,7 +81,8 @@ services:
       APP_DEBUG: "false"
       APP_KEY: "${APP_KEY}"
       APP_URL: "${APP_URL:-http://localhost}"
-      LOG_CHANNEL: stderr
+      LOG_CHANNEL: stack
+      LOG_STACK: "daily,grafana"
       DB_CONNECTION: pgsql
       DB_HOST: pgsql
       DB_PORT: 5432
@@ -95,6 +99,8 @@ services:
     volumes:
       # Share storage volume with app (horizon saves evidence images)
       - sam-storage:/var/www/html/storage/app/public
+      # Shared logs volume for Grafana Alloy
+      - sam-logs:/var/www/html/storage/logs
     depends_on:
       pgsql:
         condition: service_healthy
@@ -139,6 +145,13 @@ services:
       MAX_CONCURRENT_REQUESTS: "${AI_MAX_CONCURRENT_REQUESTS:-5}"
       SEMAPHORE_TIMEOUT: "${AI_SEMAPHORE_TIMEOUT:-30.0}"
       RATE_LIMITING_ENABLED: "${AI_RATE_LIMITING_ENABLED:-true}"
+      
+      # Logging
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      LOG_FILE: /app/logs/ai-service.json
+    volumes:
+      - ai-service-logs:/app/logs
     depends_on:
       redis:
         condition: service_healthy
@@ -191,6 +204,33 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---------------------------------------------------------------------------
+  # Grafana Alloy (Log Collector for Grafana Cloud)
+  # ---------------------------------------------------------------------------
+  grafana-alloy:
+    image: grafana/alloy:latest
+    container_name: sam-grafana-alloy
+    restart: unless-stopped
+    volumes:
+      # Laravel logs (app + horizon write here)
+      - sam-logs:/var/log/app:ro
+      # AI Service logs
+      - ai-service-logs:/var/log/ai-service:ro
+      # Alloy configuration
+      - ./docker/alloy-config.alloy:/etc/alloy/config.alloy:ro
+    environment:
+      # Grafana Cloud credentials
+      GRAFANA_LOKI_URL: "${GRAFANA_LOKI_URL}"
+      GRAFANA_LOKI_USER: "${GRAFANA_LOKI_USER}"
+      GRAFANA_LOKI_TOKEN: "${GRAFANA_LOKI_TOKEN}"
+    networks:
+      - sam-network
+    depends_on:
+      - app
+      - horizon
+      - ai-service
+    command: ["run", "/etc/alloy/config.alloy"]
+
 # =============================================================================
 # Networks
 # =============================================================================
@@ -207,4 +247,8 @@ volumes:
   sam-redis-data:
     driver: local
   sam-storage:
+    driver: local
+  sam-logs:
+    driver: local
+  ai-service-logs:
     driver: local
