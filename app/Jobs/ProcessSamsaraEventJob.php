@@ -146,7 +146,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Llamar al servicio de IA (FastAPI)
             $aiServiceUrl = config('services.ai_engine.url');
 
-            $response = Http::timeout(120)
+            $response = Http::timeout(300)
                 ->post("{$aiServiceUrl}/alerts/ingest", [
                     'event_id' => $this->event->id,
                     'payload' => $enrichedPayload,

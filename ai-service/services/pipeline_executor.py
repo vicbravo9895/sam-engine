@@ -246,22 +246,24 @@ class PipelineExecutor:
         )
         
         # =========================================================
-        # ANALIZAR IMÁGENES PRE-CARGADAS AUTOMÁTICAMENTE
+        # CONSTRUIR MENSAJE INICIAL (SIN análisis de imágenes)
         # =========================================================
-        # Laravel ya pre-carga las URLs de las imágenes.
-        # Aquí las analizamos con Vision AI ANTES de que el investigador
-        # empiece, para que no tenga que llamar a get_camera_media.
-        preloaded_analysis = await analyze_preloaded_media(payload)
-        if preloaded_analysis:
-            # Agregar el análisis al payload para que esté disponible
-            payload['preloaded_camera_analysis'] = preloaded_analysis
-            logger.info(f"Preloaded camera analysis: {preloaded_analysis.get('total_images_analyzed', 0)} images analyzed")
-        
-        # Guardar para incluirlo en el resultado final
-        self._camera_analysis = preloaded_analysis
-        
-        # Construir mensaje inicial
+        # El triage_agent NO necesita ver el análisis de imágenes.
+        # Solo necesita clasificar la alerta - enviarle el análisis
+        # haría que procese MB de JSON innecesario y tarde >1 minuto.
         initial_message = self._build_initial_message(payload, is_revalidation, context)
+        
+        # =========================================================
+        # ANALIZAR IMÁGENES EN PARALELO (mientras el triage corre)
+        # =========================================================
+        # Lanzamos el análisis de imágenes como tarea async.
+        # El resultado se inyectará al state antes del investigator.
+        import asyncio
+        camera_analysis_task = asyncio.create_task(analyze_preloaded_media(payload))
+        
+        # Guardar referencia para obtener resultado después
+        self._camera_analysis_task = camera_analysis_task
+        self._camera_analysis = None
         current_input = initial_message.parts[0].text
         
         # Crear span del pipeline
@@ -282,7 +284,7 @@ class PipelineExecutor:
                 # Procesar cambio de agente
                 agent_name = self._detect_agent(event)
                 if agent_name:
-                    current_input = self._handle_agent_change(agent_name, session_id, current_input)
+                    current_input = await self._handle_agent_change(agent_name, session_id, current_input)
                 
                 # Procesar tool calls/responses (fallback)
                 tracker = current_tool_tracker.get()
@@ -317,6 +319,14 @@ class PipelineExecutor:
             
             # Finalizar último agente
             self._finalize_current_agent()
+            
+            # Asegurar que el análisis de imágenes esté completo
+            if hasattr(self, '_camera_analysis_task') and self._camera_analysis_task:
+                try:
+                    self._camera_analysis = await self._camera_analysis_task
+                    self._camera_analysis_task = None
+                except Exception as e:
+                    logger.error(f"Error completing camera analysis: {e}")
             
             # Ejecutar notificaciones (código determinista, no LLM)
             notification_execution = None
@@ -491,18 +501,9 @@ class PipelineExecutor:
         """Construye el mensaje inicial para el pipeline."""
         payload_json = json.dumps(payload, ensure_ascii=False, indent=2)
         
-        # Verificar si hay análisis de imágenes pre-cargadas
-        preloaded_camera_analysis = payload.get('preloaded_camera_analysis')
-        camera_analysis_note = ""
-        if preloaded_camera_analysis:
-            num_images = preloaded_camera_analysis.get('total_images_analyzed', 0)
-            camera_analysis_note = f"""
-ANÁLISIS DE IMÁGENES YA DISPONIBLE:
-- Se analizaron {num_images} imágenes con Vision AI
-- El análisis está en `preloaded_camera_analysis` del payload
-- ⚠️ NO LLAMES A get_camera_media - ya tienes el análisis completo
-- Usa este análisis para tu evaluación
-"""
+        # NOTA: El análisis de imágenes se inyecta DESPUÉS del triage,
+        # directamente al investigator_agent. No lo incluimos aquí para
+        # evitar que el triage procese MB de JSON innecesario.
         
         if is_revalidation and context:
             # Extraer información sobre datos nuevos disponibles
@@ -537,7 +538,7 @@ DATOS NUEVOS EN ESTA VENTANA (desde última investigación hasta ahora):
 - Nuevos safety events: {new_safety_events_count}
 - Nuevas imágenes de cámara: {new_camera_items_count}
 - IMPORTANTE: Revisa `revalidation_data` en el payload para información FRESCA
-{camera_analysis_note}
+
 ANÁLISIS PREVIO:
 {json.dumps(context.get('previous_assessment', {}), ensure_ascii=False, indent=2)}
 
@@ -550,12 +551,10 @@ INSTRUCCIONES:
 3. Compara findings entre ventanas: ¿hubo safety events antes que ya no hay? ¿o siguen apareciendo?
 4. Con {total_minutes_observed} minutos de observación, evalúa si tienes suficiente evidencia
 5. Si ya hay 3+ ventanas sin novedad, considera dar un veredicto definitivo
-6. ⚠️ NO LLAMES A get_camera_media si ya hay análisis en preloaded_camera_analysis
 """
             text = f"Revalida esta alerta de Samsara:\n\n{temporal_context}\n\nPAYLOAD:\n{payload_json}"
         else:
-            extra_note = camera_analysis_note if camera_analysis_note else ""
-            text = f"Analiza esta alerta de Samsara:\n{extra_note}\n\nPAYLOAD:\n{payload_json}"
+            text = f"Analiza esta alerta de Samsara:\n\nPAYLOAD:\n{payload_json}"
         
         return types.Content(parts=[types.Part(text=text)])
     
@@ -575,7 +574,45 @@ INSTRUCCIONES:
         
         return agent_name
     
-    def _handle_agent_change(
+    async def _inject_camera_analysis_if_ready(self, current_input: str) -> str:
+        """
+        Inyecta el análisis de imágenes al input si está listo.
+        Se llama cuando el investigator_agent comienza.
+        """
+        if not hasattr(self, '_camera_analysis_task') or not self._camera_analysis_task:
+            return current_input
+        
+        try:
+            # Esperar el resultado del análisis (ya debería estar listo)
+            self._camera_analysis = await self._camera_analysis_task
+            self._camera_analysis_task = None
+            
+            if self._camera_analysis:
+                num_images = self._camera_analysis.get('total_images_analyzed', 0)
+                logger.info(f"Camera analysis ready: {num_images} images analyzed")
+                
+                # Inyectar al input del investigator
+                analysis_json = json.dumps(self._camera_analysis, ensure_ascii=False, indent=2)
+                camera_note = f"""
+
+## ANÁLISIS DE IMÁGENES DISPONIBLE
+
+Se analizaron {num_images} imágenes con Vision AI. El análisis está aquí:
+
+```json
+{analysis_json}
+```
+
+⚠️ IMPORTANTE: Ya tienes el análisis completo de las imágenes. NO necesitas llamar a get_camera_media.
+Usa este análisis para tu evaluación.
+"""
+                current_input = current_input + camera_note
+        except Exception as e:
+            logger.error(f"Error getting camera analysis: {e}")
+        
+        return current_input
+    
+    async def _handle_agent_change(
         self,
         agent_name: str,
         session_id: str,
@@ -596,6 +633,10 @@ INSTRUCCIONES:
                     current_input = last_output
             
             current_tool_tracker.set(None)
+            
+            # Si estamos entrando al investigator, inyectar análisis de imágenes
+            if agent_name == "investigator_agent":
+                current_input = await self._inject_camera_analysis_if_ready(current_input)
         
         self._current_agent = agent_name
         

@@ -87,7 +87,7 @@ async def analyze_preloaded_media(payload: Dict[str, Any]) -> Optional[Dict[str,
 
 async def _analyze_images(image_items: List[Dict]) -> List[Dict]:
     """
-    Analiza una lista de imágenes con GPT-4o Vision.
+    Analiza una lista de imágenes con GPT-4o Vision EN PARALELO.
     
     Args:
         image_items: Lista de items de imagen con URLs
@@ -95,100 +95,113 @@ async def _analyze_images(image_items: List[Dict]) -> List[Dict]:
     Returns:
         Lista de análisis por imagen
     """
+    import asyncio
+    
     if not OpenAIConfig.API_KEY:
         logger.warning("OPENAI_API_KEY not configured, skipping image analysis")
         return []
     
-    analyses = []
+    # Limitar a máximo 4 imágenes para evitar timeouts extremos
+    MAX_IMAGES = 4
+    if len(image_items) > MAX_IMAGES:
+        logger.info(f"Limiting analysis to {MAX_IMAGES} images (had {len(image_items)})")
+        image_items = image_items[:MAX_IMAGES]
     
-    async with httpx.AsyncClient(timeout=30.0) as http_client:
-        for idx, item in enumerate(image_items):
-            try:
-                # Extraer URL
-                url = item.get('url') or item.get('download_url')
-                if not url:
-                    continue
-                
-                camera_input = item.get('camera_type') or item.get('input', 'unknown')
-                captured_at = item.get('captured_at') or item.get('startTime', 'unknown')
-                
-                # Descargar imagen
-                response = await http_client.get(url)
-                if response.status_code != 200:
-                    logger.warning(f"Failed to download image {idx}: status {response.status_code}")
-                    continue
-                
-                image_data = response.content
-                image_size_kb = len(image_data) / 1024
-                
-                # Convertir a base64
-                base64_image = base64.b64encode(image_data).decode('utf-8')
-                
-                # Determinar tipo de cámara
-                camera_type = "interior (hacia el conductor)" if "driver" in str(camera_input).lower() else "exterior (hacia el camino)"
-                
-                prompt = _get_vision_prompt(camera_type, camera_input)
-                
-                # Llamar a Vision API
-                vision_response = await acompletion(
-                    model=OpenAIConfig.MODEL_GPT4O,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{base64_image}"
-                                    }
+    async def analyze_single_image(idx: int, item: Dict, http_client: httpx.AsyncClient) -> Dict:
+        """Analiza una sola imagen."""
+        try:
+            # Extraer URL
+            url = item.get('url') or item.get('download_url')
+            if not url:
+                return {"error": "No URL found", "input": item.get('camera_type', 'unknown')}
+            
+            camera_input = item.get('camera_type') or item.get('input', 'unknown')
+            captured_at = item.get('captured_at') or item.get('startTime', 'unknown')
+            
+            # Descargar imagen
+            response = await http_client.get(url)
+            if response.status_code != 200:
+                logger.warning(f"Failed to download image {idx}: status {response.status_code}")
+                return {"error": f"Download failed: {response.status_code}", "input": camera_input}
+            
+            image_data = response.content
+            image_size_kb = len(image_data) / 1024
+            
+            # Convertir a base64
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+            
+            # Determinar tipo de cámara
+            camera_type = "interior (hacia el conductor)" if "driver" in str(camera_input).lower() else "exterior (hacia el camino)"
+            
+            prompt = _get_vision_prompt(camera_type, camera_input)
+            
+            # Llamar a Vision API
+            vision_response = await acompletion(
+                model=OpenAIConfig.MODEL_GPT4O,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
                                 }
-                            ]
-                        }
-                    ],
-                    api_key=OpenAIConfig.API_KEY
-                )
-                
-                analysis_text = vision_response.choices[0].message.content
-                
-                # Intentar parsear JSON
-                analysis_structured = None
-                try:
-                    clean_text = analysis_text.strip()
-                    if clean_text.startswith("```"):
-                        lines = clean_text.split("\n")
-                        clean_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-                    analysis_structured = json.loads(clean_text)
-                except json.JSONDecodeError:
-                    logger.warning(f"Vision response for image {idx} is not valid JSON")
-                
-                analysis = {
-                    "input": camera_input,
-                    "timestamp": captured_at,
-                    "analysis": analysis_text,
-                    "analysis_structured": analysis_structured,
-                    "samsara_url": url,
-                    "image_size_kb": round(image_size_kb, 2)
-                }
-                
-                # Extraer campos clave
-                if analysis_structured:
-                    analysis["alert_level"] = analysis_structured.get("alert_level")
-                    analysis["recommendation"] = analysis_structured.get("recommendation")
-                    analysis["scene_description"] = analysis_structured.get("scene_description")
-                
-                analyses.append(analysis)
-                
-                logger.info(f"Analyzed image {idx + 1}/{len(image_items)}: {camera_input}")
-                
-            except Exception as e:
-                logger.error(f"Error analyzing image {idx}: {e}")
-                analyses.append({
-                    "error": str(e),
-                    "input": item.get('camera_type', 'unknown')
-                })
+                            }
+                        ]
+                    }
+                ],
+                api_key=OpenAIConfig.API_KEY
+            )
+            
+            analysis_text = vision_response.choices[0].message.content
+            
+            # Intentar parsear JSON
+            analysis_structured = None
+            try:
+                clean_text = analysis_text.strip()
+                if clean_text.startswith("```"):
+                    lines = clean_text.split("\n")
+                    clean_text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                analysis_structured = json.loads(clean_text)
+            except json.JSONDecodeError:
+                logger.warning(f"Vision response for image {idx} is not valid JSON")
+            
+            analysis = {
+                "input": camera_input,
+                "timestamp": captured_at,
+                "analysis": analysis_text,
+                "analysis_structured": analysis_structured,
+                "samsara_url": url,
+                "image_size_kb": round(image_size_kb, 2)
+            }
+            
+            # Extraer campos clave
+            if analysis_structured:
+                analysis["alert_level"] = analysis_structured.get("alert_level")
+                analysis["recommendation"] = analysis_structured.get("recommendation")
+                analysis["scene_description"] = analysis_structured.get("scene_description")
+            
+            logger.info(f"Analyzed image {idx + 1}/{len(image_items)}: {camera_input}")
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Error analyzing image {idx}: {e}")
+            return {
+                "error": str(e),
+                "input": item.get('camera_type', 'unknown')
+            }
     
-    return analyses
+    # Ejecutar análisis EN PARALELO
+    async with httpx.AsyncClient(timeout=30.0) as http_client:
+        tasks = [
+            analyze_single_image(idx, item, http_client)
+            for idx, item in enumerate(image_items)
+        ]
+        analyses = await asyncio.gather(*tasks)
+    
+    return list(analyses)
 
 
 def _get_vision_prompt(camera_type: str, camera_input: str) -> str:
