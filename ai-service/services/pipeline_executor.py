@@ -22,7 +22,7 @@ from google.genai import types
 logger = logging.getLogger(__name__)
 
 from config import ServiceConfig, langfuse_client
-from core import runner, session_service
+from core import runner, revalidation_runner, session_service
 from core.context import current_langfuse_span, current_tool_tracker
 from agents.agent_definitions import AGENTS_BY_NAME
 from agents.schemas import ToolResult, AgentResult, PipelineResult
@@ -187,6 +187,9 @@ class PipelineExecutor:
     - Tracking de spans en Langfuse
     - Captura de resultados de agentes y tools
     - Ejecución de notificaciones post-pipeline
+    
+    OPTIMIZACIÓN: El triage_agent recibe un payload mínimo para clasificación rápida.
+    El payload completo se inyecta al investigator_agent.
     """
     
     def __init__(self):
@@ -201,6 +204,12 @@ class PipelineExecutor:
         self._pending_tools: Dict[str, Dict] = {}
         self._total_tools = 0
         self._camera_analysis: Optional[Dict[str, Any]] = None
+        # Guardar payload completo para inyectarlo al investigator
+        self._full_payload: Optional[Dict[str, Any]] = None
+        self._is_revalidation: bool = False
+        self._revalidation_context: Optional[Dict[str, Any]] = None
+        # Flag para indicar si saltamos el triage (optimización de revalidación)
+        self._skip_triage: bool = False
     
     async def execute(
         self,
@@ -221,6 +230,11 @@ class PipelineExecutor:
         Returns:
             PipelineResult con alert_context, assessment, human_message, etc.
         """
+        # Guardar payload completo para inyectarlo al investigator después del triage
+        self._full_payload = payload
+        self._is_revalidation = is_revalidation
+        self._revalidation_context = context
+        
         # Extraer metadata
         alert_type = payload.get("alertType", "unknown")
         vehicle_id = payload.get("vehicle", {}).get("id", "unknown")
@@ -246,19 +260,38 @@ class PipelineExecutor:
         )
         
         # =========================================================
-        # CONSTRUIR MENSAJE INICIAL (SIN análisis de imágenes)
+        # DETERMINAR SI PODEMOS SALTAR EL TRIAGE (OPTIMIZACIÓN)
         # =========================================================
-        # El triage_agent NO necesita ver el análisis de imágenes.
-        # Solo necesita clasificar la alerta - enviarle el análisis
-        # haría que procese MB de JSON innecesario y tarde >1 minuto.
-        initial_message = self._build_initial_message(payload, is_revalidation, context)
+        # En revalidaciones con alert_context previo, saltamos el triage
+        # porque ya conocemos el tipo de alerta. Esto ahorra ~2 minutos.
+        skip_triage = (
+            is_revalidation 
+            and context 
+            and context.get("previous_alert_context")
+        )
+        self._skip_triage = skip_triage
+        
+        # Seleccionar el runner correcto
+        selected_runner = revalidation_runner if skip_triage else runner
+        
+        if skip_triage:
+            logger.info(f"OPTIMIZATION: Skipping triage for revalidation (event_id={event_id})")
         
         # =========================================================
-        # ANALIZAR IMÁGENES EN PARALELO (mientras el triage corre)
+        # CONSTRUIR MENSAJE INICIAL
         # =========================================================
-        # Lanzamos el análisis de imágenes como tarea async.
-        # El resultado se inyectará al state antes del investigator.
         import asyncio
+        
+        if skip_triage:
+            # Para revalidaciones: construir input directo para investigator
+            initial_message = self._build_revalidation_message(payload, context)
+        else:
+            # Para procesamiento inicial: construir input para triage (payload mínimo)
+            initial_message = self._build_initial_message(payload, is_revalidation, context)
+        
+        # =========================================================
+        # ANALIZAR IMÁGENES EN PARALELO
+        # =========================================================
         camera_analysis_task = asyncio.create_task(analyze_preloaded_media(payload))
         
         # Guardar referencia para obtener resultado después
@@ -270,13 +303,14 @@ class PipelineExecutor:
         self._create_pipeline_span(session_id, current_input, context)
         
         try:
-            alert_context = None
+            # Si saltamos el triage, usar el alert_context previo
+            alert_context = context.get("previous_alert_context") if skip_triage else None
             assessment = None
             human_message = None
             notification_decision = None
             
-            # Ejecutar pipeline
-            async for event in runner.run_async(
+            # Ejecutar pipeline (usa selected_runner según sea revalidación o no)
+            async for event in selected_runner.run_async(
                 user_id=ServiceConfig.DEFAULT_USER_ID,
                 session_id=session_id,
                 new_message=initial_message
@@ -498,64 +532,219 @@ class PipelineExecutor:
         is_revalidation: bool,
         context: Optional[Dict]
     ) -> types.Content:
-        """Construye el mensaje inicial para el pipeline."""
-        payload_json = json.dumps(payload, ensure_ascii=False, indent=2)
+        """
+        Construye el mensaje inicial para el pipeline.
         
-        # NOTA: El análisis de imágenes se inyecta DESPUÉS del triage,
-        # directamente al investigator_agent. No lo incluimos aquí para
-        # evitar que el triage procese MB de JSON innecesario.
+        OPTIMIZACIÓN: Solo enviamos datos esenciales al triage_agent para
+        clasificación rápida. El payload completo se inyecta al investigator
+        después del triage para que tenga toda la información disponible.
+        
+        Esto reduce el tiempo del triage de ~2 minutos a ~5-10 segundos.
+        """
+        # Construir payload MÍNIMO para el triage (solo datos de clasificación)
+        minimal_payload = self._build_triage_payload(payload, is_revalidation, context)
+        minimal_json = json.dumps(minimal_payload, ensure_ascii=False, indent=2)
         
         if is_revalidation and context:
-            # Extraer información sobre datos nuevos disponibles
-            revalidation_data = payload.get('revalidation_data', {})
-            metadata = revalidation_data.get('_metadata', {})
-            query_window = metadata.get('query_window', {})
-            
-            new_safety_events_count = revalidation_data.get('safety_events_since_last_check', {}).get('total_events', 0)
-            new_camera_items_count = revalidation_data.get('camera_media_since_last_check', {}).get('total_items_selected', 0)
-            minutes_covered = query_window.get('minutes_covered', 0)
-            
-            # Historial acumulado de todas las ventanas consultadas
-            windows_history = payload.get('revalidation_windows_history', [])
-            total_windows = len(windows_history)
-            total_minutes_observed = sum(w.get('time_window', {}).get('minutes_covered', 0) for w in windows_history)
-            
-            temporal_context = f"""
-CONTEXTO DE REVALIDACIÓN:
-- Evento original: {context.get('original_event_time', 'unknown')}
-- Primera investigación: {context.get('first_investigation_time', 'unknown')}
-- Última investigación: {context.get('last_investigation_time', 'unknown')}
-- Revalidación actual: {context.get('current_revalidation_time', 'unknown')}
-- Número de investigaciones: {context.get('investigation_count', 0)}
-
-COBERTURA TEMPORAL ACUMULADA:
-- Total de ventanas consultadas: {total_windows}
-- Tiempo total de observación: {total_minutes_observed} minutos
-- HISTORIAL COMPLETO disponible en `revalidation_windows_history` del payload
-
-DATOS NUEVOS EN ESTA VENTANA (desde última investigación hasta ahora):
-- Ventana temporal consultada: {minutes_covered} minutos
-- Nuevos safety events: {new_safety_events_count}
-- Nuevas imágenes de cámara: {new_camera_items_count}
-- IMPORTANTE: Revisa `revalidation_data` en el payload para información FRESCA
-
-ANÁLISIS PREVIO:
-{json.dumps(context.get('previous_assessment', {}), ensure_ascii=False, indent=2)}
-
-HISTORIAL DE VENTANAS CONSULTADAS:
-{json.dumps(windows_history, ensure_ascii=False, indent=2)}
-
-INSTRUCCIONES:
-1. PRIORIZA los datos en `revalidation_data` - son NUEVOS desde la última investigación
-2. Revisa el HISTORIAL de ventanas para ver la evolución de la situación
-3. Compara findings entre ventanas: ¿hubo safety events antes que ya no hay? ¿o siguen apareciendo?
-4. Con {total_minutes_observed} minutos de observación, evalúa si tienes suficiente evidencia
-5. Si ya hay 3+ ventanas sin novedad, considera dar un veredicto definitivo
-"""
-            text = f"Revalida esta alerta de Samsara:\n\n{temporal_context}\n\nPAYLOAD:\n{payload_json}"
+            text = f"Clasifica esta revalidación de alerta de Samsara:\n\nPAYLOAD:\n{minimal_json}"
         else:
-            text = f"Analiza esta alerta de Samsara:\n\nPAYLOAD:\n{payload_json}"
+            text = f"Clasifica esta alerta de Samsara:\n\nPAYLOAD:\n{minimal_json}"
         
+        return types.Content(parts=[types.Part(text=text)])
+    
+    def _build_triage_payload(
+        self,
+        payload: Dict[str, Any],
+        is_revalidation: bool,
+        context: Optional[Dict]
+    ) -> Dict[str, Any]:
+        """
+        Construye payload MÍNIMO para el triage_agent.
+        
+        Solo incluye datos necesarios para clasificación:
+        - Tipo de evento y alerta
+        - Info básica de vehículo y conductor
+        - Severity y timestamps
+        - Para revalidaciones: contexto mínimo de investigación
+        
+        NO incluye (se inyectan al investigator después):
+        - preloaded_data (vehicle_stats, safety_events, etc.)
+        - revalidation_data
+        - camera_media
+        - notification_contacts
+        """
+        # Extraer datos del nivel superior del payload
+        data = payload.get("data", {})
+        
+        # Info del vehículo - puede estar en varios lugares
+        vehicle = payload.get("vehicle") or data.get("vehicle", {})
+        
+        # Info del conductor - priorizar safety_event_detail si existe
+        driver = None
+        safety_event_detail = payload.get("safety_event_detail") or payload.get("preloaded_data", {}).get("safety_event_detail", {})
+        if safety_event_detail and safety_event_detail.get("driver"):
+            driver = safety_event_detail.get("driver")
+        else:
+            driver = payload.get("driver") or data.get("driver", {})
+        
+        minimal_payload = {
+            # Tipo de evento
+            "eventType": payload.get("eventType"),
+            "alertType": payload.get("alertType"),
+            
+            # Info básica del vehículo
+            "vehicle": {
+                "id": vehicle.get("id") if isinstance(vehicle, dict) else None,
+                "name": vehicle.get("name") if isinstance(vehicle, dict) else None,
+            },
+            
+            # Info básica del conductor
+            "driver": {
+                "id": driver.get("id") if isinstance(driver, dict) else None,
+                "name": driver.get("name") if isinstance(driver, dict) else None,
+            },
+            
+            # Timestamps
+            "happenedAtTime": payload.get("happenedAtTime") or data.get("happenedAtTime"),
+            
+            # Severity
+            "severity": payload.get("severity") or data.get("severity"),
+            
+            # Behavior label (para safety events)
+            "behavior_label": payload.get("behavior_label") or (safety_event_detail.get("behavior_label") if safety_event_detail else None),
+            "samsara_severity": payload.get("samsara_severity") or (safety_event_detail.get("severity") if safety_event_detail else None),
+            
+            # Notification contacts (solo nombres y roles, sin datos sensibles)
+            "notification_contacts": self._extract_minimal_contacts(payload.get("notification_contacts", {})),
+        }
+        
+        # Para revalidaciones, agregar contexto mínimo
+        if is_revalidation and context:
+            minimal_payload["is_revalidation"] = True
+            minimal_payload["investigation_count"] = context.get("investigation_count", 0)
+            minimal_payload["previous_verdict"] = context.get("previous_assessment", {}).get("verdict")
+            minimal_payload["previous_risk_escalation"] = context.get("previous_assessment", {}).get("risk_escalation")
+            
+            # Resumen de ventanas sin el historial completo
+            windows_history = payload.get('revalidation_windows_history', [])
+            revalidation_data = payload.get('revalidation_data', {})
+            
+            minimal_payload["revalidation_summary"] = {
+                "total_windows_checked": len(windows_history),
+                "total_minutes_observed": sum(w.get('time_window', {}).get('minutes_covered', 0) for w in windows_history),
+                "new_safety_events_this_window": revalidation_data.get('safety_events_since_last_check', {}).get('total_events', 0),
+                "new_camera_items_this_window": revalidation_data.get('camera_media_since_last_check', {}).get('total_items', 0),
+            }
+        
+        return minimal_payload
+    
+    def _extract_minimal_contacts(self, contacts: Dict[str, Any]) -> Dict[str, Any]:
+        """Extrae solo nombre y rol de los contactos (sin números de teléfono)."""
+        if not contacts:
+            return {}
+        
+        minimal = {}
+        for key, contact in contacts.items():
+            if isinstance(contact, dict):
+                minimal[key] = {
+                    "name": contact.get("name"),
+                    "role": contact.get("role"),
+                }
+        return minimal
+    
+    def _build_revalidation_message(
+        self,
+        payload: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> types.Content:
+        """
+        Construye mensaje para revalidación SIN TRIAGE.
+        
+        OPTIMIZACIÓN: En revalidaciones usamos el alert_context previo
+        y enviamos directamente al investigator_agent. Esto ahorra ~2 minutos.
+        
+        El mensaje incluye:
+        - alert_context previo (del triage original)
+        - Datos pre-cargados actualizados
+        - Datos de revalidación (nuevos desde última investigación)
+        - Contexto temporal de la revalidación
+        """
+        parts = []
+        
+        # 1. Alert context previo (del triage original)
+        previous_alert_context = context.get("previous_alert_context", {})
+        parts.append("## CONTEXTO DE ALERTA (del triaje original)")
+        parts.append("```json")
+        parts.append(json.dumps(previous_alert_context, ensure_ascii=False, indent=2))
+        parts.append("```")
+        
+        # 2. Contexto temporal de revalidación
+        parts.append("\n## CONTEXTO DE REVALIDACIÓN")
+        parts.append(f"- Evento original: {context.get('original_event_time', 'unknown')}")
+        parts.append(f"- Primera investigación: {context.get('first_investigation_time', 'unknown')}")
+        parts.append(f"- Última investigación: {context.get('last_investigation_time', 'unknown')}")
+        parts.append(f"- Revalidación actual: {context.get('current_revalidation_time', 'unknown')}")
+        parts.append(f"- Número de investigación: {context.get('investigation_count', 0) + 1}")
+        
+        # 3. Assessment previo
+        previous_assessment = context.get("previous_assessment", {})
+        if previous_assessment:
+            parts.append("\n## EVALUACIÓN PREVIA")
+            parts.append(f"- Veredicto anterior: {previous_assessment.get('verdict', 'unknown')}")
+            parts.append(f"- Confianza anterior: {previous_assessment.get('confidence', 0)}")
+            parts.append(f"- Risk escalation: {previous_assessment.get('risk_escalation', 'unknown')}")
+            parts.append(f"- Razón de monitoreo: {previous_assessment.get('monitoring_reason', 'N/A')}")
+        
+        # 4. Datos pre-cargados
+        preloaded = payload.get('preloaded_data', {})
+        if preloaded:
+            # Excluir camera_media - se agrega con el análisis Vision
+            filtered_preloaded = {k: v for k, v in preloaded.items() if k != 'camera_media'}
+            parts.append("\n## DATOS PRE-CARGADOS (preloaded_data)")
+            parts.append(json.dumps(filtered_preloaded, ensure_ascii=False, indent=2))
+        
+        # 5. Safety event detail si existe
+        safety_detail = payload.get('safety_event_detail')
+        if safety_detail:
+            parts.append("\n## DETALLE DEL SAFETY EVENT")
+            parts.append(json.dumps(safety_detail, ensure_ascii=False, indent=2))
+        
+        # 6. Datos NUEVOS de revalidación (lo más importante)
+        revalidation_data = payload.get('revalidation_data', {})
+        if revalidation_data:
+            parts.append("\n## ⭐ DATOS NUEVOS (revalidation_data) - PRIORIZA ESTOS")
+            # Excluir camera_media - se agrega con el análisis Vision
+            filtered_reval = {k: v for k, v in revalidation_data.items() if 'camera' not in k.lower()}
+            parts.append(json.dumps(filtered_reval, ensure_ascii=False, indent=2))
+            
+            # Resumen de lo nuevo
+            new_safety = revalidation_data.get('safety_events_since_last_check', {}).get('total_events', 0)
+            new_camera = revalidation_data.get('camera_media_since_last_check', {}).get('total_items', 0)
+            parts.append(f"\n**Resumen de datos nuevos:**")
+            parts.append(f"- Nuevos safety events: {new_safety}")
+            parts.append(f"- Nuevas imágenes de cámara: {new_camera}")
+        
+        # 7. Historial de ventanas
+        windows_history = payload.get('revalidation_windows_history', [])
+        if windows_history:
+            total_minutes = sum(w.get('time_window', {}).get('minutes_covered', 0) for w in windows_history)
+            parts.append(f"\n## HISTORIAL DE INVESTIGACIONES ({len(windows_history)} ventanas, {total_minutes} minutos observados)")
+            parts.append(json.dumps(windows_history, ensure_ascii=False, indent=2))
+        
+        # 8. Contactos para notificaciones
+        contacts = payload.get('notification_contacts', {})
+        if contacts:
+            parts.append("\n## CONTACTOS PARA NOTIFICACIONES")
+            parts.append(json.dumps(contacts, ensure_ascii=False, indent=2))
+        
+        # 9. Instrucciones finales
+        parts.append("\n## INSTRUCCIONES")
+        parts.append("1. PRIORIZA los datos en `revalidation_data` - son NUEVOS desde la última investigación")
+        parts.append("2. Compara con la evaluación previa - ¿la situación mejoró, empeoró o sigue igual?")
+        parts.append("3. Si hay nuevos safety events, evalúa si indican un patrón de riesgo")
+        parts.append("4. Si no hay novedad y ya hay suficiente tiempo de observación, considera dar veredicto definitivo")
+        
+        text = "\n".join(parts)
         return types.Content(parts=[types.Part(text=text)])
     
     # =========================================================================
@@ -573,6 +762,135 @@ INSTRUCCIONES:
                 agent_name = self._current_agent or "unknown_agent"
         
         return agent_name
+    
+    def _build_final_agent_input(self, alert_context: str, assessment: str) -> str:
+        """
+        Construye input compacto para el final_agent.
+        
+        OPTIMIZACIÓN: Solo enviamos lo necesario para generar el mensaje humano:
+        - Alert context (tipo de alerta, vehículo, conductor)
+        - Assessment (veredicto, confianza, acciones recomendadas)
+        
+        NO enviamos el payload completo ni datos de investigación detallados.
+        """
+        parts = []
+        
+        # 1. Alert context (resumido)
+        parts.append("## CONTEXTO DE ALERTA (alert_context)")
+        # Limitar el tamaño para evitar tokens innecesarios
+        if len(alert_context) > 3000:
+            parts.append(alert_context[:3000] + "\n... (truncado)")
+        else:
+            parts.append(alert_context)
+        
+        # 2. Assessment (completo - es lo que necesita para el mensaje)
+        parts.append("\n## EVALUACIÓN TÉCNICA (assessment)")
+        if len(assessment) > 3000:
+            parts.append(assessment[:3000] + "\n... (truncado)")
+        else:
+            parts.append(assessment)
+        
+        # 3. Instrucciones claras
+        parts.append("\n## INSTRUCCIONES")
+        parts.append("Genera un mensaje claro y conciso en ESPAÑOL para el equipo de monitoreo.")
+        parts.append("Incluye: tipo de alerta, vehículo, conductor, veredicto, y acción recomendada.")
+        parts.append("El mensaje debe ser de 4-7 líneas máximo.")
+        
+        return "\n".join(parts)
+    
+    def _build_notification_input(self, assessment: str, alert_context: str) -> str:
+        """
+        Construye input compacto para el notification_decision_agent.
+        
+        OPTIMIZACIÓN: Solo enviamos lo necesario para decidir notificaciones:
+        - Assessment (veredicto, risk_escalation, confianza)
+        - Contactos disponibles
+        """
+        parts = []
+        
+        # 1. Assessment (es lo principal para decidir notificaciones)
+        parts.append("## EVALUACIÓN (assessment)")
+        if len(assessment) > 2000:
+            parts.append(assessment[:2000] + "\n... (truncado)")
+        else:
+            parts.append(assessment)
+        
+        # 2. Info básica del alert_context
+        parts.append("\n## CONTEXTO DE ALERTA")
+        if len(alert_context) > 1500:
+            parts.append(alert_context[:1500] + "\n... (truncado)")
+        else:
+            parts.append(alert_context)
+        
+        # 3. Contactos para notificaciones (del payload)
+        if self._full_payload:
+            contacts = self._full_payload.get('notification_contacts', {})
+            if contacts:
+                parts.append("\n## CONTACTOS DISPONIBLES")
+                parts.append(json.dumps(contacts, ensure_ascii=False, indent=2))
+        
+        return "\n".join(parts)
+    
+    def _build_investigator_input(self, triage_output: str) -> str:
+        """
+        Construye el input completo para el investigator_agent.
+        
+        Incluye:
+        - Output del triage (alert_context)
+        - Payload completo con preloaded_data
+        - Contexto de revalidación si aplica
+        
+        El investigator necesita todos los datos para hacer su análisis.
+        """
+        parts = []
+        
+        # 1. Output del triage (alert_context)
+        parts.append("## CONTEXTO DEL TRIAJE (alert_context)")
+        parts.append(triage_output)
+        
+        # 2. Datos pre-cargados del payload
+        if self._full_payload:
+            preloaded = self._full_payload.get('preloaded_data', {})
+            if preloaded:
+                parts.append("\n## DATOS PRE-CARGADOS (preloaded_data)")
+                # No incluir camera_media aquí - se agrega con el análisis Vision
+                filtered_preloaded = {k: v for k, v in preloaded.items() if k != 'camera_media'}
+                parts.append(json.dumps(filtered_preloaded, ensure_ascii=False, indent=2))
+            
+            # Safety event detail si existe
+            safety_detail = self._full_payload.get('safety_event_detail')
+            if safety_detail:
+                parts.append("\n## DETALLE DEL SAFETY EVENT")
+                parts.append(json.dumps(safety_detail, ensure_ascii=False, indent=2))
+        
+        # 3. Datos de revalidación si aplica
+        if self._is_revalidation and self._full_payload:
+            revalidation_data = self._full_payload.get('revalidation_data', {})
+            if revalidation_data:
+                parts.append("\n## DATOS DE REVALIDACIÓN (revalidation_data)")
+                # No incluir camera_media - se agrega con el análisis Vision
+                filtered_reval = {k: v for k, v in revalidation_data.items() if 'camera' not in k.lower()}
+                parts.append(json.dumps(filtered_reval, ensure_ascii=False, indent=2))
+            
+            windows_history = self._full_payload.get('revalidation_windows_history', [])
+            if windows_history:
+                parts.append("\n## HISTORIAL DE VENTANAS DE INVESTIGACIÓN")
+                parts.append(json.dumps(windows_history, ensure_ascii=False, indent=2))
+            
+            if self._revalidation_context:
+                parts.append("\n## CONTEXTO TEMPORAL")
+                parts.append(f"- Evento original: {self._revalidation_context.get('original_event_time', 'unknown')}")
+                parts.append(f"- Número de investigaciones: {self._revalidation_context.get('investigation_count', 0)}")
+                parts.append(f"- Último veredicto: {self._revalidation_context.get('previous_assessment', {}).get('verdict', 'unknown')}")
+        
+        # 4. Contactos para notificaciones
+        if self._full_payload:
+            contacts = self._full_payload.get('notification_contacts', {})
+            if contacts:
+                parts.append("\n## CONTACTOS PARA NOTIFICACIONES")
+                parts.append(json.dumps(contacts, ensure_ascii=False, indent=2))
+        
+        return "\n".join(parts)
     
     async def _inject_camera_analysis_if_ready(self, current_input: str) -> str:
         """
@@ -595,16 +913,15 @@ INSTRUCCIONES:
                 analysis_json = json.dumps(self._camera_analysis, ensure_ascii=False, indent=2)
                 camera_note = f"""
 
-## ANÁLISIS DE IMÁGENES DISPONIBLE
+## ANÁLISIS DE IMÁGENES (Vision AI)
 
-Se analizaron {num_images} imágenes con Vision AI. El análisis está aquí:
+Se analizaron {num_images} imágenes con Vision AI:
 
 ```json
 {analysis_json}
 ```
 
 ⚠️ IMPORTANTE: Ya tienes el análisis completo de las imágenes. NO necesitas llamar a get_camera_media.
-Usa este análisis para tu evaluación.
 """
                 current_input = current_input + camera_note
         except Exception as e:
@@ -634,9 +951,38 @@ Usa este análisis para tu evaluación.
             
             current_tool_tracker.set(None)
             
-            # Si estamos entrando al investigator, inyectar análisis de imágenes
-            if agent_name == "investigator_agent":
+            # Si estamos entrando al investigator DESDE el triage
+            if agent_name == "investigator_agent" and not self._skip_triage:
+                # Construir input con todos los datos necesarios para la investigación
+                triage_output = self._agent_outputs.get("triage_agent", current_input)
+                current_input = self._build_investigator_input(triage_output)
+                # Inyectar análisis de imágenes
                 current_input = await self._inject_camera_analysis_if_ready(current_input)
+            
+            # OPTIMIZACIÓN: Input compacto para final_agent
+            elif agent_name == "final_agent":
+                # En revalidación sin triage, usar previous_alert_context
+                if self._skip_triage and self._revalidation_context:
+                    alert_ctx = json.dumps(self._revalidation_context.get("previous_alert_context", {}), ensure_ascii=False)
+                else:
+                    alert_ctx = self._agent_outputs.get("triage_agent", "{}")
+                assessment = self._agent_outputs.get("investigator_agent", current_input)
+                current_input = self._build_final_agent_input(alert_ctx, assessment)
+            
+            # OPTIMIZACIÓN: Input compacto para notification_decision_agent
+            elif agent_name == "notification_decision_agent":
+                # En revalidación sin triage, usar previous_alert_context
+                if self._skip_triage and self._revalidation_context:
+                    alert_ctx = json.dumps(self._revalidation_context.get("previous_alert_context", {}), ensure_ascii=False)
+                else:
+                    alert_ctx = self._agent_outputs.get("triage_agent", "{}")
+                assessment = self._agent_outputs.get("investigator_agent", "{}")
+                current_input = self._build_notification_input(assessment, alert_ctx)
+        
+        # Si el investigator es el PRIMER agente (revalidación sin triage)
+        # Solo necesitamos inyectar el análisis de cámara
+        if agent_name == "investigator_agent" and self._skip_triage and self._current_agent is None:
+            current_input = await self._inject_camera_analysis_if_ready(current_input)
         
         self._current_agent = agent_name
         

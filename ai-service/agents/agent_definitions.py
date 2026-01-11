@@ -123,7 +123,7 @@ notification_decision_agent = LlmAgent(
 
 
 # ============================================================================
-# ROOT AGENT (Sequential Pipeline)
+# ROOT AGENT (Sequential Pipeline - Procesamiento Inicial)
 # ============================================================================
 # Flujo de ejecución:
 # 1. triage_agent → Clasifica la alerta y genera alert_context
@@ -143,6 +143,29 @@ root_agent = SequentialAgent(
         notification_decision_agent
     ],
     description="Pipeline secuencial para procesar alertas de Samsara de todos los tipos"
+)
+
+
+# ============================================================================
+# REVALIDATION AGENT (Sequential Pipeline - SIN Triage)
+# ============================================================================
+# OPTIMIZACIÓN: En revalidaciones ya conocemos el tipo de alerta.
+# Saltamos el triage_agent y empezamos directamente con el investigator.
+# Esto ahorra ~2 minutos por revalidación.
+#
+# Flujo de ejecución:
+# 1. investigator_agent → Re-evalúa con datos nuevos
+# 2. final_agent → Genera human_message actualizado
+# 3. notification_decision_agent → Decide notificaciones
+# ============================================================================
+revalidation_agent = SequentialAgent(
+    name="revalidation_pipeline",
+    sub_agents=[
+        investigator_agent,
+        final_agent,
+        notification_decision_agent
+    ],
+    description="Pipeline de revalidación SIN triage - usa alert_context previo"
 )
 
 

@@ -10,6 +10,7 @@ from .agent_definitions import (
     final_agent,
     notification_decision_agent,
     root_agent,
+    revalidation_agent,  # Pipeline sin triage para revalidaciones
     AGENTS_BY_NAME,
     get_recommended_model,
     # Aliases para compatibilidad
@@ -46,6 +47,7 @@ __all__ = [
     "final_agent",
     "notification_decision_agent",
     "root_agent",
+    "revalidation_agent",
     "AGENTS_BY_NAME",
     "get_recommended_model",
     # Compatibility aliases

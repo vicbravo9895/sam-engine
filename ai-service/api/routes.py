@@ -91,9 +91,9 @@ async def ingest_alert(request: AlertRequest):
             logger.info("Alert ingest completed", context={
                 "event_id": request.event_id,
                 "duration_ms": duration_ms,
-                "verdict": result.get("assessment", {}).get("verdict", "unknown"),
-                "risk_escalation": result.get("assessment", {}).get("risk_escalation", "unknown"),
-                "requires_monitoring": result.get("assessment", {}).get("requires_monitoring", False),
+                "verdict": (result.assessment or {}).get("verdict", "unknown"),
+                "risk_escalation": (result.assessment or {}).get("risk_escalation", "unknown"),
+                "requires_monitoring": (result.assessment or {}).get("requires_monitoring", False),
             })
             
             return AlertResponseBuilder.build(result, event_id=request.event_id)
@@ -178,10 +178,10 @@ async def revalidate_alert(request: RevalidateRequest):
                 "event_id": request.event_id,
                 "duration_ms": duration_ms,
                 "investigation_count": investigation_count,
-                "verdict": result.get("assessment", {}).get("verdict", "unknown"),
-                "risk_escalation": result.get("assessment", {}).get("risk_escalation", "unknown"),
-                "requires_monitoring": result.get("assessment", {}).get("requires_monitoring", False),
-                "next_check_minutes": result.get("assessment", {}).get("next_check_minutes"),
+                "verdict": (result.assessment or {}).get("verdict", "unknown"),
+                "risk_escalation": (result.assessment or {}).get("risk_escalation", "unknown"),
+                "requires_monitoring": (result.assessment or {}).get("requires_monitoring", False),
+                "next_check_minutes": (result.assessment or {}).get("next_check_minutes"),
             })
             
             return AlertResponseBuilder.build(result, event_id=request.event_id)

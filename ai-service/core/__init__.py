@@ -3,7 +3,7 @@ Módulo core del servicio.
 Contiene la lógica central de runtime y procesamiento.
 """
 
-from .runtime import runner, session_service
+from .runtime import runner, revalidation_runner, session_service
 from .concurrency import (
     acquire_slot,
     get_concurrency_stats,
@@ -23,6 +23,7 @@ from .structured_logging import (
 
 __all__ = [
     "runner",
+    "revalidation_runner",
     "session_service",
     "acquire_slot",
     "get_concurrency_stats",
