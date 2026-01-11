@@ -543,7 +543,13 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'X-XSRF-TOKEN': decodeURIComponent(
+                        document.cookie
+                            .split('; ')
+                            .find((row) => row.startsWith('XSRF-TOKEN='))
+                            ?.split('=')[1] ?? ''
+                    ),
                 },
                 credentials: 'same-origin',
             });
