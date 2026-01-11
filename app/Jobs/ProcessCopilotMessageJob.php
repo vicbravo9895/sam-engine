@@ -85,11 +85,11 @@ class ProcessCopilotMessageJob implements ShouldQueue
         Log::info('Job started, Redis stream should already be initialized', ['thread_id' => $this->threadId]);
 
         try {
-            // Detectar si es una consulta compleja que requiere GPT-5 avanzado
+            // Detectar si es una consulta compleja que requiere GPT-4o avanzado
             $useAdvancedModel = $this->isComplexQuery($this->message);
             $model = $useAdvancedModel 
-                ? config('services.openai.advanced_model')   // gpt-5
-                : config('services.openai.standard_model');  // gpt-5-mini
+                ? config('services.openai.advanced_model')   // gpt-4o
+                : config('services.openai.standard_model');  // gpt-4o-mini
             
             Log::info('Model selection', [
                 'thread_id' => $this->threadId,
@@ -278,9 +278,9 @@ class ProcessCopilotMessageJob implements ShouldQueue
     }
     
     /**
-     * Detectar si el mensaje requiere el modelo avanzado (GPT-5).
+     * Detectar si el mensaje requiere el modelo avanzado (GPT-4o).
      * 
-     * Usa GPT-5 para:
+     * Usa GPT-4o para:
      * - Reportes completos/detallados
      * - Análisis multi-vehículo
      * - Consultas que requieren múltiples tools

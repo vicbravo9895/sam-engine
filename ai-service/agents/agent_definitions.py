@@ -38,8 +38,8 @@ from .schemas.investigation import PanicAssessment
 # ============================================================================
 # MODELOS DISPONIBLES
 # ============================================================================
-# GPT-5: Modelo principal para razonamiento complejo
-# GPT-5-mini: Modelo rápido y económico para tareas simples
+# GPT-4o: Modelo principal para razonamiento complejo
+# GPT-4o-mini: Modelo rápido y económico para tareas simples
 # ============================================================================
 
 
@@ -47,7 +47,7 @@ from .schemas.investigation import PanicAssessment
 # TRIAGE AGENT (antes: ingestion_agent)
 # ============================================================================
 # Propósito: Clasificar la alerta y preparar instrucciones para el investigador
-# Modelo: GPT-5-mini (task simple: extracción y clasificación)
+# Modelo: GPT-4o-mini (task simple: extracción y clasificación)
 # Tools: Ninguna (solo analiza el payload)
 # Output: alert_context (JSON estructurado)
 # ============================================================================
@@ -65,7 +65,7 @@ triage_agent = LlmAgent(
 # INVESTIGATOR AGENT (antes: panic_investigator)
 # ============================================================================
 # Propósito: Investigar alertas usando datos PRE-CARGADOS y generar evaluación técnica
-# Modelo: GPT-5 (reasoning complejo)
+# Modelo: GPT-4o (reasoning complejo)
 # Tools: NINGUNA - Todos los datos vienen pre-cargados desde Laravel:
 #   - preloaded_data.vehicle_info
 #   - preloaded_data.driver_assignment
@@ -89,7 +89,7 @@ investigator_agent = LlmAgent(
 # FINAL AGENT
 # ============================================================================
 # Propósito: Generar mensaje en español para operadores
-# Modelo: GPT-5-mini (síntesis de texto, no requiere reasoning complejo)
+# Modelo: GPT-4o-mini (síntesis de texto, no requiere reasoning complejo)
 # Tools: Ninguna
 # Output: human_message (STRING, no JSON)
 # ============================================================================
@@ -107,7 +107,7 @@ final_agent = LlmAgent(
 # NOTIFICATION DECISION AGENT
 # ============================================================================
 # Propósito: Decidir qué notificaciones enviar (SIN ejecutar)
-# Modelo: GPT-5-mini (reglas claras, decisión estructurada)
+# Modelo: GPT-4o-mini (reglas claras, decisión estructurada)
 # Tools: NINGUNA - Solo decide, la ejecución la hace código
 # Output: notification_decision (JSON estructurado)
 # ============================================================================

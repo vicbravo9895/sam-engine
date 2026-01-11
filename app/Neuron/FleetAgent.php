@@ -36,8 +36,8 @@ class FleetAgent extends Agent
     }
 
     /**
-     * Use the advanced model (gpt-5) for complex queries like full reports.
-     * By default uses gpt-5-mini for faster/cheaper responses.
+     * Use the advanced model (gpt-4o) for complex queries like full reports.
+     * By default uses gpt-4o-mini for faster/cheaper responses.
      */
     public function withAdvancedModel(bool $advanced = true): self
     {
@@ -62,8 +62,8 @@ class FleetAgent extends Agent
     {
         $apiKey = config('services.openai.api_key');
         $model = $this->useAdvancedModel
-            ? config('services.openai.advanced_model')  // gpt-5 para reportes complejos
-            : config('services.openai.standard_model'); // gpt-5-mini para consultas normales
+            ? config('services.openai.advanced_model')  // gpt-4o para reportes complejos
+            : config('services.openai.standard_model'); // gpt-4o-mini para consultas normales
         
         return new OpenAIResponses(
             key: $apiKey,

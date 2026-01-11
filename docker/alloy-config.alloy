@@ -11,11 +11,11 @@
 // ============================================================================
 loki.write "grafana_cloud_loki" {
     endpoint {
-        url = env("GRAFANA_LOKI_URL")
+        url = sys.env("GRAFANA_LOKI_URL")
         
         basic_auth {
-            username = env("GRAFANA_LOKI_USER")
-            password = env("GRAFANA_LOKI_TOKEN")
+            username = sys.env("GRAFANA_LOKI_USER")
+            password = sys.env("GRAFANA_LOKI_TOKEN")
         }
     }
 }

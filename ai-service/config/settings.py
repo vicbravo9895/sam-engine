@@ -47,13 +47,13 @@ class OpenAIConfig:
     
     API_KEY = os.getenv("OPENAI_API_KEY", "")
     
-    # Modelos a usar (GPT-5 family)
-    MODEL_GPT5 = "openai/gpt-5"             # Modelo principal (reasoning complejo)
-    MODEL_GPT5_MINI = "openai/gpt-5-mini"   # Modelo rápido y económico
+    # Modelos a usar (GPT-4o family)
+    MODEL_GPT4O = "openai/gpt-4o"             # Modelo principal (reasoning complejo)
+    MODEL_GPT4O_MINI = "openai/gpt-4o-mini"   # Modelo rápido y económico
     
-    # Aliases para compatibilidad
-    MODEL_GPT4O = MODEL_GPT5
-    MODEL_GPT4O_MINI = MODEL_GPT5_MINI
+    # Aliases para compatibilidad (legacy)
+    MODEL_GPT5 = MODEL_GPT4O
+    MODEL_GPT5_MINI = MODEL_GPT4O_MINI
 
 
 # ============================================================================
