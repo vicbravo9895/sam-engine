@@ -153,17 +153,50 @@ root_agent = SequentialAgent(
 # Saltamos el triage_agent y empezamos directamente con el investigator.
 # Esto ahorra ~2 minutos por revalidación.
 #
+# NOTA: ADK no permite reutilizar agentes en múltiples pipelines (cada agente
+# solo puede tener UN padre). Por eso creamos instancias separadas.
+#
 # Flujo de ejecución:
 # 1. investigator_agent → Re-evalúa con datos nuevos
 # 2. final_agent → Genera human_message actualizado
 # 3. notification_decision_agent → Decide notificaciones
 # ============================================================================
+
+# Instancias separadas para el pipeline de revalidación
+_revalidation_investigator = LlmAgent(
+    name="investigator_agent",  # Mismo nombre para consistencia en logs/tracing
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5),
+    tools=[],
+    instruction=INVESTIGATOR_AGENT_PROMPT,
+    description="Investiga alertas usando datos pre-cargados y genera evaluación técnica basada en evidencia",
+    output_key="assessment",
+    output_schema=AlertAssessment
+)
+
+_revalidation_final = LlmAgent(
+    name="final_agent",
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5_MINI),
+    instruction=FINAL_AGENT_PROMPT,
+    description="Genera mensaje final en español para el equipo de monitoreo",
+    output_key="human_message"
+)
+
+_revalidation_notification = LlmAgent(
+    name="notification_decision_agent",
+    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5_MINI),
+    tools=[],
+    instruction=NOTIFICATION_DECISION_PROMPT,
+    description="Decide qué notificaciones enviar según nivel de escalación (no ejecuta)",
+    output_key="notification_decision",
+    output_schema=NotificationDecision
+)
+
 revalidation_agent = SequentialAgent(
     name="revalidation_pipeline",
     sub_agents=[
-        investigator_agent,
-        final_agent,
-        notification_decision_agent
+        _revalidation_investigator,
+        _revalidation_final,
+        _revalidation_notification
     ],
     description="Pipeline de revalidación SIN triage - usa alert_context previo"
 )
