@@ -22,8 +22,8 @@ import { Separator } from '@/components/ui/separator';
 import { ReviewPanel } from '@/components/samsara/review-panel';
 import { type HumanStatus } from '@/types/samsara';
 import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router } from '@inertiajs/react';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     AlertCircle,
     AlertTriangle,
@@ -59,6 +59,7 @@ import {
     X,
     XCircle,
     Zap,
+    RefreshCw,
 } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -515,6 +516,10 @@ interface DecisionBarProps {
 }
 
 function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
+    const { auth } = usePage<SharedData>().props;
+    const isSuperAdmin = auth?.user?.role === 'super_admin';
+    const [isReprocessing, setIsReprocessing] = useState(false);
+
     const severityStyle = severityConfig[event.severity] ?? severityConfig.info;
     const SeverityIcon = severityStyle.icon;
     
@@ -525,6 +530,39 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
     // Notification status
     const notificationSent = event.notification_execution?.attempted === true;
     const notificationThrottled = event.notification_execution?.throttled === true;
+
+    // Reprocess handler (only for super_admin)
+    const handleReprocess = async () => {
+        if (!confirm('¿Estás seguro de que quieres reprocesar esta alerta? Se borrará el análisis actual y se volverá a procesar desde cero.')) {
+            return;
+        }
+
+        setIsReprocessing(true);
+        try {
+            const response = await fetch(`/api/events/${event.id}/reprocess`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // Reload the page to show updated status
+                router.reload();
+            } else {
+                alert(data.message || 'Error al reprocesar la alerta');
+            }
+        } catch (error) {
+            console.error('Error reprocessing alert:', error);
+            alert('Error al reprocesar la alerta');
+        } finally {
+            setIsReprocessing(false);
+        }
+    };
 
     return (
         <div className="sticky top-0 z-40 -mx-4 mb-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -588,7 +626,7 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                     )}
                 </div>
 
-                {/* Right: Review requirement + Back button */}
+                {/* Right: Review requirement + Actions + Back button */}
                 <div className="flex items-center gap-2">
                     {/* Review Requirement Badge */}
                     <Badge
@@ -610,6 +648,33 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                             </>
                         )}
                     </Badge>
+
+                    {/* Reprocess Button (Super Admin Only) */}
+                    {isSuperAdmin && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleReprocess}
+                                    disabled={isReprocessing || event.ai_status === 'processing'}
+                                    className="gap-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/50"
+                                >
+                                    {isReprocessing ? (
+                                        <Loader2 className="size-3.5 animate-spin" />
+                                    ) : (
+                                        <RefreshCw className="size-3.5" />
+                                    )}
+                                    <span className="hidden sm:inline">
+                                        {isReprocessing ? 'Enviando...' : 'Reprocesar'}
+                                    </span>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Volver a procesar esta alerta con AI</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
 
                     <Button variant="outline" size="sm" asChild className="gap-1.5">
                         <Link href={ALERTS_INDEX_URL}>

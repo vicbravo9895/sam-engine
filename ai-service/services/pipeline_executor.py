@@ -559,64 +559,103 @@ class PipelineExecutor:
         context: Optional[Dict]
     ) -> Dict[str, Any]:
         """
-        Construye payload MÍNIMO para el triage_agent.
+        Construye payload para el triage_agent con información suficiente para clasificación.
         
-        Solo incluye datos necesarios para clasificación:
-        - Tipo de evento y alerta
-        - Info básica de vehículo y conductor
-        - Severity y timestamps
-        - Para revalidaciones: contexto mínimo de investigación
+        IMPORTANTE: Incluimos suficiente contexto para que el triage pueda:
+        - Clasificar correctamente el tipo de alerta (panic, safety, tampering, etc.)
+        - Extraer información del vehículo y conductor
+        - Determinar la severidad
         
-        NO incluye (se inyectan al investigator después):
-        - preloaded_data (vehicle_stats, safety_events, etc.)
-        - revalidation_data
-        - camera_media
-        - notification_contacts
+        Buscamos información en múltiples lugares del payload porque Samsara
+        tiene diferentes estructuras según el tipo de evento.
         """
         # Extraer datos del nivel superior del payload
         data = payload.get("data", {})
+        preloaded = payload.get("preloaded_data", {})
         
-        # Info del vehículo - puede estar en varios lugares
-        vehicle = payload.get("vehicle") or data.get("vehicle", {})
+        # =====================================================================
+        # EXTRACCIÓN DE VEHÍCULO (buscar en múltiples lugares)
+        # =====================================================================
+        vehicle = self._extract_vehicle_info(payload)
         
-        # Info del conductor - priorizar safety_event_detail si existe
-        driver = None
-        safety_event_detail = payload.get("safety_event_detail") or payload.get("preloaded_data", {}).get("safety_event_detail", {})
-        if safety_event_detail and safety_event_detail.get("driver"):
-            driver = safety_event_detail.get("driver")
-        else:
-            driver = payload.get("driver") or data.get("driver", {})
+        # =====================================================================
+        # EXTRACCIÓN DE CONDUCTOR (buscar en múltiples lugares)
+        # =====================================================================
+        safety_event_detail = payload.get("safety_event_detail") or preloaded.get("safety_event_detail", {})
+        driver = self._extract_driver_info(payload, safety_event_detail)
         
+        # =====================================================================
+        # EXTRACCIÓN DE TIPO DE EVENTO
+        # =====================================================================
+        event_type = payload.get("eventType") or payload.get("type") or data.get("eventType")
+        alert_type = payload.get("alertType") or data.get("alertType")
+        
+        # Behavior label es CRUCIAL para clasificar safety events
+        behavior_label = (
+            payload.get("behavior_label") 
+            or (safety_event_detail.get("behavior_label") if safety_event_detail else None)
+            or (safety_event_detail.get("behaviorLabel") if safety_event_detail else None)
+        )
+        
+        # También extraer behavior_name si existe
+        behavior_name = safety_event_detail.get("behavior_name") if safety_event_detail else None
+        
+        # =====================================================================
+        # EXTRAER DESCRIPCIÓN DEL EVENTO
+        # =====================================================================
+        event_description = self._extract_event_description(payload)
+        
+        # =====================================================================
+        # CONSTRUIR PAYLOAD PARA TRIAGE
+        # =====================================================================
         minimal_payload = {
             # Tipo de evento
-            "eventType": payload.get("eventType"),
-            "alertType": payload.get("alertType"),
+            "eventType": event_type,
+            "alertType": alert_type,
+            "event_description": event_description,
             
-            # Info básica del vehículo
-            "vehicle": {
-                "id": vehicle.get("id") if isinstance(vehicle, dict) else None,
-                "name": vehicle.get("name") if isinstance(vehicle, dict) else None,
-            },
+            # Info del vehículo
+            "vehicle": vehicle,
             
-            # Info básica del conductor
-            "driver": {
-                "id": driver.get("id") if isinstance(driver, dict) else None,
-                "name": driver.get("name") if isinstance(driver, dict) else None,
-            },
+            # Info del conductor
+            "driver": driver,
             
             # Timestamps
-            "happenedAtTime": payload.get("happenedAtTime") or data.get("happenedAtTime"),
+            "happenedAtTime": (
+                payload.get("happenedAtTime") 
+                or data.get("happenedAtTime")
+                or (safety_event_detail.get("time") if safety_event_detail else None)
+            ),
             
             # Severity
             "severity": payload.get("severity") or data.get("severity"),
             
-            # Behavior label (para safety events)
-            "behavior_label": payload.get("behavior_label") or (safety_event_detail.get("behavior_label") if safety_event_detail else None),
-            "samsara_severity": payload.get("samsara_severity") or (safety_event_detail.get("severity") if safety_event_detail else None),
+            # Behavior label y name (para safety events - CRUCIAL para clasificación)
+            "behavior_label": behavior_label,
+            "behavior_name": behavior_name,
+            "samsara_severity": (
+                payload.get("samsara_severity") 
+                or (safety_event_detail.get("severity") if safety_event_detail else None)
+            ),
             
             # Notification contacts (solo nombres y roles, sin datos sensibles)
             "notification_contacts": self._extract_minimal_contacts(payload.get("notification_contacts", {})),
+            
+            # Indicar si hay datos pre-cargados disponibles
+            "has_preloaded_data": bool(preloaded),
+            "has_safety_event_detail": bool(safety_event_detail),
+            "has_camera_media": bool(preloaded.get("camera_media")),
         }
+        
+        # Si tenemos safety_event_detail, incluir resumen relevante
+        if safety_event_detail:
+            minimal_payload["safety_event_summary"] = {
+                "behavior_label": safety_event_detail.get("behavior_label"),
+                "behavior_name": safety_event_detail.get("behavior_name"),
+                "severity": safety_event_detail.get("severity"),
+                "max_acceleration_g": safety_event_detail.get("maxAccelerationGForce"),
+                "has_video": bool(safety_event_detail.get("downloadForwardVideoUrl") or safety_event_detail.get("downloadInwardVideoUrl")),
+            }
         
         # Para revalidaciones, agregar contexto mínimo
         if is_revalidation and context:
@@ -636,7 +675,142 @@ class PipelineExecutor:
                 "new_camera_items_this_window": revalidation_data.get('camera_media_since_last_check', {}).get('total_items', 0),
             }
         
+        # Log para debugging
+        logger.debug("Triage payload built", extra={"context": {
+            "has_vehicle_id": bool(vehicle.get("id")),
+            "has_driver_id": bool(driver.get("id")),
+            "event_type": event_type,
+            "alert_type": alert_type,
+            "behavior_label": behavior_label,
+            "behavior_name": behavior_name,
+        }})
+        
         return minimal_payload
+    
+    def _extract_vehicle_info(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extrae información del vehículo buscando en múltiples lugares del payload.
+        
+        Samsara tiene diferentes estructuras según el tipo de evento:
+        - Nivel superior: payload.vehicle
+        - AlertIncident: data.conditions[].details[].vehicle
+        - Safety events: preloaded_data.vehicle_info
+        """
+        data = payload.get("data", {})
+        preloaded = payload.get("preloaded_data", {})
+        
+        # 1. Nivel superior
+        if payload.get("vehicle") and isinstance(payload["vehicle"], dict):
+            v = payload["vehicle"]
+            if v.get("id"):
+                return {"id": v.get("id"), "name": v.get("name")}
+        
+        # 2. Dentro de data
+        if data.get("vehicle") and isinstance(data["vehicle"], dict):
+            v = data["vehicle"]
+            if v.get("id"):
+                return {"id": v.get("id"), "name": v.get("name")}
+        
+        # 3. Dentro de data.conditions (AlertIncident)
+        conditions = data.get("conditions", [])
+        if isinstance(conditions, list):
+            for condition in conditions:
+                details = condition.get("details", [])
+                if isinstance(details, list):
+                    for detail in details:
+                        if isinstance(detail, dict) and detail.get("vehicle"):
+                            v = detail["vehicle"]
+                            if v.get("id"):
+                                return {"id": v.get("id"), "name": v.get("name")}
+        
+        # 4. Desde preloaded_data.vehicle_info
+        vehicle_info = preloaded.get("vehicle_info", {})
+        if vehicle_info.get("id"):
+            return {"id": vehicle_info.get("id"), "name": vehicle_info.get("name")}
+        
+        # 5. Desde safety_event_detail.vehicle
+        safety_detail = payload.get("safety_event_detail") or preloaded.get("safety_event_detail", {})
+        if safety_detail.get("vehicle"):
+            v = safety_detail["vehicle"]
+            if v.get("id"):
+                return {"id": v.get("id"), "name": v.get("name")}
+        
+        # 6. IDs directos
+        if payload.get("vehicleId"):
+            return {"id": payload.get("vehicleId"), "name": payload.get("vehicleName")}
+        
+        return {"id": None, "name": None}
+    
+    def _extract_driver_info(self, payload: Dict[str, Any], safety_event_detail: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extrae información del conductor buscando en múltiples lugares.
+        
+        Prioridad:
+        1. safety_event_detail.driver (conductor del momento del evento)
+        2. preloaded_data.driver_assignment.driver
+        3. payload.driver
+        """
+        preloaded = payload.get("preloaded_data", {})
+        
+        # 1. Desde safety_event_detail (más preciso para el momento del evento)
+        if safety_event_detail and safety_event_detail.get("driver"):
+            d = safety_event_detail["driver"]
+            if d.get("id"):
+                return {"id": d.get("id"), "name": d.get("name")}
+        
+        # 2. Desde driver_assignment
+        assignment = preloaded.get("driver_assignment", {})
+        if assignment.get("driver"):
+            d = assignment["driver"]
+            if d.get("id"):
+                return {"id": d.get("id"), "name": d.get("name")}
+        
+        # 3. Nivel superior
+        if payload.get("driver") and isinstance(payload["driver"], dict):
+            d = payload["driver"]
+            if d.get("id"):
+                return {"id": d.get("id"), "name": d.get("name")}
+        
+        # 4. Dentro de data
+        data = payload.get("data", {})
+        if data.get("driver") and isinstance(data["driver"], dict):
+            d = data["driver"]
+            if d.get("id"):
+                return {"id": d.get("id"), "name": d.get("name")}
+        
+        # 5. IDs directos
+        if payload.get("driverId"):
+            return {"id": payload.get("driverId"), "name": payload.get("driverName")}
+        
+        return {"id": None, "name": None}
+    
+    def _extract_event_description(self, payload: Dict[str, Any]) -> Optional[str]:
+        """
+        Extrae la descripción del evento buscando en múltiples lugares.
+        """
+        # 1. Nivel superior
+        if payload.get("event_description"):
+            return payload["event_description"]
+        
+        # 2. Dentro de data.conditions
+        data = payload.get("data", {})
+        conditions = data.get("conditions", [])
+        if isinstance(conditions, list):
+            for condition in conditions:
+                if condition.get("description"):
+                    return condition["description"]
+        
+        # 3. Desde safety_event_detail
+        preloaded = payload.get("preloaded_data", {})
+        safety_detail = payload.get("safety_event_detail") or preloaded.get("safety_event_detail", {})
+        if safety_detail:
+            # Usar behavior_name como descripción si existe
+            if safety_detail.get("behavior_name"):
+                return safety_detail["behavior_name"]
+            if safety_detail.get("behavior_label"):
+                return safety_detail["behavior_label"]
+        
+        return None
     
     def _extract_minimal_contacts(self, contacts: Dict[str, Any]) -> Dict[str, Any]:
         """Extrae solo nombre y rol de los contactos (sin números de teléfono)."""

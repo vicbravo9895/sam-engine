@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ProcessSamsaraEventJob;
 use App\Models\SamsaraEvent;
 use App\Models\SamsaraEventActivity;
 use App\Models\SamsaraEventComment;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 /**
@@ -233,6 +236,86 @@ class SamsaraEventReviewController extends Controller
             SamsaraEventActivity::ACTION_MARKED_FLAGGED => 'flag',
             default => 'activity',
         };
+    }
+
+    /**
+     * Reprocesar una alerta con AI.
+     * 
+     * POST /api/events/{id}/reprocess
+     * 
+     * Solo disponible para super_admin.
+     * Resetea el estado del evento y lo encola nuevamente para procesamiento.
+     */
+    public function reprocess(Request $request, SamsaraEvent $event): JsonResponse
+    {
+        /** @var User $user */
+        $user = Auth::user();
+
+        // Solo super_admin puede reprocesar
+        if (!$user->isSuperAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No tienes permisos para reprocesar alertas',
+            ], 403);
+        }
+
+        // Log de la acción
+        Log::info('Admin reprocessing alert', [
+            'event_id' => $event->id,
+            'samsara_event_id' => $event->samsara_event_id,
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'previous_status' => $event->ai_status,
+        ]);
+
+        // Guardar estado anterior para el registro de actividad
+        $previousStatus = $event->ai_status;
+        $previousAssessment = $event->ai_assessment;
+
+        // Resetear el evento para reprocesamiento
+        $event->update([
+            'ai_status' => SamsaraEvent::STATUS_PENDING,
+            'ai_assessment' => null,
+            'ai_message' => null,
+            'ai_actions' => null,
+            'alert_context' => null,
+            'notification_decision' => null,
+            'notification_execution' => null,
+            'investigation_count' => 0,
+            'investigation_history' => null,
+            'last_investigation_at' => null,
+            'next_check_minutes' => null,
+        ]);
+
+        // Registrar actividad
+        $event->activities()->create([
+            'action' => 'reprocessed_by_admin',
+            'user_id' => $user->id,
+            'metadata' => [
+                'previous_status' => $previousStatus,
+                'previous_verdict' => $previousAssessment['verdict'] ?? null,
+                'reason' => 'Manual reprocess requested by admin',
+            ],
+        ]);
+
+        // Encolar el job de procesamiento
+        ProcessSamsaraEventJob::dispatch($event);
+
+        Log::info('Alert queued for reprocessing', [
+            'event_id' => $event->id,
+            'queued_by' => $user->email,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'La alerta ha sido encolada para reprocesamiento',
+            'data' => [
+                'id' => $event->id,
+                'ai_status' => $event->ai_status,
+                'ai_status_label' => 'Pendiente',
+                'queued_at' => now()->toIso8601String(),
+            ],
+        ]);
     }
 }
 

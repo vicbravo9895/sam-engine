@@ -40,4 +40,7 @@ Route::prefix('events/{event}')->middleware(['web', 'auth'])->group(function () 
     
     // Timeline de actividades
     Route::get('/activities', [SamsaraEventReviewController::class, 'getActivities']);
+    
+    // Reprocesar alerta (solo super_admin)
+    Route::post('/reprocess', [SamsaraEventReviewController::class, 'reprocess']);
 });
