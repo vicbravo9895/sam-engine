@@ -171,6 +171,9 @@ services:
     image: postgres:18-alpine
     container_name: sam-pgsql
     restart: unless-stopped
+    ports:
+      # Expose only to localhost for SSH tunnel access (not public)
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_DB: "${DB_DATABASE:-sam}"
       POSTGRES_USER: "${DB_USERNAME:-sam}"
