@@ -49,7 +49,9 @@ class CompanyController extends Controller
      */
     public function create()
     {
-        return Inertia::render('super-admin/companies/create');
+        return Inertia::render('super-admin/companies/create', [
+            'timezones' => $this->getAvailableTimezones(),
+        ]);
     }
 
     /**
@@ -67,6 +69,7 @@ class CompanyController extends Controller
             'city' => ['nullable', 'string', 'max:100'],
             'state' => ['nullable', 'string', 'max:100'],
             'country' => ['nullable', 'string', 'max:2'],
+            'timezone' => ['nullable', 'string', 'max:50', 'timezone:all'],
             'postal_code' => ['nullable', 'string', 'max:20'],
             'samsara_api_key' => ['nullable', 'string', 'min:20'],
             'is_active' => ['boolean'],
@@ -76,6 +79,7 @@ class CompanyController extends Controller
             'admin_password' => ['required', Password::defaults()],
         ], [
             'name.required' => 'El nombre de la empresa es requerido.',
+            'timezone.timezone' => 'La zona horaria no es válida.',
             'admin_name.required' => 'El nombre del administrador es requerido.',
             'admin_email.required' => 'El correo del administrador es requerido.',
             'admin_email.unique' => 'Este correo ya está registrado.',
@@ -94,6 +98,7 @@ class CompanyController extends Controller
             'city' => $validated['city'] ?? null,
             'state' => $validated['state'] ?? null,
             'country' => $validated['country'] ?? 'MX',
+            'timezone' => $validated['timezone'] ?? 'America/Mexico_City',
             'postal_code' => $validated['postal_code'] ?? null,
             'samsara_api_key' => $validated['samsara_api_key'] ?? null,
             'is_active' => $validated['is_active'] ?? true,
@@ -134,6 +139,7 @@ class CompanyController extends Controller
                 'city' => $company->city,
                 'state' => $company->state,
                 'country' => $company->country,
+                'timezone' => $company->timezone ?? 'America/Mexico_City',
                 'postal_code' => $company->postal_code,
                 'logo_url' => $company->logo_url,
                 'is_active' => $company->is_active,
@@ -146,6 +152,7 @@ class CompanyController extends Controller
                 ->select(['id', 'name', 'email', 'role', 'is_active', 'created_at'])
                 ->orderBy('name')
                 ->get(),
+            'timezones' => $this->getAvailableTimezones(),
         ]);
     }
 
@@ -164,10 +171,12 @@ class CompanyController extends Controller
             'city' => ['nullable', 'string', 'max:100'],
             'state' => ['nullable', 'string', 'max:100'],
             'country' => ['nullable', 'string', 'max:2'],
+            'timezone' => ['nullable', 'string', 'max:50', 'timezone:all'],
             'postal_code' => ['nullable', 'string', 'max:20'],
             'is_active' => ['boolean'],
         ], [
             'name.required' => 'El nombre de la empresa es requerido.',
+            'timezone.timezone' => 'La zona horaria no es válida.',
         ]);
 
         // Update slug if name changed
@@ -236,6 +245,48 @@ class CompanyController extends Controller
 
         return redirect()->route('super-admin.companies.index')
             ->with('success', "Empresa '{$companyName}' eliminada exitosamente.");
+    }
+
+    /**
+     * Get available timezones for Mexico and common American timezones.
+     */
+    private function getAvailableTimezones(): array
+    {
+        return [
+            // México
+            'America/Mexico_City' => 'Ciudad de México (UTC-6)',
+            'America/Cancun' => 'Cancún (UTC-5)',
+            'America/Merida' => 'Mérida (UTC-6)',
+            'America/Monterrey' => 'Monterrey (UTC-6)',
+            'America/Matamoros' => 'Matamoros (UTC-6)',
+            'America/Mazatlan' => 'Mazatlán (UTC-7)',
+            'America/Chihuahua' => 'Chihuahua (UTC-7)',
+            'America/Hermosillo' => 'Hermosillo (UTC-7)',
+            'America/Tijuana' => 'Tijuana (UTC-8)',
+            // Estados Unidos
+            'America/New_York' => 'Nueva York (UTC-5)',
+            'America/Chicago' => 'Chicago (UTC-6)',
+            'America/Denver' => 'Denver (UTC-7)',
+            'America/Los_Angeles' => 'Los Ángeles (UTC-8)',
+            'America/Phoenix' => 'Phoenix (UTC-7)',
+            'America/Houston' => 'Houston (UTC-6)',
+            // Centroamérica
+            'America/Guatemala' => 'Guatemala (UTC-6)',
+            'America/El_Salvador' => 'El Salvador (UTC-6)',
+            'America/Costa_Rica' => 'Costa Rica (UTC-6)',
+            'America/Panama' => 'Panamá (UTC-5)',
+            // Sudamérica
+            'America/Bogota' => 'Bogotá (UTC-5)',
+            'America/Lima' => 'Lima (UTC-5)',
+            'America/Santiago' => 'Santiago (UTC-4)',
+            'America/Sao_Paulo' => 'São Paulo (UTC-3)',
+            'America/Buenos_Aires' => 'Buenos Aires (UTC-3)',
+            // Europa
+            'Europe/Madrid' => 'Madrid (UTC+1)',
+            'Europe/London' => 'Londres (UTC+0)',
+            // UTC
+            'UTC' => 'UTC (UTC+0)',
+        ];
     }
 }
 

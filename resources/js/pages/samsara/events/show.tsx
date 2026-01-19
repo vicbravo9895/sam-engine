@@ -246,13 +246,36 @@ interface AlertContext {
     behavior_label_translated?: string;
 }
 
+interface InvestigationHistoryEntry {
+    investigation_number?: number;
+    queried_at?: string;
+    time_window?: {
+        start?: string | null;
+        end?: string | null;
+        minutes_covered?: number;
+    };
+    findings?: {
+        new_safety_events?: number;
+        new_camera_items?: number;
+        has_vehicle_stats?: boolean;
+    };
+    safety_events_details?: Array<{
+        behavior?: string;
+        severity?: string;
+        time?: string | null;
+    }>;
+    reason?: string;
+    timestamp?: string;
+    count?: number;
+}
+
 interface InvestigationMetadata {
     count: number;
     last_check?: string | null;
     last_check_at?: string | null;
     next_check_minutes?: number | null;
     next_check_available_at?: string | null;
-    history: { timestamp: string; reason: string; count: number }[];
+    history: InvestigationHistoryEntry[];
     max_investigations: number;
 }
 
@@ -280,6 +303,17 @@ interface SamsaraEventPayload {
         agents: TimelineStep[];
         total_duration_ms: number;
         total_tools_called: number;
+        camera_analysis?: {
+            analyses: Array<{
+                local_url?: string;
+                samsara_url?: string;
+                input?: string;
+                scene_description?: string;
+                alert_level?: string;
+                analysis_structured?: VisionAnalysisStructured;
+                recommendation?: { action?: string; reason?: string };
+            }>;
+        };
     };
     payload_summary: PayloadSummaryItem[];
     timeline: TimelineStep[];
@@ -837,6 +871,7 @@ interface ContextCardProps {
 
 function ContextCard({ event }: ContextCardProps) {
     const [showDetails, setShowDetails] = useState(false);
+    const { timezone } = useTimezone();
 
     // Extract location from alert_context or payload_summary
     const location = event.alert_context?.location_description 
@@ -1917,7 +1952,12 @@ interface InvestigatingCardProps {
 
 function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidationImminent }: InvestigatingCardProps) {
     const metadata = event.investigation_metadata;
+    const { formatDateTime } = useTimezone();
+    const [showHistory, setShowHistory] = useState(false);
+    
     if (!metadata) return null;
+
+    const hasHistory = metadata.history && metadata.history.length > 0;
 
     return (
         <Card className="border-2 border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20">
@@ -1947,7 +1987,7 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
                     </Badge>
                 </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                     {metadata.last_check && (
                         <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
@@ -1974,7 +2014,237 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
                         </div>
                     )}
                 </div>
+
+                {/* Investigation History Toggle */}
+                {hasHistory && (
+                    <div className="pt-2">
+                        <button
+                            type="button"
+                            onClick={() => setShowHistory(!showHistory)}
+                            className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+                        >
+                            <Clock className="size-4" />
+                            <span>Historial de investigaciones ({metadata.history.length})</span>
+                            <ChevronDown className={`size-4 transition-transform ${showHistory ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {showHistory && (
+                            <div className="mt-3 space-y-3">
+                                {metadata.history.map((entry, index) => (
+                                    <div 
+                                        key={index} 
+                                        className="rounded-lg border border-amber-200 bg-white/70 p-3 dark:border-amber-800 dark:bg-amber-950/40"
+                                    >
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                                                Investigación #{entry.investigation_number || entry.count || index + 1}
+                                            </span>
+                                            {(entry.queried_at || entry.timestamp) && (
+                                                <span className="text-xs text-amber-600 dark:text-amber-500">
+                                                    {formatDateTime(entry.queried_at || entry.timestamp)}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Time Window */}
+                                        {entry.time_window && (
+                                            <div className="text-xs text-amber-800 dark:text-amber-200 mb-2">
+                                                <span className="font-medium">Ventana analizada:</span>{' '}
+                                                {entry.time_window.minutes_covered} minutos
+                                            </div>
+                                        )}
+
+                                        {/* Findings */}
+                                        {entry.findings && (
+                                            <div className="flex flex-wrap gap-2 mb-2">
+                                                {(entry.findings.new_safety_events ?? 0) > 0 && (
+                                                    <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
+                                                        {entry.findings.new_safety_events} safety events
+                                                    </Badge>
+                                                )}
+                                                {(entry.findings.new_camera_items ?? 0) > 0 && (
+                                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700">
+                                                        {entry.findings.new_camera_items} imágenes
+                                                    </Badge>
+                                                )}
+                                                {entry.findings.has_vehicle_stats && (
+                                                    <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                                                        Stats actualizadas
+                                                    </Badge>
+                                                )}
+                                                {(entry.findings.new_safety_events ?? 0) === 0 && 
+                                                 (entry.findings.new_camera_items ?? 0) === 0 && 
+                                                 !entry.findings.has_vehicle_stats && (
+                                                    <Badge variant="outline" className="text-xs bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-900/30 dark:text-slate-400 dark:border-slate-700">
+                                                        Sin nuevos datos
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Safety Events Details */}
+                                        {entry.safety_events_details && entry.safety_events_details.length > 0 && (
+                                            <div className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                                                <span className="font-medium">Eventos detectados:</span>
+                                                <ul className="mt-1 space-y-1 pl-3">
+                                                    {entry.safety_events_details.map((evt, i) => (
+                                                        <li key={i} className="flex items-center gap-2">
+                                                            <span className={`size-1.5 rounded-full ${
+                                                                evt.severity === 'critical' ? 'bg-red-500' : 
+                                                                evt.severity === 'severe' ? 'bg-orange-500' : 'bg-amber-500'
+                                                            }`} />
+                                                            <span>{evt.behavior || 'Evento'}</span>
+                                                            <span className="text-amber-500">({evt.severity})</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        {/* Reason */}
+                                        {entry.reason && (
+                                            <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 italic">
+                                                "{entry.reason}"
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
             </CardContent>
+        </Card>
+    );
+}
+
+// ============================================================================
+// INVESTIGATION HISTORY CARD (for completed events)
+// ============================================================================
+
+interface InvestigationHistoryCardProps {
+    event: SamsaraEventPayload;
+}
+
+function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
+    const metadata = event.investigation_metadata;
+    const { formatDateTime } = useTimezone();
+    const [showHistory, setShowHistory] = useState(false);
+
+    // Only show if there's investigation history and the event is completed
+    if (!metadata || !metadata.history || metadata.history.length === 0) return null;
+    if (event.ai_status === 'investigating') return null; // Shown in InvestigatingCard
+
+    return (
+        <Card className="border border-slate-200 dark:border-slate-800">
+            <CardHeader className="pb-3">
+                <button
+                    type="button"
+                    onClick={() => setShowHistory(!showHistory)}
+                    className="flex items-center justify-between w-full"
+                >
+                    <div className="flex items-center gap-2">
+                        <div className="rounded-full bg-slate-100 dark:bg-slate-800 p-2">
+                            <Clock className="size-4 text-slate-600 dark:text-slate-400" />
+                        </div>
+                        <div className="text-left">
+                            <CardTitle className="text-base">
+                                Historial de Investigaciones
+                            </CardTitle>
+                            <CardDescription className="text-xs">
+                                {metadata.count} investigacion{metadata.count !== 1 ? 'es' : ''} realizadas
+                            </CardDescription>
+                        </div>
+                    </div>
+                    <ChevronDown className={`size-5 text-slate-500 transition-transform ${showHistory ? 'rotate-180' : ''}`} />
+                </button>
+            </CardHeader>
+            
+            {showHistory && (
+                <CardContent className="pt-0">
+                    <div className="space-y-3">
+                        {metadata.history.map((entry, index) => (
+                            <div 
+                                key={index} 
+                                className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
+                            >
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                        Investigación #{entry.investigation_number || entry.count || index + 1}
+                                    </span>
+                                    {(entry.queried_at || entry.timestamp) && (
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                                            {formatDateTime(entry.queried_at || entry.timestamp)}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Time Window */}
+                                {entry.time_window && (
+                                    <div className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+                                        <span className="font-medium">Ventana analizada:</span>{' '}
+                                        {entry.time_window.minutes_covered} minutos
+                                    </div>
+                                )}
+
+                                {/* Findings */}
+                                {entry.findings && (
+                                    <div className="flex flex-wrap gap-2 mb-2">
+                                        {(entry.findings.new_safety_events ?? 0) > 0 && (
+                                            <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
+                                                {entry.findings.new_safety_events} safety events
+                                            </Badge>
+                                        )}
+                                        {(entry.findings.new_camera_items ?? 0) > 0 && (
+                                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700">
+                                                {entry.findings.new_camera_items} imágenes
+                                            </Badge>
+                                        )}
+                                        {entry.findings.has_vehicle_stats && (
+                                            <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                                                Stats actualizadas
+                                            </Badge>
+                                        )}
+                                        {(entry.findings.new_safety_events ?? 0) === 0 && 
+                                         (entry.findings.new_camera_items ?? 0) === 0 && 
+                                         !entry.findings.has_vehicle_stats && (
+                                            <Badge variant="outline" className="text-xs">
+                                                Sin nuevos datos
+                                            </Badge>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Safety Events Details */}
+                                {entry.safety_events_details && entry.safety_events_details.length > 0 && (
+                                    <div className="text-xs text-slate-600 dark:text-slate-400 mt-2">
+                                        <span className="font-medium">Eventos detectados:</span>
+                                        <ul className="mt-1 space-y-1 pl-3">
+                                            {entry.safety_events_details.map((evt, i) => (
+                                                <li key={i} className="flex items-center gap-2">
+                                                    <span className={`size-1.5 rounded-full ${
+                                                        evt.severity === 'critical' ? 'bg-red-500' : 
+                                                        evt.severity === 'severe' ? 'bg-orange-500' : 'bg-amber-500'
+                                                    }`} />
+                                                    <span>{evt.behavior || 'Evento'}</span>
+                                                    <span className="text-slate-400">({evt.severity})</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+
+                                {/* Reason */}
+                                {entry.reason && (
+                                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 italic">
+                                        "{entry.reason}"
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </CardContent>
+            )}
         </Card>
     );
 }
@@ -2173,6 +2443,11 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                                 nextInvestigationCountdownText={nextInvestigationCountdownText}
                                 isRevalidationImminent={isRevalidationImminent}
                             />
+                        )}
+
+                        {/* Investigation History Card - For completed events that had investigations */}
+                        {isCompleted && (event.investigation_metadata?.count ?? 0) > 0 && (
+                            <InvestigationHistoryCard event={event} />
                         )}
 
                         {/* AI Verdict Card - Hero section when completed */}

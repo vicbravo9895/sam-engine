@@ -2,14 +2,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import {
     ArrowLeft,
     Building2,
+    Clock,
     Eye,
     EyeOff,
     Key,
@@ -19,6 +27,10 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 
+interface Props {
+    timezones: Record<string, string>;
+}
+
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Super Admin', href: '/super-admin' },
     { title: 'Empresas', href: '/super-admin/companies' },
@@ -26,6 +38,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function CompanyCreate() {
+    const { timezones } = usePage<{ props: Props }>().props as unknown as Props;
     const [showApiKey, setShowApiKey] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
@@ -39,6 +52,7 @@ export default function CompanyCreate() {
         city: '',
         state: '',
         country: 'MX',
+        timezone: 'America/Mexico_City',
         postal_code: '',
         samsara_api_key: '',
         is_active: true,
@@ -136,14 +150,42 @@ export default function CompanyCreate() {
                                 </div>
                             </div>
 
-                            {/* Phone */}
-                            <div className="space-y-2">
-                                <Label htmlFor="phone">Teléfono</Label>
-                                <Input
-                                    id="phone"
-                                    value={form.data.phone}
-                                    onChange={(e) => form.setData('phone', e.target.value)}
-                                />
+                            {/* Phone and Timezone */}
+                            <div className="grid gap-4 sm:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label htmlFor="phone">Teléfono</Label>
+                                    <Input
+                                        id="phone"
+                                        value={form.data.phone}
+                                        onChange={(e) => form.setData('phone', e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="timezone">
+                                        <span className="flex items-center gap-2">
+                                            <Clock className="size-4" />
+                                            Zona horaria
+                                        </span>
+                                    </Label>
+                                    <Select
+                                        value={form.data.timezone}
+                                        onValueChange={(value) => form.setData('timezone', value)}
+                                    >
+                                        <SelectTrigger id="timezone">
+                                            <SelectValue placeholder="Selecciona zona horaria" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {Object.entries(timezones).map(([value, label]) => (
+                                                <SelectItem key={value} value={value}>
+                                                    {label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    {form.errors.timezone && (
+                                        <p className="text-destructive text-sm">{form.errors.timezone}</p>
+                                    )}
+                                </div>
                             </div>
 
                             <Separator />

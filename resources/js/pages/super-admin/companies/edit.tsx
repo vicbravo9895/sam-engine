@@ -2,6 +2,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +28,7 @@ import {
     ArrowLeft,
     Building2,
     Check,
+    Clock,
     Eye,
     EyeOff,
     Key,
@@ -55,6 +63,7 @@ interface CompanyData {
     city: string | null;
     state: string | null;
     country: string | null;
+    timezone: string;
     postal_code: string | null;
     logo_url: string | null;
     is_active: boolean;
@@ -67,6 +76,7 @@ interface CompanyData {
 interface Props {
     company: CompanyData;
     users: UserData[];
+    timezones: Record<string, string>;
 }
 
 const roleColors: Record<string, string> = {
@@ -82,7 +92,7 @@ const roleLabels: Record<string, string> = {
 };
 
 export default function CompanyEdit() {
-    const { company, users } = usePage<{ props: Props }>().props as unknown as Props;
+    const { company, users, timezones } = usePage<{ props: Props }>().props as unknown as Props;
     const [showApiKey, setShowApiKey] = useState(false);
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -102,6 +112,7 @@ export default function CompanyEdit() {
         city: company.city || '',
         state: company.state || '',
         country: company.country || 'MX',
+        timezone: company.timezone || 'America/Mexico_City',
         postal_code: company.postal_code || '',
         is_active: company.is_active,
     });
@@ -229,14 +240,42 @@ export default function CompanyEdit() {
                                     </div>
                                 </div>
 
-                                {/* Phone */}
-                                <div className="space-y-2">
-                                    <Label htmlFor="phone">Teléfono</Label>
-                                    <Input
-                                        id="phone"
-                                        value={companyForm.data.phone}
-                                        onChange={(e) => companyForm.setData('phone', e.target.value)}
-                                    />
+                                {/* Phone and Timezone */}
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="phone">Teléfono</Label>
+                                        <Input
+                                            id="phone"
+                                            value={companyForm.data.phone}
+                                            onChange={(e) => companyForm.setData('phone', e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="timezone">
+                                            <span className="flex items-center gap-2">
+                                                <Clock className="size-4" />
+                                                Zona horaria
+                                            </span>
+                                        </Label>
+                                        <Select
+                                            value={companyForm.data.timezone}
+                                            onValueChange={(value) => companyForm.setData('timezone', value)}
+                                        >
+                                            <SelectTrigger id="timezone">
+                                                <SelectValue placeholder="Selecciona zona horaria" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Object.entries(timezones).map(([value, label]) => (
+                                                    <SelectItem key={value} value={value}>
+                                                        {label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {companyForm.errors.timezone && (
+                                            <p className="text-destructive text-sm">{companyForm.errors.timezone}</p>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <Separator />

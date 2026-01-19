@@ -39,7 +39,13 @@ class HandleInertiaRequests extends Middleware
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
 
         $user = $request->user();
-        $timezone = $user?->company?->timezone ?? 'America/Mexico_City';
+        
+        // Super admins may not have a company, use default timezone
+        // Regular users use their company's timezone
+        $timezone = 'America/Mexico_City'; // Default
+        if ($user && $user->company_id && $user->company) {
+            $timezone = $user->company->timezone ?? 'America/Mexico_City';
+        }
 
         return [
             ...parent::share($request),
