@@ -17,13 +17,15 @@ use Illuminate\Support\Facades\Log;
 /**
  * Job para procesar eventos de Samsara.
  * 
- * ACTUALIZADO: Nuevo contrato de respuesta del AI Service.
+ * Contrato de respuesta del AI Service:
  * - alert_context: JSON estructurado del triage
  * - assessment: Evaluación técnica
  * - human_message: Mensaje para humanos (STRING)
- * - notification_decision: Decisión sin side effects
- * - notification_execution: Resultados de ejecución
+ * - notification_decision: Decisión de notificación (Laravel ejecuta via SendNotificationJob)
  * - execution: Trazabilidad
+ * 
+ * NOTA: Las notificaciones se ejecutan en Laravel via SendNotificationJob,
+ * no en el AI Service. El AI Service solo devuelve la decisión.
  */
 class ProcessSamsaraEventJob implements ShouldQueue
 {
@@ -200,7 +202,6 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 'has_assessment' => isset($result['assessment']),
                 'has_human_message' => isset($result['human_message']),
                 'has_notification_decision' => isset($result['notification_decision']),
-                'has_notification_execution' => isset($result['notification_execution']),
                 'has_execution' => isset($result['execution']),
             ]);
 
@@ -231,12 +232,13 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 throw new \Exception("AI service returned invalid assessment: missing verdict");
             }
 
-            // Extraer datos del nuevo contrato
+            // Extraer datos del contrato del AI Service
             $alertContext = $result['alert_context'] ?? null;
             // $assessment ya fue validado arriba
             $humanMessage = $result['human_message'] ?? 'Procesamiento completado';
             $notificationDecision = $result['notification_decision'] ?? null;
-            $notificationExecution = $result['notification_execution'] ?? null;
+            // NOTA: notification_execution ya no viene del AI Service
+            // Las notificaciones se ejecutan en Laravel via SendNotificationJob
             $execution = $result['execution'] ?? null;
             $cameraAnalysis = $result['camera_analysis'] ?? null;
             
@@ -262,7 +264,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     nextCheckMinutes: $nextCheckMinutes,
                     alertContext: $alertContext,
                     notificationDecision: $notificationDecision,
-                    notificationExecution: $notificationExecution,
+                    notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
                     execution: $execution
                 );
 
@@ -270,8 +272,16 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     reason: $monitoringReason ?? 'Confianza insuficiente para veredicto final'
                 );
 
-                // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
-                $this->persistTwilioCallSid($notificationExecution);
+                // Despachar job de notificaciones si hay decisión de notificar
+                if ($notificationDecision && ($notificationDecision['should_notify'] ?? false)) {
+                    SendNotificationJob::dispatch($this->event, $notificationDecision);
+                    
+                    Log::info("SendNotificationJob dispatched (investigating)", [
+                        'event_id' => $this->event->id,
+                        'escalation_level' => $notificationDecision['escalation_level'] ?? 'unknown',
+                        'channels' => $notificationDecision['channels_to_use'] ?? [],
+                    ]);
+                }
 
                 // Programar revalidación
                 $scheduledAt = now()->addMinutes($nextCheckMinutes);
@@ -319,12 +329,22 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     humanMessage: $humanMessage,
                     alertContext: $alertContext,
                     notificationDecision: $notificationDecision,
-                    notificationExecution: $notificationExecution,
+                    notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
                     execution: $execution
                 );
 
-                // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
-                $this->persistTwilioCallSid($notificationExecution);
+                // Despachar job de notificaciones si hay decisión de notificar
+                $notificationDispatched = false;
+                if ($notificationDecision && ($notificationDecision['should_notify'] ?? false)) {
+                    SendNotificationJob::dispatch($this->event, $notificationDecision);
+                    $notificationDispatched = true;
+                    
+                    Log::info("SendNotificationJob dispatched (completed)", [
+                        'event_id' => $this->event->id,
+                        'escalation_level' => $notificationDecision['escalation_level'] ?? 'unknown',
+                        'channels' => $notificationDecision['channels_to_use'] ?? [],
+                    ]);
+                }
                 
                 // Check for correlations with other events
                 $this->checkCorrelations();
@@ -339,7 +359,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'final_status' => 'completed',
                     'verdict' => $assessment['verdict'] ?? 'unknown',
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
-                    'notification_attempted' => $notificationExecution['attempted'] ?? false,
+                    'notification_dispatched' => $notificationDispatched,
                     'has_incident' => $this->event->fresh()->incident_id !== null,
                     'duration_ms' => $jobDuration,
                 ]);
@@ -482,44 +502,8 @@ class ProcessSamsaraEventJob implements ShouldQueue
         }
     }
 
-    /**
-     * Guarda el twilio_call_sid del primer call exitoso para que el
-     * TwilioCallbackController pueda encontrar el evento por CallSid.
-     * 
-     * @param array|null $notificationExecution Resultados de ejecución de notificaciones
-     */
-    private function persistTwilioCallSid(?array $notificationExecution): void
-    {
-        if (!$notificationExecution || !($notificationExecution['attempted'] ?? false)) {
-            return;
-        }
-
-        $results = $notificationExecution['results'] ?? [];
-        
-        foreach ($results as $result) {
-            // Buscar el primer call exitoso con call_sid
-            if (
-                ($result['channel'] ?? '') === 'call' &&
-                ($result['success'] ?? false) &&
-                !empty($result['call_sid'])
-            ) {
-                $this->event->update([
-                    'twilio_call_sid' => $result['call_sid'],
-                    'notification_status' => 'sent',
-                    'notification_sent_at' => now(),
-                ]);
-
-                Log::debug("Twilio call_sid persisted for callbacks", [
-                    'event_id' => $this->event->id,
-                    'call_sid' => $result['call_sid'],
-                ]);
-
-                break; // Solo guardamos el primer call_sid
-            }
-        }
-    }
-
     // Métodos persistEvidenceImages y downloadAndStoreImage están en el trait PersistsEvidenceImages
+    // NOTA: persistTwilioCallSid fue removido porque ahora SendNotificationJob maneja esto
 
     /**
      * Actualiza la descripción del evento si se encontró un behavior_name más específico

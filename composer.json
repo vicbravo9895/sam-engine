@@ -1,13 +1,31 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/react-starter-kit",
+    "name": "sam/samsara-alert-monitor",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
+    "description": "Sistema de monitoreo y procesamiento inteligente de alertas de flotas usando AI. Procesa webhooks de Samsara, evalúa alertas con agentes de IA y ejecuta notificaciones multicanal (SMS, WhatsApp, llamadas).",
     "keywords": [
         "laravel",
-        "framework"
+        "samsara",
+        "fleet-management",
+        "ai-agents",
+        "alerts",
+        "twilio",
+        "notifications",
+        "gpt-4",
+        "google-adk",
+        "telematics"
     ],
-    "license": "MIT",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Victor Bravo",
+            "email": "victor@example.com"
+        }
+    ],
+    "homepage": "https://github.com/victorbravo/sam",
+    "support": {
+        "issues": "https://github.com/victorbravo/sam/issues"
+    },
     "require": {
         "php": "^8.2",
         "inertiajs/inertia-laravel": "^2.0",

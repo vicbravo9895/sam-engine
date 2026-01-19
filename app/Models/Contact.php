@@ -12,7 +12,8 @@ class Contact extends Model
     use HasFactory, SoftDeletes;
 
     // Tipos de contacto
-    const TYPE_OPERATOR = 'operator';
+    // NOTA: "operator" ya NO es un tipo de contacto válido.
+    // Los operadores (conductores) se obtienen de la tabla drivers.
     const TYPE_MONITORING_TEAM = 'monitoring_team';
     const TYPE_SUPERVISOR = 'supervisor';
     const TYPE_EMERGENCY = 'emergency';
@@ -169,12 +170,14 @@ class Contact extends Model
     }
 
     /**
-     * Obtiene todos los tipos disponibles
+     * Obtiene todos los tipos disponibles.
+     * 
+     * NOTA: "operator" ya no es un tipo válido.
+     * Los operadores (conductores) se configuran en /drivers.
      */
     public static function getTypes(): array
     {
         return [
-            self::TYPE_OPERATOR => 'Operador',
             self::TYPE_MONITORING_TEAM => 'Equipo de Monitoreo',
             self::TYPE_SUPERVISOR => 'Supervisor',
             self::TYPE_EMERGENCY => 'Emergencia',

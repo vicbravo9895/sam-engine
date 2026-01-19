@@ -53,4 +53,12 @@ return [
         'base_url' => env('SAMSARA_BASE_URL', 'https://api.samsara.com'),
     ],
 
+    'twilio' => [
+        'sid' => env('TWILIO_ACCOUNT_SID'),
+        'token' => env('TWILIO_AUTH_TOKEN'),
+        'from' => env('TWILIO_PHONE_NUMBER'),
+        'whatsapp' => env('TWILIO_WHATSAPP_NUMBER'),
+        'callback_url' => env('TWILIO_CALLBACK_URL'),
+    ],
+
 ];

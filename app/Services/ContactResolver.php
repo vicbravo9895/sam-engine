@@ -3,18 +3,23 @@
 namespace App\Services;
 
 use App\Models\Contact;
+use App\Models\Driver;
 use App\Models\SamsaraEvent;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Servicio para resolver contactos basados en el contexto del evento.
  * 
  * Lógica de resolución:
- * 1. Busca contactos específicos del vehículo
- * 2. Busca contactos específicos del conductor
- * 3. Fallback a contactos globales por defecto
+ * - OPERATOR: Se obtiene de la tabla drivers (conductor del vehículo)
+ * - MONITORING_TEAM, SUPERVISOR, EMERGENCY, DISPATCH: Se obtienen de la tabla contacts
  * 
- * Para cada tipo de contacto, selecciona el de mayor prioridad.
+ * Para contactos de la tabla contacts, el orden de búsqueda es:
+ * 1. Contacto específico del vehículo
+ * 2. Contacto específico del conductor
+ * 3. Contacto global por defecto
+ * 4. Cualquier contacto global activo del tipo
  */
 class ContactResolver
 {
@@ -37,7 +42,7 @@ class ContactResolver
      * Resuelve los contactos dados un vehicle_id y driver_id.
      * 
      * @param string|null $vehicleId ID del vehículo de Samsara
-     * @param string|null $driverId ID del conductor de Samsara
+     * @param string|null $driverId ID del conductor de Samsara (samsara_id)
      * @param int|null $companyId ID de la compañía (multi-tenant isolation)
      * @return array Contactos organizados por tipo
      */
@@ -51,9 +56,18 @@ class ContactResolver
             'dispatch' => null,
         ];
 
-        $types = array_keys($contacts);
+        // OPERATOR: Resolver desde la tabla drivers
+        if ($driverId) {
+            $operator = $this->resolveOperatorFromDriver($driverId, $companyId);
+            if ($operator) {
+                $contacts['operator'] = $operator;
+            }
+        }
 
-        foreach ($types as $type) {
+        // Otros tipos: Resolver desde la tabla contacts
+        $contactTypes = ['monitoring_team', 'supervisor', 'emergency', 'dispatch'];
+        
+        foreach ($contactTypes as $type) {
             $contact = $this->resolveByType($type, $vehicleId, $driverId, $companyId);
             if ($contact) {
                 $contacts[$type] = $contact->toNotificationPayload();
@@ -62,6 +76,63 @@ class ContactResolver
 
         // Filtrar nulls para una respuesta más limpia
         return array_filter($contacts);
+    }
+
+    /**
+     * Resuelve el operador (conductor) desde la tabla drivers.
+     * 
+     * @param string $driverId ID del conductor de Samsara (samsara_id)
+     * @param int|null $companyId ID de la compañía
+     * @return array|null Datos del operador para notificaciones
+     */
+    private function resolveOperatorFromDriver(string $driverId, ?int $companyId = null): ?array
+    {
+        $query = Driver::where('samsara_id', $driverId);
+        
+        if ($companyId) {
+            $query->where('company_id', $companyId);
+        }
+        
+        $driver = $query->first();
+        
+        if (!$driver) {
+            Log::warning('ContactResolver: Driver not found', [
+                'driver_id' => $driverId,
+                'company_id' => $companyId,
+            ]);
+            return null;
+        }
+
+        // Verificar que tenga teléfono configurado
+        $phone = $driver->formatted_phone;
+        $whatsapp = $driver->formatted_whatsapp;
+        
+        if (!$phone && !$whatsapp) {
+            Log::warning('ContactResolver: Driver has no phone configured', [
+                'driver_id' => $driverId,
+                'driver_name' => $driver->name,
+                'raw_phone' => $driver->phone,
+                'country_code' => $driver->country_code,
+            ]);
+            return null;
+        }
+
+        Log::info('ContactResolver: Operator resolved from driver', [
+            'driver_id' => $driverId,
+            'driver_name' => $driver->name,
+            'phone' => $phone,
+            'whatsapp' => $whatsapp,
+        ]);
+
+        return [
+            'name' => $driver->name,
+            'role' => 'Conductor',
+            'type' => 'operator',
+            'phone' => $phone,
+            'whatsapp' => $whatsapp,
+            'email' => null,
+            'priority' => 1, // Máxima prioridad
+        ];
     }
 
     /**

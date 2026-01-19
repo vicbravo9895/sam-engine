@@ -42,7 +42,6 @@ import {
     Siren,
     Trash2,
     Truck,
-    User,
     Users,
     X,
 } from 'lucide-react';
@@ -99,8 +98,8 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Contactos', href: '/contacts' },
 ];
 
+// NOTA: Los operadores (conductores) se configuran en /drivers, no aquí.
 const typeIcons: Record<string, React.ElementType> = {
-    operator: User,
     monitoring_team: Headphones,
     supervisor: ShieldAlert,
     emergency: Siren,
@@ -108,7 +107,6 @@ const typeIcons: Record<string, React.ElementType> = {
 };
 
 const typeColors: Record<string, string> = {
-    operator: 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-200',
     monitoring_team: 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-200',
     supervisor: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200',
     emergency: 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-200',

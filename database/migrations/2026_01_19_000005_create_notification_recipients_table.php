@@ -28,7 +28,8 @@ return new class extends Migration {
                 'monitoring_team',
                 'supervisor',
                 'emergency',
-                'dispatch'
+                'dispatch',
+                'other'  // Para casos genéricos o de prueba
             ]);
             
             $table->string('phone', 20)->nullable();

@@ -14,7 +14,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, AlertTriangle, Building2, Contact, LayoutGrid, Settings, Shield, Sparkles, Truck, Users } from 'lucide-react';
+import { Activity, AlertTriangle, Building2, Contact, LayoutGrid, Settings, Shield, Sparkles, Truck, User, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 // ============================================
@@ -55,6 +55,11 @@ const fleetNavItems: NavItem[] = [
         title: 'Vehículos',
         href: '/fleet-report',
         icon: Truck,
+    },
+    {
+        title: 'Conductores',
+        href: '/drivers',
+        icon: User,
     },
     {
         title: 'Contactos',

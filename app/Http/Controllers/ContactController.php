@@ -75,7 +75,7 @@ class ContactController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'role' => 'nullable|string|max:255',
-            'type' => 'required|in:operator,monitoring_team,supervisor,emergency,dispatch',
+            'type' => 'required|in:monitoring_team,supervisor,emergency,dispatch',
             'phone' => 'nullable|string|max:20',
             'phone_whatsapp' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',
@@ -153,7 +153,7 @@ class ContactController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'role' => 'nullable|string|max:255',
-            'type' => 'required|in:operator,monitoring_team,supervisor,emergency,dispatch',
+            'type' => 'required|in:monitoring_team,supervisor,emergency,dispatch',
             'phone' => 'nullable|string|max:20',
             'phone_whatsapp' => 'nullable|string|max:20',
             'email' => 'nullable|email|max:255',

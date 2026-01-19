@@ -11,6 +11,11 @@ class Driver extends Model
 {
     use HasFactory;
 
+    // Códigos de país que requieren el "1" móvil para WhatsApp
+    public const WHATSAPP_MOBILE_PREFIX_COUNTRIES = [
+        '52', // México
+    ];
+
     protected $fillable = [
         'company_id',
         'samsara_id',
@@ -18,6 +23,7 @@ class Driver extends Model
         'current_id_card_code',
         'name',
         'phone',
+        'country_code',
         'profile_image_url',
         'notes',
         'license_number',
@@ -251,6 +257,132 @@ class Driver extends Model
     public function getAssignedVehicleIdAttribute(): ?string
     {
         return $this->static_assigned_vehicle['id'] ?? null;
+    }
+
+    /**
+     * Obtiene el número de teléfono formateado para SMS/llamadas.
+     * Formato: +{country_code}{10_digitos} (ej: +528117658890)
+     * 
+     * IMPORTANTE: Los números de Samsara pueden venir con código de país incluido
+     * (ej: 5212721305381). Extraemos los últimos 10 dígitos y agregamos
+     * el código de país configurado manualmente.
+     */
+    public function getFormattedPhoneAttribute(): ?string
+    {
+        if (empty($this->phone)) {
+            return null;
+        }
+
+        // Si no tiene country_code configurado, no podemos formatear
+        if (empty($this->country_code)) {
+            return null;
+        }
+
+        // Extraer los últimos 10 dígitos (número nacional)
+        $nationalNumber = $this->extractNationalNumber($this->phone);
+        
+        if (!$nationalNumber) {
+            return null;
+        }
+
+        $countryCode = ltrim($this->country_code, '+');
+        
+        return '+' . $countryCode . $nationalNumber;
+    }
+
+    /**
+     * Obtiene el número de teléfono formateado para WhatsApp.
+     * Para México: +521{10_digitos} (con el "1" móvil)
+     * Para otros países: +{country_code}{10_digitos}
+     * 
+     * IMPORTANTE: Los números de Samsara pueden venir con código de país incluido.
+     * Extraemos los últimos 10 dígitos y agregamos el código correcto.
+     */
+    public function getFormattedWhatsappAttribute(): ?string
+    {
+        if (empty($this->phone)) {
+            return null;
+        }
+
+        // Si no tiene country_code configurado, no podemos formatear
+        if (empty($this->country_code)) {
+            return null;
+        }
+
+        // Extraer los últimos 10 dígitos (número nacional)
+        $nationalNumber = $this->extractNationalNumber($this->phone);
+        
+        if (!$nationalNumber) {
+            return null;
+        }
+
+        $countryCode = ltrim($this->country_code, '+');
+        
+        // Para países que necesitan el "1" móvil en WhatsApp (México)
+        if (in_array($countryCode, self::WHATSAPP_MOBILE_PREFIX_COUNTRIES)) {
+            return '+' . $countryCode . '1' . $nationalNumber;
+        }
+        
+        return '+' . $countryCode . $nationalNumber;
+    }
+
+    /**
+     * Extrae los últimos 10 dígitos del número (número nacional).
+     * 
+     * Los números de Samsara pueden venir en varios formatos:
+     * - 5212721305381 (con código de país + indicador móvil)
+     * - 2721305381 (solo número nacional)
+     * - +52 1 272 130 5381 (formateado con espacios)
+     * 
+     * @param string $phone Número de teléfono
+     * @return string|null Los últimos 10 dígitos o null si no es válido
+     */
+    protected function extractNationalNumber(string $phone): ?string
+    {
+        // Eliminar todo excepto dígitos
+        $digits = preg_replace('/[^0-9]/', '', $phone);
+        
+        // Si tiene menos de 10 dígitos, no es válido
+        if (strlen($digits) < 10) {
+            return null;
+        }
+        
+        // Tomar los últimos 10 dígitos (número nacional)
+        return substr($digits, -10);
+    }
+
+    /**
+     * Normaliza un número de teléfono eliminando caracteres no numéricos
+     * excepto el símbolo +.
+     */
+    protected function normalizePhoneNumber(string $phone): string
+    {
+        // Mantener solo dígitos y el símbolo +
+        return preg_replace('/[^0-9+]/', '', $phone);
+    }
+
+    /**
+     * Obtiene los códigos de país disponibles para selección.
+     */
+    public static function getAvailableCountryCodes(): array
+    {
+        return [
+            '1' => '+1 (USA/Canadá)',
+            '52' => '+52 (México)',
+            '54' => '+54 (Argentina)',
+            '55' => '+55 (Brasil)',
+            '56' => '+56 (Chile)',
+            '57' => '+57 (Colombia)',
+            '58' => '+58 (Venezuela)',
+            '502' => '+502 (Guatemala)',
+            '503' => '+503 (El Salvador)',
+            '504' => '+504 (Honduras)',
+            '505' => '+505 (Nicaragua)',
+            '506' => '+506 (Costa Rica)',
+            '507' => '+507 (Panamá)',
+            '593' => '+593 (Ecuador)',
+            '51' => '+51 (Perú)',
+        ];
     }
 }
 

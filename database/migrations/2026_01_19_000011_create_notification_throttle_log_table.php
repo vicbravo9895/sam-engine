@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Creates notification_throttle_log table.
+ * Creates notification_throttle_logs table.
  * 
  * Tracks notification timestamps for throttling by vehicle/driver.
  * Replaces in-memory throttling that was lost on service restart.
@@ -16,7 +16,7 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('notification_throttle_log', function (Blueprint $table) {
+        Schema::create('notification_throttle_logs', function (Blueprint $table) {
             $table->id();
             
             // Throttle key format: "v:123" or "v:123:d:456"
@@ -41,6 +41,6 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists('notification_throttle_log');
+        Schema::dropIfExists('notification_throttle_logs');
     }
 };

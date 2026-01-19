@@ -5,6 +5,7 @@ use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CopilotController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DriverController;
 use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\SamsaraEventController;
 use App\Http\Controllers\StorageController;
@@ -66,6 +67,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('contacts', ContactController::class);
     Route::post('contacts/{contact}/toggle-active', [ContactController::class, 'toggleActive'])->name('contacts.toggle-active');
     Route::post('contacts/{contact}/set-default', [ContactController::class, 'setDefault'])->name('contacts.set-default');
+
+    // Drivers Management (phone numbers and country codes)
+    Route::get('drivers', [DriverController::class, 'index'])->name('drivers.index');
+    Route::get('drivers/{driver}/edit', [DriverController::class, 'edit'])->name('drivers.edit');
+    Route::put('drivers/{driver}', [DriverController::class, 'update'])->name('drivers.update');
+    Route::post('drivers/bulk-country-code', [DriverController::class, 'bulkUpdateCountryCode'])->name('drivers.bulk-country-code');
 
     // User management routes (admin/manager only)
     Route::resource('users', UserController::class)->except(['show']);

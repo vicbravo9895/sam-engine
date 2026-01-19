@@ -5,7 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Creates notification_dedupe_log table.
+ * Creates notification_dedupe_logs table.
  * 
  * Tracks dedupe keys to prevent duplicate notifications.
  * Replaces in-memory deduplication that was lost on service restart.
@@ -16,7 +16,7 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('notification_dedupe_log', function (Blueprint $table) {
+        Schema::create('notification_dedupe_logs', function (Blueprint $table) {
             // Dedupe key is the primary key (format: vehicle_id:event_time:alert_type)
             $table->string('dedupe_key', 255)->primary();
             
@@ -34,6 +34,6 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists('notification_dedupe_log');
+        Schema::dropIfExists('notification_dedupe_logs');
     }
 };

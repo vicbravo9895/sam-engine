@@ -2,12 +2,15 @@
 PipelineExecutor: Servicio que ejecuta el pipeline de agentes ADK.
 Encapsula toda la lógica de ejecución, tracking y captura de resultados.
 
-ACTUALIZADO: Nuevo contrato de respuesta.
+Contrato de respuesta:
 - alert_context (antes: triage)
 - assessment 
 - human_message (string, no JSON)
 - notification_decision (decisión sin side effects)
-- notification_execution (ejecutado por código)
+- notification_execution: SIEMPRE None (Laravel ejecuta via SendNotificationJob)
+
+NOTA: Las notificaciones se ejecutan en Laravel, no aquí.
+El AI Service solo devuelve la decisión de notificación.
 """
 
 import json
@@ -26,7 +29,7 @@ from core import runner, revalidation_runner, session_service
 from core.context import current_langfuse_span, current_tool_tracker
 from agents.agent_definitions import AGENTS_BY_NAME
 from agents.schemas import ToolResult, AgentResult, PipelineResult
-from .notification_executor import execute_notifications
+# NOTA: execute_notifications removido - Laravel ejecuta notificaciones via SendNotificationJob
 from .preloaded_media_analyzer import analyze_preloaded_media
 
 
@@ -448,24 +451,19 @@ class PipelineExecutor:
                     error=f"Assessment is missing required fields: {', '.join(missing_fields)}"
                 )
             
-            # Ejecutar notificaciones (código determinista, no LLM)
+            # NOTA: Las notificaciones se ejecutan en Laravel via SendNotificationJob
+            # El AI Service solo devuelve la decisión (notification_decision)
+            # notification_execution siempre es None aquí
             notification_execution = None
+            
             if notification_decision and notification_decision.get("should_notify"):
-                notification_execution = await execute_notifications(
-                    decision=notification_decision,
-                    event_id=event_id,
-                    vehicle_id=vehicle_id if vehicle_id != "unknown" else None,
-                    driver_id=driver_id
-                )
-            else:
-                notification_execution = {
-                    "attempted": False,
-                    "results": [],
-                    "timestamp_utc": datetime.utcnow().isoformat() + "Z",
-                    "dedupe_key": notification_decision.get("dedupe_key", "") if notification_decision else "",
-                    "throttled": False,
-                    "throttle_reason": None
-                }
+                logger.info(f"Notification decision: should_notify=True (Laravel will execute)", extra={
+                    "context": {
+                        "event_id": event_id,
+                        "escalation_level": notification_decision.get("escalation_level"),
+                        "channels": notification_decision.get("channels_to_use", []),
+                    }
+                })
             
             # Cerrar spans
             self._close_all_spans()

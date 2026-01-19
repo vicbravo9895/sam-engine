@@ -59,8 +59,8 @@ interface EditProps {
     types: ContactTypes;
 }
 
+// NOTA: Los operadores (conductores) se configuran en /drivers, no aquí.
 const typeIcons: Record<string, React.ElementType> = {
-    operator: User,
     monitoring_team: Headphones,
     supervisor: ShieldAlert,
     emergency: Siren,
@@ -68,7 +68,6 @@ const typeIcons: Record<string, React.ElementType> = {
 };
 
 const typeDescriptions: Record<string, string> = {
-    operator: 'Conductor u operador del vehículo. Recibe notificaciones personalizadas según el vehículo asignado.',
     monitoring_team: 'Equipo central de monitoreo. Recibe todas las alertas para seguimiento y escalación.',
     supervisor: 'Supervisor de zona o turno. Recibe escalaciones y alertas críticas.',
     emergency: 'Contacto de emergencia. Solo se notifica en casos críticos confirmados.',

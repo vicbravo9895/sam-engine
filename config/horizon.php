@@ -247,6 +247,21 @@ return [
             'nice' => 0,
         ],
         
+        // Supervisor para notificaciones (alta prioridad, bajo timeout)
+        'notification-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['notifications'],
+            'balance' => 'simple',
+            'maxProcesses' => 2,
+            'minProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 3,
+            'timeout' => 120,  // 2 minutos - las notificaciones deben ser rápidas
+            'nice' => 0,
+        ],
+        
         // Supervisor para tareas generales (baja prioridad)
         'default-supervisor' => [
             'connection' => 'redis',
@@ -282,6 +297,12 @@ return [
                 'balanceCooldown' => 3,
             ],
             
+            // Notificaciones: rápidas y confiables
+            'notification-supervisor' => [
+                'maxProcesses' => 3,
+                'minProcesses' => 1,
+            ],
+            
             // Default: tareas de fondo
             'default-supervisor' => [
                 'maxProcesses' => 2,
@@ -295,6 +316,10 @@ return [
                 'minProcesses' => 1,
             ],
             'revalidation-supervisor' => [
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
+            ],
+            'notification-supervisor' => [
                 'maxProcesses' => 2,
                 'minProcesses' => 1,
             ],
