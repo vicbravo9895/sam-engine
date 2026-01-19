@@ -298,8 +298,11 @@ class ProcessSamsaraEventJob implements ShouldQueue
 
                 // Guardar twilio_call_sid si hubo llamada exitosa (para callbacks)
                 $this->persistTwilioCallSid($notificationExecution);
+                
+                // Check for correlations with other events
+                $this->checkCorrelations();
 
-                    $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
+                $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
                 
                 Log::info("Job completed: ProcessSamsaraEvent", [
                     'trace_id' => $traceId,
@@ -310,6 +313,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'verdict' => $assessment['verdict'] ?? 'unknown',
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'notification_attempted' => $notificationExecution['attempted'] ?? false,
+                    'has_incident' => $this->event->fresh()->incident_id !== null,
                     'duration_ms' => $jobDuration,
                 ]);
             }
@@ -343,18 +347,112 @@ class ProcessSamsaraEventJob implements ShouldQueue
 
     /**
      * Handle a job failure.
+     * 
+     * Enhanced error handling:
+     * - Detailed logging with context
+     * - Activity log for audit trail
+     * - Admin notification for critical events
      */
     public function failed(\Throwable $exception): void
     {
+        // Refresh event to get current state
+        $this->event->refresh();
+        
+        // Detailed error logging
         Log::error("Job failed permanently: ProcessSamsaraEvent", [
             'event_id' => $this->event->id,
             'samsara_event_id' => $this->event->samsara_event_id,
+            'company_id' => $this->event->company_id,
+            'vehicle_id' => $this->event->vehicle_id,
+            'vehicle_name' => $this->event->vehicle_name,
+            'event_type' => $this->event->event_type,
+            'severity' => $this->event->severity,
             'error' => $exception->getMessage(),
             'error_class' => get_class($exception),
+            'error_file' => $exception->getFile(),
+            'error_line' => $exception->getLine(),
+            'error_trace' => array_slice($exception->getTrace(), 0, 5), // First 5 stack frames
             'total_attempts' => $this->attempts(),
+            'max_attempts' => $this->tries,
         ]);
 
+        // Mark event as failed with error message
         $this->event->markAsFailed($exception->getMessage());
+        
+        // Log activity for audit trail
+        try {
+            \App\Models\SamsaraEventActivity::logAiAction(
+                $this->event->id,
+                $this->event->company_id,
+                \App\Models\SamsaraEventActivity::ACTION_AI_FAILED,
+                [
+                    'error' => $exception->getMessage(),
+                    'error_class' => get_class($exception),
+                    'attempts' => $this->attempts(),
+                ]
+            );
+        } catch (\Throwable $e) {
+            Log::warning("Failed to log activity for failed job", [
+                'event_id' => $this->event->id,
+                'activity_error' => $e->getMessage(),
+            ]);
+        }
+        
+        // For critical events, we might want to notify admins
+        if ($this->event->severity === SamsaraEvent::SEVERITY_CRITICAL) {
+            Log::critical("CRITICAL EVENT PROCESSING FAILED", [
+                'event_id' => $this->event->id,
+                'company_id' => $this->event->company_id,
+                'vehicle_name' => $this->event->vehicle_name,
+                'event_type' => $this->event->event_type,
+                'error' => $exception->getMessage(),
+                'action_required' => 'Manual investigation may be needed',
+            ]);
+            
+            // TODO: Implement admin notification (email, Slack, etc.)
+            // AdminNotification::send('critical_event_failed', $this->event);
+        }
+    }
+    
+    /**
+     * Check for correlations with other events after processing.
+     * 
+     * This method is called after successful AI processing to detect
+     * patterns like harsh_braking + panic_button = collision.
+     */
+    protected function checkCorrelations(): void
+    {
+        try {
+            $correlationService = app(\App\Services\AlertCorrelationService::class);
+            $incident = $correlationService->checkCorrelations($this->event);
+            
+            if ($incident) {
+                Log::info("Correlation detected: Event linked to incident", [
+                    'event_id' => $this->event->id,
+                    'incident_id' => $incident->id,
+                    'incident_type' => $incident->incident_type,
+                    'is_primary' => $this->event->is_primary_event,
+                ]);
+                
+                // Log activity
+                \App\Models\SamsaraEventActivity::logAiAction(
+                    $this->event->id,
+                    $this->event->company_id,
+                    'correlation_detected',
+                    [
+                        'incident_id' => $incident->id,
+                        'incident_type' => $incident->incident_type,
+                        'related_events' => $incident->correlations()->count(),
+                    ]
+                );
+            }
+        } catch (\Throwable $e) {
+            // Don't fail the job if correlation check fails
+            Log::warning("Correlation check failed (non-fatal)", [
+                'event_id' => $this->event->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

@@ -2,6 +2,41 @@
 
 Sistema de monitoreo y procesamiento inteligente de alertas de flotas usando AI.
 
+---
+
+## Reglas de Desarrollo
+
+### Organización de Código
+- Componentes pequeños, con una sola responsabilidad
+- Preferir composición frente a configuraciones complejas
+- Evita abstracciones prematuras
+- El código compartido debe vivir en carpetas claras como `components`, `layouts`, `lib` o `utils`
+
+### TypeScript
+- Evita `any` y `unknown`
+- Preferir siempre que se pueda inferencia de tipos
+- Si los tipos no están claros, parar y aclarar antes de continuar
+
+### UI y Estilos
+- Tailwind es la única solución de estilos
+- No duplicar clases si se puede extraer un componente
+- Priorizar legibilidad frente a micro-optimizaciones visuales
+- Accesibilidad no es opcional: HTML semántico, roles ARIA cuando aplique y foco gestionado
+
+### HTTP en Frontend (Inertia)
+- **NO usar axios directamente**
+- Usar `useForm` de `@inertiajs/react` para formularios
+- Usar `router.visit()`, `router.post()`, `router.put()`, `router.delete()` para navegación y peticiones
+- Esto mantiene sincronización cliente-servidor, manejo automático de errores y preservación de scroll
+
+### Comportamiento del Agente AI
+- Si una petición no está clara, hacer preguntas concretas antes de ejecutar
+- Tareas simples y bien definidas se ejecutan directamente
+- Cambios complejos (refactors, nuevas features, decisiones de arquitectura) requieren confirmar entendimiento antes de actuar
+- No asumir requisitos implícitos. Si falta información, se pide
+
+---
+
 ## Stack Tecnológico
 
 | Capa | Tecnología | Versión |
@@ -9,9 +44,10 @@ Sistema de monitoreo y procesamiento inteligente de alertas de flotas usando AI.
 | **Backend** | Laravel + PHP | 12.x / 8.2 |
 | **Frontend** | React + Inertia + TypeScript | 19.x / 2.x |
 | **AI Service** | Python + FastAPI + Google ADK | 3.11 / 1.18+ |
+| **Copilot** | Neuron AI (PHP) | - |
 | **Base de datos** | PostgreSQL | 18 |
 | **Queue** | Redis + Horizon | - |
-| **LLM** | OpenAI GPT-4o via LiteLLM | - |
+| **LLM** | OpenAI GPT-4o / GPT-4o-mini | - |
 | **Telematics** | Samsara SDK | 4.1.0 |
 | **Notificaciones** | Twilio (SMS, WhatsApp, Voice) | 9.x |
 | **Observability** | Langfuse + ClickHouse | 3.x |
@@ -35,11 +71,21 @@ Sistema de monitoreo y procesamiento inteligente de alertas de flotas usando AI.
                         └──────────────┘         └─────────────┘
                                │
                                ▼
-                        ┌──────────────────┐
-                        │  React Frontend  │
-                        │  (Inertia SSR)   │
-                        └──────────────────┘
+                        ┌──────────────────┐     ┌─────────────────┐
+                        │  React Frontend  │────▶│   FleetAgent    │
+                        │  (Inertia SSR)   │     │  (Neuron/PHP)   │
+                        └──────────────────┘     └─────────────────┘
+                                                        │
+                                                        ▼
+                                                 ┌─────────────┐
+                                                 │   OpenAI    │
+                                                 └─────────────┘
 ```
+
+### Dos Sistemas de AI
+
+1. **AI Service (Python/ADK)**: Procesa alertas automáticamente vía webhooks
+2. **FleetAgent (PHP/Neuron)**: Copilot interactivo para consultas de flota en tiempo real
 
 ---
 
@@ -49,37 +95,82 @@ Sistema de monitoreo y procesamiento inteligente de alertas de flotas usando AI.
 
 ```
 app/
-├── Http/Controllers/      # Controladores HTTP
+├── Http/Controllers/
 │   ├── SamsaraWebhookController.php   # Recibe webhooks de Samsara
 │   ├── SamsaraEventController.php     # API y vistas de eventos
-│   └── TwilioCallbackController.php   # Callbacks de llamadas Twilio
-├── Jobs/                  # Queue Jobs (Redis/Horizon)
+│   ├── SamsaraEventReviewController.php # Revisión humana de alertas
+│   ├── CopilotController.php          # Chat con FleetAgent
+│   ├── FleetReportController.php      # Reportes de flota
+│   ├── ContactController.php          # Gestión de contactos
+│   ├── CompanyController.php          # Configuración de empresa
+│   ├── TwilioCallbackController.php   # Callbacks de llamadas Twilio
+│   └── SuperAdmin/                    # Panel de super admin
+│       ├── CompanyController.php
+│       ├── DashboardController.php
+│       └── UserController.php
+├── Jobs/
 │   ├── ProcessSamsaraEventJob.php     # Procesa alertas nuevas
-│   └── RevalidateSamsaraEventJob.php  # Re-evalúa alertas en monitoreo
+│   ├── RevalidateSamsaraEventJob.php  # Re-evalúa alertas en monitoreo
+│   └── ProcessCopilotMessageJob.php   # Procesa mensajes del copilot
 ├── Models/
-│   └── SamsaraEvent.php   # Modelo principal de eventos
-└── Business/Engine/       # Lógica de negocio (si aplica)
+│   ├── SamsaraEvent.php               # Eventos/alertas de Samsara
+│   ├── SamsaraEventActivity.php       # Timeline de actividades
+│   ├── SamsaraEventComment.php        # Comentarios de revisión
+│   ├── User.php                       # Usuarios del sistema
+│   ├── Company.php                    # Multi-tenancy
+│   ├── Contact.php                    # Contactos para notificaciones
+│   ├── Vehicle.php                    # Vehículos cacheados
+│   ├── Driver.php                     # Conductores cacheados
+│   ├── VehicleStat.php                # Stats históricas
+│   ├── Tag.php                        # Tags/grupos de vehículos
+│   ├── Conversation.php               # Conversaciones del copilot
+│   ├── ChatMessage.php                # Mensajes del copilot
+│   └── TokenUsage.php                 # Tracking de tokens LLM
+├── Neuron/                            # Sistema Copilot (FleetAgent)
+│   ├── FleetAgent.php                 # Agente principal
+│   ├── CompanyContext.php             # Contexto multi-tenant
+│   ├── Observers/
+│   │   └── TokenTrackingObserver.php
+│   └── Tools/                         # Tools del copilot
+│       ├── GetVehicles.php
+│       ├── GetVehicleStats.php
+│       ├── GetFleetStatus.php
+│       ├── GetDashcamMedia.php
+│       ├── GetSafetyEvents.php
+│       ├── GetTrips.php
+│       ├── GetTags.php
+│       ├── GetDrivers.php
+│       └── Concerns/
+│           ├── UsesCompanyContext.php
+│           └── FlexibleVehicleSearch.php
+└── Services/
+    ├── SamsaraClient.php              # Cliente API Samsara
+    ├── ContactResolver.php            # Resuelve contactos para notificaciones
+    └── StreamingService.php           # SSE para copilot
 
 routes/
-├── api.php               # Endpoints API (webhooks, eventos)
+├── api.php               # Endpoints API (webhooks, eventos, revisión)
 ├── web.php               # Rutas web (Inertia)
 └── settings.php          # Rutas de configuración usuario
-
-config/
-└── services.php          # Configuración de AI Service URL
-
-database/migrations/      # Migraciones de BD
 ```
 
 ### AI Service (`/ai-service`)
 
 ```
 ai-service/
-├── main.py               # Entry point FastAPI
+├── main.py                   # Entry point FastAPI
 ├── agents/
 │   ├── agent_definitions.py  # Definición de agentes ADK
-│   ├── prompts.py            # System prompts de cada agente
-│   └── schemas.py            # Pydantic schemas de output
+│   ├── prompts/              # System prompts por agente
+│   │   ├── triage.py
+│   │   ├── investigator.py
+│   │   ├── final_message.py
+│   │   └── notification.py
+│   └── schemas/              # Pydantic schemas de output
+│       ├── triage.py
+│       ├── investigation.py
+│       ├── execution.py
+│       └── notification.py
 ├── api/
 │   ├── routes.py             # Endpoints: /alerts/ingest, /alerts/revalidate
 │   └── models.py             # Request/Response models
@@ -88,13 +179,17 @@ ai-service/
 │   └── langfuse.py           # Config de observability
 ├── core/
 │   ├── runtime.py            # ADK Runner y Session
-│   └── context.py            # Context vars (Langfuse spans)
+│   ├── context.py            # Context vars (Langfuse spans)
+│   ├── concurrency.py        # Control de concurrencia
+│   └── structured_logging.py # Logging JSON
 ├── services/
-│   ├── pipeline_executor.py  # Ejecutor del pipeline de agentes
-│   └── response_builder.py   # Constructor de respuestas
+│   ├── pipeline_executor.py      # Ejecutor del pipeline de agentes
+│   ├── response_builder.py       # Constructor de respuestas
+│   ├── notification_executor.py  # Ejecuta notificaciones decididas
+│   └── preloaded_media_analyzer.py # Análisis de imágenes con Vision
 ├── tools/
-│   ├── samsara_tools.py      # Tools: get_vehicle_stats, get_camera_media, etc.
-│   └── twilio_tools.py       # Tools: send_sms, send_whatsapp, make_call
+│   ├── samsara_tools.py      # Tools de Samsara (legacy, no usadas)
+│   └── twilio_tools.py       # Tools de Twilio (legacy, no usadas)
 ├── pyproject.toml            # Dependencias Python (Poetry)
 └── Dockerfile
 ```
@@ -103,72 +198,171 @@ ai-service/
 
 ```
 resources/js/
-├── app.tsx               # Entry point React
+├── app.tsx                   # Entry point React
 ├── pages/
-│   ├── dashboard.tsx
-│   ├── welcome.tsx
-│   ├── auth/             # Páginas de autenticación
-│   └── samsara/events/
-│       ├── index.tsx     # Listado de alertas (Kanban)
-│       └── show.tsx      # Detalle de alerta
+│   ├── dashboard.tsx         # Dashboard principal
+│   ├── copilot.tsx           # Chat con FleetAgent
+│   ├── auth/                 # Autenticación (Fortify)
+│   │   ├── login.tsx
+│   │   ├── forgot-password.tsx
+│   │   ├── reset-password.tsx
+│   │   ├── verify-email.tsx
+│   │   └── two-factor-challenge.tsx
+│   ├── samsara/events/       # Gestión de alertas
+│   │   ├── index.tsx         # Listado Kanban
+│   │   └── show.tsx          # Detalle de alerta
+│   ├── fleet-report/
+│   │   └── index.tsx         # Reportes de flota
+│   ├── contacts/             # Gestión de contactos
+│   │   ├── index.tsx
+│   │   ├── create.tsx
+│   │   └── edit.tsx
+│   ├── users/                # Gestión de usuarios
+│   ├── company/              # Configuración empresa
+│   ├── settings/             # Configuración usuario
+│   │   ├── profile.tsx
+│   │   ├── password.tsx
+│   │   ├── appearance.tsx
+│   │   └── two-factor.tsx
+│   └── super-admin/          # Panel super admin
+│       ├── dashboard.tsx
+│       ├── companies/
+│       └── users/
 ├── components/
-│   ├── ui/               # Componentes base (shadcn/radix)
-│   └── samsara/          # Componentes específicos de alertas
-│       ├── event-card.tsx
-│       ├── kanban-board.tsx
-│       └── kanban-column.tsx
-├── layouts/              # Layouts de la app
-├── hooks/                # Custom hooks
-├── lib/                  # Utilidades
-└── types/                # TypeScript types
+│   ├── ui/                   # Componentes base (shadcn/radix)
+│   ├── samsara/              # Componentes de alertas
+│   │   ├── event-card.tsx
+│   │   ├── kanban-board.tsx
+│   │   ├── kanban-column.tsx
+│   │   ├── review-panel.tsx
+│   │   └── event-quick-view-modal.tsx
+│   ├── rich-cards/           # Cards del copilot
+│   │   ├── location-card.tsx
+│   │   ├── vehicle-stats-card.tsx
+│   │   ├── safety-events-card.tsx
+│   │   ├── trips-card.tsx
+│   │   ├── dashcam-media-card.tsx
+│   │   ├── fleet-status-card.tsx
+│   │   └── fleet-report-card.tsx
+│   ├── pwa/                  # PWA components
+│   └── ...                   # Otros componentes compartidos
+├── layouts/                  # Layouts de la app
+├── hooks/                    # Custom hooks
+│   ├── use-mobile.tsx
+│   ├── use-appearance.tsx
+│   ├── use-clipboard.ts
+│   ├── use-pwa.ts
+│   └── ...
+├── lib/
+│   └── utils.ts              # Utilidades (cn, etc.)
+└── types/
+    ├── index.d.ts            # Types globales
+    └── samsara.ts            # Types de Samsara
 ```
 
 ---
 
-## Pipeline de Agentes AI
+## Pipeline de Agentes AI (Alert Processing)
 
-El sistema usa **Google ADK** con un `SequentialAgent` que ejecuta 4 agentes en orden:
+El AI Service usa **Google ADK** con un `SequentialAgent` que ejecuta 4 agentes en orden.
 
-### 1. `ingestion_agent` (GPT-4o-mini)
-- **Propósito**: Extrae y estructura datos del payload de Samsara
-- **Output**: `CaseData` con alert_type, vehicle_id, severity, etc.
+**NOTA**: Los datos se pre-cargan desde Laravel antes de ejecutar el pipeline. Los agentes NO usan tools, solo analizan datos.
+
+### 1. `triage_agent` (GPT-4o-mini)
+- **Propósito**: Clasifica la alerta y genera estrategia de investigación
+- **Input**: Payload de Samsara + datos pre-cargados
+- **Output**: `TriageResult` con alert_type, severity, investigation_strategy
 - **Sin tools**
 
-### 2. `panic_investigator` (GPT-4o)
-- **Propósito**: Investiga alertas usando APIs externas
-- **Tools disponibles**:
-  - `get_vehicle_stats()` - Estadísticas históricas del vehículo
-  - `get_vehicle_info()` - Información estática (VIN, modelo)
-  - `get_driver_assignment()` - Conductor asignado
-  - `get_safety_events()` - Eventos de seguridad en ventana de tiempo
-  - `get_camera_media()` - Imágenes de dashcam + análisis con Vision
-- **Output**: `PanicAssessment` con verdict, likelihood, requires_monitoring
+### 2. `investigator_agent` (GPT-4o)
+- **Propósito**: Analiza datos pre-cargados y genera evaluación técnica
+- **Datos disponibles** (pre-cargados desde Laravel):
+  - `preloaded_data.vehicle_info` - Información del vehículo
+  - `preloaded_data.driver_assignment` - Conductor asignado
+  - `preloaded_data.vehicle_stats` - Estadísticas del vehículo
+  - `preloaded_data.safety_events_correlation` - Eventos de seguridad
+  - `preloaded_camera_analysis` - Análisis de Vision AI
+- **Output**: `AlertAssessment` con verdict, likelihood, requires_monitoring
+- **Sin tools** (todo pre-cargado)
 
 ### 3. `final_agent` (GPT-4o-mini)
 - **Propósito**: Genera mensaje en español para operadores
+- **Output**: `human_message` (texto formateado)
 - **Sin tools**
-- **Output**: Texto formateado para humanos
 
 ### 4. `notification_decision_agent` (GPT-4o-mini)
-- **Propósito**: Decide y ejecuta notificaciones según nivel de alerta
-- **Tools disponibles**:
-  - `send_sms()` - Envía SMS via Twilio
-  - `send_whatsapp()` - Envía WhatsApp via Twilio
-  - `make_call_simple()` - Llamada con TTS
-  - `make_call_with_callback()` - Llamada con respuesta de operador
-- **Output**: `NotificationDecision` con canales usados y resultados
+- **Propósito**: Decide qué notificaciones enviar (NO las ejecuta)
+- **Output**: `NotificationDecision` con canales y destinatarios
+- **Sin tools** - La ejecución la hace código determinista
+
+### Pipeline de Revalidación
+Para alertas en monitoreo, se salta el triage (ya clasificada):
+```
+investigator_agent → final_agent → notification_decision_agent
+```
+
+---
+
+## FleetAgent (Copilot)
+
+Sistema de chat interactivo basado en **Neuron AI** (PHP) para consultas de flota.
+
+### Arquitectura
+```
+Usuario → CopilotController → ProcessCopilotMessageJob → FleetAgent → OpenAI
+                                      ↓
+                               Tools (Samsara API)
+                                      ↓
+                               Rich Cards Response
+```
+
+### Tools Disponibles
+| Tool | Descripción | Card Output |
+|------|-------------|-------------|
+| `GetVehicles` | Buscar/listar vehículos | - |
+| `GetVehicleStats` | Stats en tiempo real | `:::location`, `:::vehicleStats` |
+| `GetFleetStatus` | Estado de toda la flota | `:::fleetStatus` |
+| `GetSafetyEvents` | Eventos de seguridad | `:::safetyEvents` |
+| `GetTrips` | Viajes recientes | `:::trips` |
+| `GetDashcamMedia` | Imágenes de dashcam | `:::dashcamMedia` |
+| `GetTags` | Tags y jerarquía | - |
+| `GetDrivers` | Información de conductores | - |
+
+### Rich Cards
+El copilot responde con cards estructuradas:
+```markdown
+Aquí tienes el estado de T-012021:
+
+:::location
+{"latitude": 19.4326, "longitude": -99.1332, ...}
+:::
+
+:::vehicleStats
+{"speed": 45, "engineState": "On", ...}
+:::
+```
 
 ---
 
 ## Flujo de Datos
 
+### Procesamiento de Alertas
 1. **Webhook recibido** → `SamsaraWebhookController::handle()`
 2. **Evento creado en BD** → `SamsaraEvent::create()`
-3. **Job encolado** → `ProcessSamsaraEventJob::dispatch()`
-4. **Job ejecuta** → Llama a `POST /alerts/ingest` del AI Service
-5. **Pipeline AI ejecuta** → 4 agentes secuenciales
-6. **Resultado guardado** → `SamsaraEvent::markAsCompleted()` o `markAsInvestigating()`
-7. **Si requiere monitoreo** → `RevalidateSamsaraEventJob::dispatch()` con delay
+3. **Pre-carga de datos** → Laravel obtiene stats, driver, camera media
+4. **Job encolado** → `ProcessSamsaraEventJob::dispatch()`
+5. **Job ejecuta** → Llama a `POST /alerts/ingest` del AI Service
+6. **Pipeline AI ejecuta** → 4 agentes secuenciales
+7. **Resultado guardado** → `SamsaraEvent::markAsCompleted()` o `markAsInvestigating()`
+8. **Notificaciones** → Código determinista ejecuta SMS/WhatsApp/llamadas
+9. **Si requiere monitoreo** → `RevalidateSamsaraEventJob::dispatch()` con delay
+
+### Copilot
+1. **Usuario envía mensaje** → `CopilotController::send()`
+2. **Job encolado** → `ProcessCopilotMessageJob::dispatch()`
+3. **FleetAgent procesa** → Ejecuta tools según necesidad
+4. **SSE Streaming** → Respuesta en tiempo real al frontend
+5. **Rich Cards** → Frontend renderiza cards interactivas
 
 ---
 
@@ -226,6 +420,7 @@ cd ai-service && poetry run mypy .
 AI_ENGINE_URL=http://ai-service:8000
 DB_CONNECTION=pgsql
 QUEUE_CONNECTION=redis
+SAMSARA_API_KEY=samsara_api_...
 ```
 
 ### AI Service (`ai-service/.env`)
@@ -245,29 +440,72 @@ LANGFUSE_HOST=http://langfuse-web:3000
 
 ## Agregar Nuevas Funcionalidades
 
-### Nueva Tool para el AI Service
+### Nueva Tool para FleetAgent (Copilot)
 
-1. Crear función en `ai-service/tools/` con decorador `@trace_tool`
-2. Agregar import en `ai-service/tools/__init__.py`
-3. Agregar tool al agente correspondiente en `agent_definitions.py`
+1. Crear clase en `app/Neuron/Tools/` extendiendo `Tool`
+2. Implementar `handle()` con la lógica
+3. Usar trait `UsesCompanyContext` para multi-tenancy
+4. Retornar `_cardData` si hay visualización especial
+5. Agregar a `FleetAgent::tools()`
 
-```python
-# ai-service/tools/my_tool.py
-from core.context import trace_tool
+```php
+<?php
 
-@trace_tool
-async def my_new_tool(param: str) -> dict:
-    """Docstring usado por el LLM para saber cuándo usar la tool."""
-    # implementación
-    return {"result": "..."}
+namespace App\Neuron\Tools;
+
+use NeuronAI\Tools\Tool;
+use NeuronAI\Tools\ToolProperty;
+
+class GetMyData extends Tool
+{
+    use Concerns\UsesCompanyContext;
+
+    public function __construct()
+    {
+        parent::__construct(
+            name: 'GetMyData',
+            description: 'Descripción para el LLM de cuándo usar esta tool'
+        );
+        
+        $this->addProperty(
+            new ToolProperty(
+                name: 'param',
+                type: 'string',
+                description: 'Descripción del parámetro',
+                required: true
+            )
+        );
+    }
+
+    public function handle(string $param): array
+    {
+        $context = $this->getCompanyContext();
+        // Implementación...
+        
+        return [
+            'data' => [...],
+            '_cardData' => ['myCard' => [...]]  // Para rich card
+        ];
+    }
+}
 ```
 
-### Nuevo Agente
+### Nueva Card para el Copilot
 
-1. Definir prompt en `ai-service/agents/prompts.py`
-2. Definir schema de output en `ai-service/agents/schemas.py`
-3. Crear `LlmAgent` en `ai-service/agents/agent_definitions.py`
-4. Agregar al `root_agent.sub_agents` en el orden deseado
+1. Crear componente en `resources/js/components/rich-cards/`
+2. Exportar desde `index.ts`
+3. Agregar case en `markdown-content.tsx` para parsear el bloque `:::`
+
+```tsx
+// my-card.tsx
+export function MyCard({ data }: { data: MyCardData }) {
+  return (
+    <Card>
+      {/* Renderizado de la card */}
+    </Card>
+  );
+}
+```
 
 ### Nueva Página en Frontend
 
@@ -284,6 +522,7 @@ Route::get('mi-pagina', fn() => Inertia::render('mi-pagina'))->name('mi-pagina')
 1. Componentes base van en `resources/js/components/ui/`
 2. Componentes de dominio van en `resources/js/components/{dominio}/`
 3. Usar Radix UI primitives + Tailwind para estilos
+4. **No usar axios** - usar `useForm` o `router` de Inertia
 
 ---
 
@@ -294,6 +533,7 @@ Route::get('mi-pagina', fn() => Inertia::render('mi-pagina'))->name('mi-pagina')
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
 | `id` | bigint | PK |
+| `company_id` | bigint | FK a companies (multi-tenant) |
 | `event_type` | string | Tipo de alerta (AlertIncident, etc.) |
 | `event_description` | string | Descripción (Botón de pánico, etc.) |
 | `samsara_event_id` | string | ID único de Samsara |
@@ -305,13 +545,20 @@ Route::get('mi-pagina', fn() => Inertia::render('mi-pagina'))->name('mi-pagina')
 | `occurred_at` | datetime | Timestamp del evento |
 | `raw_payload` | json | Payload completo de Samsara |
 | `ai_status` | enum | pending, processing, investigating, completed, failed |
-| `ai_assessment` | json | Resultado del panic_investigator |
+| `ai_assessment` | json | Resultado del investigator |
 | `ai_message` | text | Mensaje generado por final_agent |
 | `ai_actions` | json | Metadata de ejecución del pipeline |
 | `investigation_count` | int | Número de revalidaciones |
 | `next_check_minutes` | int | Minutos hasta próxima revalidación |
 | `notification_status` | string | Estado de notificaciones |
 | `notification_channels` | json | Canales usados |
+
+### `conversations` / `chat_messages`
+
+| Tabla | Campo | Descripción |
+|-------|-------|-------------|
+| conversations | `id`, `user_id`, `title` | Conversaciones del copilot |
+| chat_messages | `thread_id`, `role`, `content` | Mensajes (user/assistant) |
 
 ---
 
@@ -335,8 +582,8 @@ sail artisan test --coverage
 
 ## Observabilidad
 
-- **Langfuse** (`localhost:3030`): Traces de ejecución de agentes y tools
+- **Langfuse** (`localhost:3030`): Traces de ejecución de agentes AI Service
 - **Laravel Telescope** (`/telescope`): Requests, jobs, queries
 - **Laravel Horizon** (`/horizon`): Dashboard de queues
+- **TokenUsage model**: Tracking de tokens del copilot
 - **Logs**: `storage/logs/laravel.log` y `docker logs ai-service`
-

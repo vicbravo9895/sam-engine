@@ -3,30 +3,58 @@ NotificationExecutor: Servicio que ejecuta notificaciones de forma determinista.
 
 Este servicio:
 - Recibe la decisión del notification_decision_agent
-- Aplica idempotencia por dedupe_key
-- Aplica throttling por vehicle_id/driver_id
+- Aplica idempotencia por dedupe_key (usando Redis para persistencia)
+- Aplica throttling por vehicle_id/driver_id (usando Redis para persistencia)
 - Ejecuta las notificaciones en orden: call > whatsapp > sms
 - Retorna notification_execution con resultados
 
 IMPORTANTE: Este código ejecuta los side effects, no el LLM.
+
+ACTUALIZADO: Ahora usa Redis para dedupe/throttle persistente.
 """
 
 import asyncio
 import hashlib
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
+
+import redis
+from structlog import get_logger
 
 from tools.twilio_tools import send_sms, send_whatsapp, make_call_simple, make_call_with_callback
 from agents.schemas import NotificationDecision, NotificationExecution, NotificationResult
 
+logger = get_logger(__name__)
 
 # ============================================================================
-# IN-MEMORY STORES (para desarrollo - en producción usar Redis/DB)
+# REDIS CONNECTION
 # ============================================================================
-# Dedupe store: dedupe_key -> timestamp
+# Redis connection for persistent dedupe/throttle storage
+_redis_client: Optional[redis.Redis] = None
+
+def _get_redis() -> Optional[redis.Redis]:
+    """Get Redis client (lazy initialization)."""
+    global _redis_client
+    
+    if _redis_client is None:
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        try:
+            _redis_client = redis.from_url(redis_url, decode_responses=True)
+            # Test connection
+            _redis_client.ping()
+            logger.info("notification_executor.redis_connected", url=redis_url)
+        except redis.RedisError as e:
+            logger.warning("notification_executor.redis_connection_failed", error=str(e))
+            _redis_client = None
+    
+    return _redis_client
+
+
+# ============================================================================
+# FALLBACK IN-MEMORY STORES (used when Redis is not available)
+# ============================================================================
 _dedupe_store: Dict[str, datetime] = {}
-
-# Throttle store: key -> list of timestamps
 _throttle_store: Dict[str, List[datetime]] = {}
 
 # Configuración
@@ -34,13 +62,18 @@ DEDUPE_TTL_HOURS = 24
 THROTTLE_WINDOW_MINUTES = 30
 THROTTLE_MAX_NOTIFICATIONS = 5
 
+# Redis key prefixes
+REDIS_DEDUPE_PREFIX = "notification:dedupe:"
+REDIS_THROTTLE_PREFIX = "notification:throttle:"
+
 
 # ============================================================================
-# IDEMPOTENCIA
+# IDEMPOTENCIA (Redis-backed with in-memory fallback)
 # ============================================================================
 def _check_dedupe(dedupe_key: str) -> bool:
     """
     Verifica si ya se procesó este dedupe_key.
+    Uses Redis if available, falls back to in-memory.
     
     Returns:
         True si ya existe (duplicado), False si es nuevo
@@ -48,6 +81,45 @@ def _check_dedupe(dedupe_key: str) -> bool:
     if not dedupe_key:
         return False
     
+    redis_client = _get_redis()
+    
+    if redis_client:
+        return _check_dedupe_redis(dedupe_key, redis_client)
+    else:
+        return _check_dedupe_memory(dedupe_key)
+
+
+def _check_dedupe_redis(dedupe_key: str, redis_client: redis.Redis) -> bool:
+    """Check dedupe using Redis."""
+    redis_key = f"{REDIS_DEDUPE_PREFIX}{dedupe_key}"
+    
+    try:
+        # Check if exists
+        if redis_client.exists(redis_key):
+            # Update last_seen and increment count
+            redis_client.hset(redis_key, "last_seen_at", datetime.utcnow().isoformat())
+            redis_client.hincrby(redis_key, "count", 1)
+            logger.debug("notification_executor.dedupe_hit", dedupe_key=dedupe_key)
+            return True
+        
+        # Create new entry
+        redis_client.hset(redis_key, mapping={
+            "first_seen_at": datetime.utcnow().isoformat(),
+            "last_seen_at": datetime.utcnow().isoformat(),
+            "count": 1
+        })
+        redis_client.expire(redis_key, DEDUPE_TTL_HOURS * 3600)
+        logger.debug("notification_executor.dedupe_created", dedupe_key=dedupe_key)
+        return False
+        
+    except redis.RedisError as e:
+        logger.warning("notification_executor.redis_dedupe_error", error=str(e), dedupe_key=dedupe_key)
+        # Fall back to in-memory
+        return _check_dedupe_memory(dedupe_key)
+
+
+def _check_dedupe_memory(dedupe_key: str) -> bool:
+    """Check dedupe using in-memory store (fallback)."""
     now = datetime.utcnow()
     
     # Limpiar entradas expiradas
@@ -81,13 +153,58 @@ def _generate_throttle_key(vehicle_id: Optional[str], driver_id: Optional[str]) 
     return ":".join(parts)
 
 
+# ============================================================================
+# THROTTLING (Redis-backed with in-memory fallback)
+# ============================================================================
 def _check_throttle(throttle_key: str) -> tuple[bool, Optional[str]]:
     """
     Verifica si se debe aplicar throttling.
+    Uses Redis if available, falls back to in-memory.
     
     Returns:
         (should_throttle, reason)
     """
+    redis_client = _get_redis()
+    
+    if redis_client:
+        return _check_throttle_redis(throttle_key, redis_client)
+    else:
+        return _check_throttle_memory(throttle_key)
+
+
+def _check_throttle_redis(throttle_key: str, redis_client: redis.Redis) -> tuple[bool, Optional[str]]:
+    """Check throttle using Redis sorted set."""
+    redis_key = f"{REDIS_THROTTLE_PREFIX}{throttle_key}"
+    now = datetime.utcnow()
+    now_ts = now.timestamp()
+    window_start_ts = (now - timedelta(minutes=THROTTLE_WINDOW_MINUTES)).timestamp()
+    
+    try:
+        # Remove old entries outside the window
+        redis_client.zremrangebyscore(redis_key, "-inf", window_start_ts)
+        
+        # Count entries in window
+        count = redis_client.zcard(redis_key)
+        
+        if count >= THROTTLE_MAX_NOTIFICATIONS:
+            reason = f"Límite de {THROTTLE_MAX_NOTIFICATIONS} notificaciones en {THROTTLE_WINDOW_MINUTES} minutos alcanzado"
+            logger.debug("notification_executor.throttle_hit", throttle_key=throttle_key, count=count)
+            return True, reason
+        
+        # Add current timestamp
+        redis_client.zadd(redis_key, {str(now_ts): now_ts})
+        redis_client.expire(redis_key, THROTTLE_WINDOW_MINUTES * 60 * 2)  # 2x window for safety
+        
+        return False, None
+        
+    except redis.RedisError as e:
+        logger.warning("notification_executor.redis_throttle_error", error=str(e), throttle_key=throttle_key)
+        # Fall back to in-memory
+        return _check_throttle_memory(throttle_key)
+
+
+def _check_throttle_memory(throttle_key: str) -> tuple[bool, Optional[str]]:
+    """Check throttle using in-memory store (fallback)."""
     now = datetime.utcnow()
     window_start = now - timedelta(minutes=THROTTLE_WINDOW_MINUTES)
     

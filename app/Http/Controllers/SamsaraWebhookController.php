@@ -68,6 +68,67 @@ class SamsaraWebhookController extends Controller
                 ], 400);
             }
 
+            // =====================================================
+            // DUPLICATE VALIDATION (Idempotency)
+            // =====================================================
+            // Check for duplicate events using samsara_event_id
+            $samsaraEventId = $eventData['samsara_event_id'] ?? null;
+            if ($samsaraEventId) {
+                $existingEvent = SamsaraEvent::where('samsara_event_id', $samsaraEventId)
+                    ->where('company_id', $companyId)
+                    ->first();
+                
+                if ($existingEvent) {
+                    Log::info('Webhook duplicate detected (samsara_event_id)', [
+                        'trace_id' => $traceId,
+                        'samsara_event_id' => $samsaraEventId,
+                        'existing_event_id' => $existingEvent->id,
+                        'company_id' => $companyId,
+                    ]);
+                    
+                    // Return 200 OK for idempotency (Samsara may retry webhooks)
+                    return response()->json([
+                        'status' => 'success',
+                        'message' => 'Duplicate event - already processed',
+                        'event_id' => $existingEvent->id,
+                    ], 200);
+                }
+            }
+            
+            // Additional deduplication: check for same vehicle, time, and event type
+            // within a small window (30 seconds) to catch duplicates without samsara_event_id
+            $occurredAt = $eventData['occurred_at'] ?? null;
+            $vehicleId = $eventData['vehicle_id'] ?? null;
+            $eventType = $eventData['event_type'] ?? null;
+            
+            if ($occurredAt && $vehicleId && $eventType) {
+                $windowStart = \Carbon\Carbon::parse($occurredAt)->subSeconds(30);
+                $windowEnd = \Carbon\Carbon::parse($occurredAt)->addSeconds(30);
+                
+                $duplicateEvent = SamsaraEvent::where('company_id', $companyId)
+                    ->where('vehicle_id', $vehicleId)
+                    ->where('event_type', $eventType)
+                    ->whereBetween('occurred_at', [$windowStart, $windowEnd])
+                    ->first();
+                
+                if ($duplicateEvent) {
+                    Log::info('Webhook duplicate detected (time window)', [
+                        'trace_id' => $traceId,
+                        'vehicle_id' => $vehicleId,
+                        'event_type' => $eventType,
+                        'occurred_at' => $occurredAt,
+                        'existing_event_id' => $duplicateEvent->id,
+                        'company_id' => $companyId,
+                    ]);
+                    
+                    return response()->json([
+                        'status' => 'success',
+                        'message' => 'Duplicate event - already processed',
+                        'event_id' => $duplicateEvent->id,
+                    ], 200);
+                }
+            }
+
             // Crear el evento en la base de datos
             $event = SamsaraEvent::create($eventData);
 

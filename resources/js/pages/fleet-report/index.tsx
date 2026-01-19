@@ -24,6 +24,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { useTimezone } from '@/hooks/use-timezone';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
@@ -132,6 +133,7 @@ export default function FleetReportIndex({
     const [tagSearchTerm, setTagSearchTerm] = useState('');
     const [isExporting, setIsExporting] = useState(false);
     const reportRef = useRef<HTMLDivElement>(null);
+    const { formatDate, formatRelative } = useTimezone();
 
     // Filtrar tags basado en búsqueda
     const filteredTags = tags.filter((tag) =>
@@ -223,25 +225,12 @@ export default function FleetReportIndex({
 
     const formatTimestamp = (timestamp: string | null | undefined) => {
         if (!timestamp) return '-';
-        const date = new Date(timestamp);
-        return date.toLocaleString('es-MX', {
-            hour: '2-digit',
-            minute: '2-digit',
-            day: '2-digit',
-            month: 'short',
-        });
+        return formatDate(timestamp, 'dd MMM HH:mm');
     };
 
     const formatLastSync = (timestamp: string | null | undefined) => {
         if (!timestamp) return 'Nunca';
-        const date = new Date(timestamp);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffMins = Math.floor(diffMs / 60000);
-
-        if (diffMins < 1) return 'Hace unos segundos';
-        if (diffMins < 60) return `Hace ${diffMins} min`;
-        return formatTimestamp(timestamp);
+        return formatRelative(timestamp);
     };
 
     const getEngineStateColor = (state: string | null) => {

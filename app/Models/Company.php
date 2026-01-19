@@ -23,6 +23,7 @@ class Company extends Model
         'city',
         'state',
         'country',
+        'timezone',
         'postal_code',
         'samsara_api_key',
         'logo_path',

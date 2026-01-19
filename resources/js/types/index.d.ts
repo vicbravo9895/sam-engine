@@ -26,6 +26,7 @@ export interface SharedData {
     name: string;
     quote: { message: string; author: string };
     auth: Auth;
+    timezone: string;
     sidebarOpen: boolean;
     [key: string]: unknown;
 }

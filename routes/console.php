@@ -1,6 +1,6 @@
 <?php
 
-
+use App\Jobs\CalculateEventMetricsJob;
 use Illuminate\Support\Facades\Schedule;
 
 
@@ -41,3 +41,8 @@ Schedule::command('samsara:sync-vehicle-stats')
     ->withoutOverlapping()
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/vehicle-stats-sync.log'));
+
+// Calculate daily event metrics at 1:00 AM
+Schedule::job(new CalculateEventMetricsJob())
+    ->dailyAt('01:00')
+    ->withoutOverlapping();

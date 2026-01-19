@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/tooltip';
 import { KanbanBoard } from '@/components/samsara/kanban-board';
 import { EventQuickViewModal } from '@/components/samsara/event-quick-view-modal';
+import { useTimezone } from '@/hooks/use-timezone';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
@@ -245,12 +246,22 @@ const urgencyStyles: Record<UrgencyLevel, string> = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-const formatDate = (value?: string | null) => {
+/**
+ * Parse date string treating the time as UTC (ignoring incorrect offset from backend)
+ */
+const parseAsUtc = (value: string): Date => {
+    // Remove timezone offset and treat as UTC
+    const dateWithoutOffset = value.replace(/[+-]\d{2}:\d{2}$/, '');
+    return new Date(dateWithoutOffset + 'Z');
+};
+
+const formatDate = (value?: string | null, timezone?: string) => {
     if (!value) return 'Sin fecha';
     return new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'medium',
         timeStyle: 'short',
-    }).format(new Date(value));
+        timeZone: timezone,
+    }).format(parseAsUtc(value));
 };
 
 const formatEventType = (type?: string | null) => {
@@ -430,6 +441,10 @@ export default function SamsaraAlertsIndex({
     const [isPollingPaused, setIsPollingPaused] = useState(false);
     const [isPollingActive, setIsPollingActive] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
+    const { timezone } = useTimezone();
+
+    // Bind formatDate with timezone
+    const formatDateTz = useCallback((value?: string | null) => formatDate(value, timezone), [timezone]);
 
     // Persist view mode
     useEffect(() => {
@@ -907,7 +922,7 @@ export default function SamsaraAlertsIndex({
                         events={sortedEvents}
                         onEventClick={openQuickView}
                         formatEventTitle={formatEventTitle}
-                        formatDate={formatDate}
+                        formatDate={formatDateTz}
                         getAlertShowUrl={getAlertShowUrl}
                     />
                 )}

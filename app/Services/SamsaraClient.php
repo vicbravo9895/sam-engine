@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Carbon\Carbon;
 use Illuminate\Http\Client\Pool;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -15,11 +16,25 @@ use Illuminate\Support\Facades\Log;
  * 
  * OBJETIVO: Pre-cargar toda la información posible desde Laravel
  * para reducir el tiempo de ejecución del AI Service.
+ * 
+ * CACHING: Vehicle info and driver assignments are cached to reduce API calls.
+ * - vehicle_info: Cached for 1 hour (static data that rarely changes)
+ * - driver_assignment: Cached for 5 minutes (more dynamic, changes with shifts)
  */
 class SamsaraClient
 {
     private string $baseUrl;
     private string $apiToken;
+    
+    /**
+     * Cache TTL for vehicle info in seconds (1 hour).
+     */
+    const VEHICLE_INFO_CACHE_TTL = 3600;
+    
+    /**
+     * Cache TTL for driver assignments in seconds (5 minutes).
+     */
+    const DRIVER_ASSIGNMENT_CACHE_TTL = 300;
 
     /**
      * Constructor del cliente Samsara.
@@ -307,16 +322,48 @@ class SamsaraClient
         // Procesar respuestas
         $preloadedData = [];
 
-        // Vehicle Info
+        // Vehicle Info (with caching)
+        $vehicleInfoCacheKey = $this->getVehicleInfoCacheKey($vehicleId);
         if ($responses['vehicle_info']->successful()) {
-            $preloadedData['vehicle_info'] = $responses['vehicle_info']->json('data') 
+            $vehicleInfo = $responses['vehicle_info']->json('data') 
                 ?? $responses['vehicle_info']->json();
+            
+            // Cache the vehicle info (static data, rarely changes)
+            if (!empty($vehicleInfo)) {
+                Cache::put($vehicleInfoCacheKey, $vehicleInfo, self::VEHICLE_INFO_CACHE_TTL);
+                $preloadedData['vehicle_info'] = $vehicleInfo;
+                Log::debug('SamsaraClient: Vehicle info cached', ['vehicle_id' => $vehicleId]);
+            }
+        } else {
+            // Try to use cached data if API call failed
+            $cachedVehicleInfo = Cache::get($vehicleInfoCacheKey);
+            if ($cachedVehicleInfo) {
+                $preloadedData['vehicle_info'] = $cachedVehicleInfo;
+                $preloadedData['vehicle_info']['_from_cache'] = true;
+                Log::info('SamsaraClient: Using cached vehicle info (API failed)', ['vehicle_id' => $vehicleId]);
+            }
         }
 
-        // Driver Assignment
+        // Driver Assignment (with caching)
+        $driverAssignmentCacheKey = $this->getDriverAssignmentCacheKey($vehicleId);
         if ($responses['driver_assignment']->successful()) {
             $data = $responses['driver_assignment']->json('data') ?? [];
-            $preloadedData['driver_assignment'] = $this->formatDriverAssignment($data);
+            $driverAssignment = $this->formatDriverAssignment($data);
+            
+            // Cache the driver assignment (more dynamic, shorter TTL)
+            if (!empty($driverAssignment)) {
+                Cache::put($driverAssignmentCacheKey, $driverAssignment, self::DRIVER_ASSIGNMENT_CACHE_TTL);
+                $preloadedData['driver_assignment'] = $driverAssignment;
+                Log::debug('SamsaraClient: Driver assignment cached', ['vehicle_id' => $vehicleId]);
+            }
+        } else {
+            // Try to use cached data if API call failed
+            $cachedDriverAssignment = Cache::get($driverAssignmentCacheKey);
+            if ($cachedDriverAssignment) {
+                $preloadedData['driver_assignment'] = $cachedDriverAssignment;
+                $preloadedData['driver_assignment']['_from_cache'] = true;
+                Log::info('SamsaraClient: Using cached driver assignment (API failed)', ['vehicle_id' => $vehicleId]);
+            }
         }
 
         // Vehicle Stats
@@ -777,6 +824,119 @@ class SamsaraClient
             ];
         }
 
+        return null;
+    }
+    
+    /**
+     * ========================================
+     * CACHE HELPERS
+     * ========================================
+     */
+    
+    /**
+     * Get cache key for vehicle info.
+     */
+    protected function getVehicleInfoCacheKey(string $vehicleId): string
+    {
+        return "samsara:vehicle_info:{$vehicleId}";
+    }
+    
+    /**
+     * Get cache key for driver assignment.
+     */
+    protected function getDriverAssignmentCacheKey(string $vehicleId): string
+    {
+        return "samsara:driver_assignment:{$vehicleId}";
+    }
+    
+    /**
+     * Get cached vehicle info.
+     */
+    public function getCachedVehicleInfo(string $vehicleId): ?array
+    {
+        return Cache::get($this->getVehicleInfoCacheKey($vehicleId));
+    }
+    
+    /**
+     * Get cached driver assignment.
+     */
+    public function getCachedDriverAssignment(string $vehicleId): ?array
+    {
+        return Cache::get($this->getDriverAssignmentCacheKey($vehicleId));
+    }
+    
+    /**
+     * Clear cached data for a vehicle.
+     */
+    public function clearVehicleCache(string $vehicleId): void
+    {
+        Cache::forget($this->getVehicleInfoCacheKey($vehicleId));
+        Cache::forget($this->getDriverAssignmentCacheKey($vehicleId));
+        
+        Log::info('SamsaraClient: Vehicle cache cleared', ['vehicle_id' => $vehicleId]);
+    }
+    
+    /**
+     * Force refresh vehicle info from API and update cache.
+     */
+    public function refreshVehicleInfo(string $vehicleId): ?array
+    {
+        if (empty($this->apiToken)) {
+            return null;
+        }
+        
+        $response = Http::withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+            ->timeout(15)
+            ->get("{$this->baseUrl}/fleet/vehicles/{$vehicleId}");
+        
+        if ($response->successful()) {
+            $vehicleInfo = $response->json('data') ?? $response->json();
+            
+            if (!empty($vehicleInfo)) {
+                Cache::put(
+                    $this->getVehicleInfoCacheKey($vehicleId),
+                    $vehicleInfo,
+                    self::VEHICLE_INFO_CACHE_TTL
+                );
+            }
+            
+            return $vehicleInfo;
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Force refresh driver assignment from API and update cache.
+     */
+    public function refreshDriverAssignment(string $vehicleId): ?array
+    {
+        if (empty($this->apiToken)) {
+            return null;
+        }
+        
+        $response = Http::withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+            ->timeout(15)
+            ->get("{$this->baseUrl}/fleet/driver-vehicle-assignments", [
+                'filterBy' => 'vehicles',
+                'vehicleIds' => $vehicleId,
+            ]);
+        
+        if ($response->successful()) {
+            $data = $response->json('data') ?? [];
+            $driverAssignment = $this->formatDriverAssignment($data);
+            
+            if (!empty($driverAssignment)) {
+                Cache::put(
+                    $this->getDriverAssignmentCacheKey($vehicleId),
+                    $driverAssignment,
+                    self::DRIVER_ASSIGNMENT_CACHE_TTL
+                );
+            }
+            
+            return $driverAssignment;
+        }
+        
         return null;
     }
 }

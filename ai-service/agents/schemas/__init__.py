@@ -23,6 +23,10 @@ from .notification import (
     NotificationResult,
     NotificationExecution,
 )
+from .correlation import (
+    CorrelationResult,
+    RelatedEvent,
+)
 from .execution import ToolResult, AgentResult, PipelineResult
 
 __all__ = [
@@ -47,6 +51,9 @@ __all__ = [
     "NotificationRecipient",
     "NotificationResult",
     "NotificationExecution",
+    # Correlation
+    "CorrelationResult",
+    "RelatedEvent",
     # Execution
     "ToolResult",
     "AgentResult",

@@ -6,22 +6,30 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Modelo para eventos de Samsara.
  * 
- * ACTUALIZADO: Nuevo contrato de respuesta del AI Service.
- * - alert_context: JSON estructurado del triage
- * - assessment: Evaluación técnica (ai_assessment)
- * - human_message: Mensaje para humanos (ai_message)
- * - notification_decision: Decisión de notificación (sin side effects)
- * - notification_execution: Resultados de ejecución real
- * - Campos operativos: dedupe_key, risk_escalation, proactive_flag, etc.
+ * ACTUALIZADO v2: Estructura normalizada relacional.
+ * 
+ * CAMPOS NORMALIZADOS (antes en JSON):
+ * - verdict, likelihood, confidence, reasoning, monitoring_reason (de ai_assessment)
+ * - alert_kind, triage_notes, investigation_strategy (de alert_context)
+ * - time window configuration columns
+ * - supporting_evidence (JSONB validado - única estructura variable)
+ * 
+ * TABLAS RELACIONADAS:
+ * - event_recommended_actions: Acciones recomendadas
+ * - event_investigation_steps: Pasos de investigación
+ * - notification_decisions: Decisiones de notificación
+ * - notification_results: Resultados de notificaciones
+ * 
+ * CORRELACIÓN:
+ * - alert_incidents: Incidentes que agrupan alertas relacionadas
+ * - alert_correlations: Correlaciones entre alertas
  * 
  * HUMAN REVIEW: Sistema de revisión humana independiente del AI.
- * - human_status: Estado de revisión (pending, reviewed, flagged, resolved, false_positive)
- * - reviewed_by_id: Usuario que revisó
- * - reviewed_at: Timestamp de revisión
  */
 class SamsaraEvent extends Model
 {
@@ -30,6 +38,7 @@ class SamsaraEvent extends Model
     protected $fillable = [
         // Company association
         'company_id',
+        
         // Información del evento de Samsara
         'event_type',
         'event_description',
@@ -44,13 +53,47 @@ class SamsaraEvent extends Model
         
         // Estado del procesamiento de IA
         'ai_status',
-        'ai_assessment',
+        'ai_assessment',  // Legacy - mantener por compatibilidad
         'ai_message',
         'ai_processed_at',
         'ai_error',
         'ai_actions',
         
-        // Nuevo contrato: contexto y decisiones
+        // =====================================================
+        // CAMPOS NORMALIZADOS (antes en ai_assessment JSON)
+        // =====================================================
+        'verdict',
+        'likelihood',
+        'confidence',
+        'reasoning',
+        'monitoring_reason',
+        
+        // =====================================================
+        // CAMPOS NORMALIZADOS (antes en alert_context JSON)
+        // =====================================================
+        'alert_kind',
+        'triage_notes',
+        'investigation_strategy',
+        
+        // Time window configuration
+        'correlation_window_minutes',
+        'media_window_seconds',
+        'safety_events_before_minutes',
+        'safety_events_after_minutes',
+        
+        // Supporting evidence (JSONB validado)
+        'supporting_evidence',
+        
+        // Raw AI output for audit
+        'raw_ai_output',
+        
+        // =====================================================
+        // CORRELACIÓN
+        // =====================================================
+        'incident_id',
+        'is_primary_event',
+        
+        // Legacy JSON fields (mantener por compatibilidad)
         'alert_context',
         'notification_decision',
         'notification_execution',
@@ -60,7 +103,7 @@ class SamsaraEvent extends Model
         'risk_escalation',
         'proactive_flag',
         'data_consistency',
-        'recommended_actions',
+        'recommended_actions',  // Legacy - ahora en tabla
         
         // Campos para investigación continua
         'last_investigation_at',
@@ -88,7 +131,15 @@ class SamsaraEvent extends Model
         'ai_actions' => 'array',
         'investigation_history' => 'array',
         
-        // Nuevo contrato: campos JSON
+        // Campos normalizados
+        'confidence' => 'decimal:2',
+        'is_primary_event' => 'boolean',
+        
+        // JSONB validado
+        'supporting_evidence' => 'array',
+        'raw_ai_output' => 'array',
+        
+        // Legacy JSON fields (mantener por compatibilidad)
         'alert_context' => 'array',
         'notification_decision' => 'array',
         'notification_execution' => 'array',
@@ -136,6 +187,27 @@ class SamsaraEvent extends Model
     const HUMAN_STATUS_FLAGGED = 'flagged';
     const HUMAN_STATUS_RESOLVED = 'resolved';
     const HUMAN_STATUS_FALSE_POSITIVE = 'false_positive';
+    
+    // Constantes de verdict (normalizado)
+    const VERDICT_REAL_PANIC = 'real_panic';
+    const VERDICT_CONFIRMED_VIOLATION = 'confirmed_violation';
+    const VERDICT_NEEDS_REVIEW = 'needs_review';
+    const VERDICT_UNCERTAIN = 'uncertain';
+    const VERDICT_LIKELY_FALSE_POSITIVE = 'likely_false_positive';
+    const VERDICT_NO_ACTION_NEEDED = 'no_action_needed';
+    const VERDICT_RISK_DETECTED = 'risk_detected';
+    
+    // Constantes de likelihood (normalizado)
+    const LIKELIHOOD_HIGH = 'high';
+    const LIKELIHOOD_MEDIUM = 'medium';
+    const LIKELIHOOD_LOW = 'low';
+    
+    // Constantes de alert_kind (normalizado)
+    const ALERT_KIND_PANIC = 'panic';
+    const ALERT_KIND_SAFETY = 'safety';
+    const ALERT_KIND_TAMPERING = 'tampering';
+    const ALERT_KIND_CONNECTIVITY = 'connectivity';
+    const ALERT_KIND_UNKNOWN = 'unknown';
 
     /**
      * ========================================
@@ -173,6 +245,77 @@ class SamsaraEvent extends Model
     public function activities(): HasMany
     {
         return $this->hasMany(SamsaraEventActivity::class)->orderBy('created_at', 'desc');
+    }
+    
+    /**
+     * ========================================
+     * RELACIONES NORMALIZADAS
+     * ========================================
+     */
+    
+    /**
+     * Acciones recomendadas (normalizado desde ai_assessment.recommended_actions).
+     */
+    public function recommendedActions(): HasMany
+    {
+        return $this->hasMany(EventRecommendedAction::class, 'samsara_event_id')
+            ->orderBy('display_order');
+    }
+    
+    /**
+     * Pasos de investigación (normalizado desde alert_context.investigation_plan).
+     */
+    public function investigationSteps(): HasMany
+    {
+        return $this->hasMany(EventInvestigationStep::class, 'samsara_event_id')
+            ->orderBy('step_order');
+    }
+    
+    /**
+     * Decisión de notificación (normalizado desde notification_decision).
+     */
+    public function notificationDecisionRecord(): HasOne
+    {
+        return $this->hasOne(NotificationDecision::class, 'samsara_event_id');
+    }
+    
+    /**
+     * Resultados de notificaciones (normalizado desde notification_execution.results).
+     */
+    public function notificationResults(): HasMany
+    {
+        return $this->hasMany(NotificationResult::class, 'samsara_event_id')
+            ->orderBy('timestamp_utc');
+    }
+    
+    /**
+     * ========================================
+     * RELACIONES DE CORRELACIÓN
+     * ========================================
+     */
+    
+    /**
+     * Incidente al que pertenece este evento.
+     */
+    public function incident(): BelongsTo
+    {
+        return $this->belongsTo(AlertIncident::class, 'incident_id');
+    }
+    
+    /**
+     * Correlaciones de este evento (cuando es parte de un incidente).
+     */
+    public function correlations(): HasMany
+    {
+        return $this->hasMany(AlertCorrelation::class, 'samsara_event_id');
+    }
+    
+    /**
+     * Incidente donde este evento es el primario.
+     */
+    public function primaryIncident(): HasOne
+    {
+        return $this->hasOne(AlertIncident::class, 'primary_event_id');
     }
 
     /**
@@ -277,6 +420,93 @@ class SamsaraEvent extends Model
                   ->orWhere('severity', self::SEVERITY_CRITICAL)
                   ->orWhereIn('risk_escalation', [self::RISK_CALL, self::RISK_EMERGENCY]);
             });
+    }
+    
+    /**
+     * ========================================
+     * SCOPES PARA CAMPOS NORMALIZADOS
+     * ========================================
+     */
+    
+    /**
+     * Scope por verdict.
+     */
+    public function scopeByVerdict($query, string $verdict)
+    {
+        return $query->where('verdict', $verdict);
+    }
+    
+    /**
+     * Scope por likelihood.
+     */
+    public function scopeByLikelihood($query, string $likelihood)
+    {
+        return $query->where('likelihood', $likelihood);
+    }
+    
+    /**
+     * Scope por alert_kind.
+     */
+    public function scopeByAlertKind($query, string $alertKind)
+    {
+        return $query->where('alert_kind', $alertKind);
+    }
+    
+    /**
+     * Scope para eventos de pánico.
+     */
+    public function scopePanicAlerts($query)
+    {
+        return $query->where('alert_kind', self::ALERT_KIND_PANIC);
+    }
+    
+    /**
+     * Scope para eventos de seguridad.
+     */
+    public function scopeSafetyAlerts($query)
+    {
+        return $query->where('alert_kind', self::ALERT_KIND_SAFETY);
+    }
+    
+    /**
+     * Scope para eventos de tampering.
+     */
+    public function scopeTamperingAlerts($query)
+    {
+        return $query->where('alert_kind', self::ALERT_KIND_TAMPERING);
+    }
+    
+    /**
+     * Scope para eventos con alta confianza.
+     */
+    public function scopeHighConfidence($query, float $threshold = 0.8)
+    {
+        return $query->where('confidence', '>=', $threshold);
+    }
+    
+    /**
+     * Scope para eventos que son parte de un incidente.
+     */
+    public function scopePartOfIncident($query)
+    {
+        return $query->whereNotNull('incident_id');
+    }
+    
+    /**
+     * Scope para eventos primarios de incidentes.
+     */
+    public function scopePrimaryEvents($query)
+    {
+        return $query->where('is_primary_event', true);
+    }
+    
+    /**
+     * Scope para eventos relacionados con un vehículo en una ventana de tiempo.
+     */
+    public function scopeRelatedToVehicle($query, string $vehicleId, $startTime, $endTime)
+    {
+        return $query->where('vehicle_id', $vehicleId)
+            ->whereBetween('occurred_at', [$startTime, $endTime]);
     }
 
     /**
@@ -718,6 +948,187 @@ class SamsaraEvent extends Model
         }
         
         return 'low';
+    }
+    
+    /**
+     * ========================================
+     * MÉTODOS HELPER - CAMPOS NORMALIZADOS
+     * ========================================
+     */
+    
+    /**
+     * Obtener etiqueta legible para verdict.
+     */
+    public function getVerdictLabel(): string
+    {
+        return match($this->verdict) {
+            self::VERDICT_REAL_PANIC => 'Pánico real',
+            self::VERDICT_CONFIRMED_VIOLATION => 'Violación confirmada',
+            self::VERDICT_NEEDS_REVIEW => 'Requiere revisión',
+            self::VERDICT_UNCERTAIN => 'Incierto',
+            self::VERDICT_LIKELY_FALSE_POSITIVE => 'Probable falso positivo',
+            self::VERDICT_NO_ACTION_NEEDED => 'No requiere acción',
+            self::VERDICT_RISK_DETECTED => 'Riesgo detectado',
+            default => $this->verdict ?? 'Sin veredicto',
+        };
+    }
+    
+    /**
+     * Obtener etiqueta legible para likelihood.
+     */
+    public function getLikelihoodLabel(): string
+    {
+        return match($this->likelihood) {
+            self::LIKELIHOOD_HIGH => 'Alta',
+            self::LIKELIHOOD_MEDIUM => 'Media',
+            self::LIKELIHOOD_LOW => 'Baja',
+            default => $this->likelihood ?? 'Sin evaluación',
+        };
+    }
+    
+    /**
+     * Obtener etiqueta legible para alert_kind.
+     */
+    public function getAlertKindLabel(): string
+    {
+        return match($this->alert_kind) {
+            self::ALERT_KIND_PANIC => 'Pánico',
+            self::ALERT_KIND_SAFETY => 'Seguridad',
+            self::ALERT_KIND_TAMPERING => 'Manipulación',
+            self::ALERT_KIND_CONNECTIVITY => 'Conectividad',
+            self::ALERT_KIND_UNKNOWN => 'Desconocido',
+            default => $this->alert_kind ?? 'Sin clasificar',
+        };
+    }
+    
+    /**
+     * Verificar si tiene un veredicto de alto riesgo.
+     */
+    public function hasHighRiskVerdict(): bool
+    {
+        return in_array($this->verdict, [
+            self::VERDICT_REAL_PANIC,
+            self::VERDICT_CONFIRMED_VIOLATION,
+            self::VERDICT_RISK_DETECTED,
+        ]);
+    }
+    
+    /**
+     * Verificar si es un falso positivo probable o confirmado.
+     */
+    public function isProbableFalsePositive(): bool
+    {
+        return $this->verdict === self::VERDICT_LIKELY_FALSE_POSITIVE
+            || $this->human_status === self::HUMAN_STATUS_FALSE_POSITIVE;
+    }
+    
+    /**
+     * Obtener acciones recomendadas como array de strings.
+     * Prioriza la tabla normalizada, cae back a JSON legacy.
+     */
+    public function getRecommendedActionsArray(): array
+    {
+        // Primero intentar desde la tabla normalizada
+        $actions = $this->recommendedActions()->pluck('action_text')->toArray();
+        
+        if (!empty($actions)) {
+            return $actions;
+        }
+        
+        // Fallback a JSON legacy
+        return $this->recommended_actions ?? [];
+    }
+    
+    /**
+     * Obtener pasos de investigación como array de strings.
+     * Prioriza la tabla normalizada, cae back a JSON legacy.
+     */
+    public function getInvestigationStepsArray(): array
+    {
+        // Primero intentar desde la tabla normalizada
+        $steps = $this->investigationSteps()->pluck('step_text')->toArray();
+        
+        if (!empty($steps)) {
+            return $steps;
+        }
+        
+        // Fallback a JSON legacy
+        return $this->alert_context['investigation_plan'] ?? [];
+    }
+    
+    /**
+     * ========================================
+     * MÉTODOS HELPER - CORRELACIÓN
+     * ========================================
+     */
+    
+    /**
+     * Verificar si este evento es parte de un incidente.
+     */
+    public function isPartOfIncident(): bool
+    {
+        return $this->incident_id !== null;
+    }
+    
+    /**
+     * Verificar si este evento es el primario de un incidente.
+     */
+    public function isPrimaryOfIncident(): bool
+    {
+        return $this->is_primary_event === true;
+    }
+    
+    /**
+     * Obtener eventos correlacionados del mismo incidente.
+     */
+    public function getCorrelatedEvents(): \Illuminate\Database\Eloquent\Collection
+    {
+        if (!$this->incident_id) {
+            return collect();
+        }
+        
+        return self::where('incident_id', $this->incident_id)
+            ->where('id', '!=', $this->id)
+            ->orderBy('occurred_at')
+            ->get();
+    }
+    
+    /**
+     * Guardar acciones recomendadas en tabla normalizada.
+     */
+    public function saveRecommendedActions(array $actions): void
+    {
+        EventRecommendedAction::replaceForEvent($this->id, $actions);
+    }
+    
+    /**
+     * Guardar pasos de investigación en tabla normalizada.
+     */
+    public function saveInvestigationSteps(array $steps): void
+    {
+        EventInvestigationStep::replaceForEvent($this->id, $steps);
+    }
+    
+    /**
+     * Guardar decisión de notificación en tabla normalizada.
+     */
+    public function saveNotificationDecision(array $decisionData, array $recipients = []): NotificationDecision
+    {
+        // Eliminar decisión anterior si existe
+        $this->notificationDecisionRecord()->delete();
+        
+        // Crear nueva decisión
+        $decisionData['samsara_event_id'] = $this->id;
+        return NotificationDecision::createWithRecipients($decisionData, $recipients);
+    }
+    
+    /**
+     * Registrar resultado de notificación.
+     */
+    public function recordNotificationResult(array $resultData): NotificationResult
+    {
+        $resultData['samsara_event_id'] = $this->id;
+        return NotificationResult::create($resultData);
     }
 }
 

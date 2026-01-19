@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Separator } from '@/components/ui/separator';
 import { ReviewPanel } from '@/components/samsara/review-panel';
+import { useTimezone } from '@/hooks/use-timezone';
 import { type HumanStatus } from '@/types/samsara';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem, type SharedData } from '@/types';
@@ -420,22 +421,33 @@ const getAgentIcon = (agentName: string): LucideIcon => {
     }
 };
 
-const formatFullDate = (value?: string | null) => {
+/**
+ * Parse date string treating the time as UTC (ignoring incorrect offset from backend)
+ */
+const parseAsUtc = (value: string): Date => {
+    // Remove timezone offset and treat as UTC
+    const dateWithoutOffset = value.replace(/[+-]\d{2}:\d{2}$/, '');
+    return new Date(dateWithoutOffset + 'Z');
+};
+
+const formatFullDate = (value?: string | null, timezone?: string) => {
     if (!value) return 'Sin registro';
     return new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'full',
         timeStyle: 'short',
-    }).format(new Date(value));
+        timeZone: timezone,
+    }).format(parseAsUtc(value));
 };
 
-const formatShortDateTime = (value?: string | null) => {
+const formatShortDateTime = (value?: string | null, timezone?: string) => {
     if (!value) return 'Sin determinar';
     return new Intl.DateTimeFormat('es-MX', {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
-    }).format(new Date(value));
+        timeZone: timezone,
+    }).format(parseAsUtc(value));
 };
 
 const formatDuration = (ms?: number | null): string => {
@@ -922,7 +934,7 @@ function ContextCard({ event }: ContextCardProps) {
                         <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-muted-foreground uppercase">Fecha/Hora</p>
                             <p className="text-sm font-medium">
-                                {formatShortDateTime(event.occurred_at)}
+                                {formatShortDateTime(event.occurred_at, timezone)}
                             </p>
                             {eventTimeUtc && (
                                 <p className="text-xs text-muted-foreground">
@@ -1977,6 +1989,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
     const [simulatedTools, setSimulatedTools] = useState<string[]>([]);
     const [nextInvestigationEtaMs, setNextInvestigationEtaMs] = useState<number | null>(null);
     const [selectedImage, setSelectedImage] = useState<UnifiedMediaItem | null>(null);
+    const { timezone } = useTimezone();
 
     const isProcessing = event.ai_status === 'processing';
     const isInvestigating = event.ai_status === 'investigating';

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AlertIncidentController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CopilotController;
@@ -49,6 +50,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('samsara/alerts')->name('samsara.alerts.')->group(function () {
         Route::get('/', [SamsaraEventController::class, 'index'])->name('index');
         Route::get('/{samsaraEvent}', [SamsaraEventController::class, 'show'])->name('show');
+    });
+
+    // Samsara incidents routes (correlations)
+    Route::prefix('samsara/incidents')->name('samsara.incidents.')->group(function () {
+        Route::get('/', [AlertIncidentController::class, 'index'])->name('index');
+        Route::get('/{incident}', [AlertIncidentController::class, 'show'])->name('show');
+        Route::patch('/{incident}/status', [AlertIncidentController::class, 'updateStatus'])->name('update-status');
     });
 
     // Fleet Report

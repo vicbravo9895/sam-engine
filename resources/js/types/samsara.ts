@@ -96,3 +96,101 @@ export const HUMAN_STATUS_OPTIONS: { value: HumanStatus; label: string; color: s
     { value: 'false_positive', label: 'Falso positivo', color: 'slate', icon: 'slash' },
 ];
 
+// ============================================================================
+// INCIDENT TYPES (Correlations)
+// ============================================================================
+
+export type IncidentType = 'collision' | 'emergency' | 'pattern' | 'unknown';
+export type IncidentStatus = 'open' | 'investigating' | 'resolved' | 'false_positive';
+export type CorrelationType = 'temporal' | 'causal' | 'pattern';
+
+export interface IncidentPrimaryEvent {
+    id: number;
+    event_type: string;
+    event_description?: string | null;
+    vehicle_id?: string | null;
+    vehicle_name?: string | null;
+    driver_id?: string | null;
+    driver_name?: string | null;
+    occurred_at: string;
+    severity: Severity;
+    verdict?: string | null;
+    likelihood?: string | null;
+    ai_message?: string | null;
+    reasoning?: string | null;
+}
+
+export interface CorrelationInfo {
+    type: CorrelationType;
+    type_label: string;
+    strength: number;
+    time_delta: string;
+    time_delta_seconds: number;
+}
+
+export interface RelatedEventItem {
+    id: number;
+    event_type: string;
+    event_description?: string | null;
+    vehicle_name?: string | null;
+    driver_name?: string | null;
+    occurred_at: string;
+    severity: Severity;
+    verdict?: string | null;
+    ai_message?: string | null;
+    correlation: CorrelationInfo;
+}
+
+export interface AlertIncident {
+    id: number;
+    incident_type: IncidentType;
+    type_label: string;
+    severity: Severity;
+    status: IncidentStatus;
+    status_label: string;
+    detected_at: string;
+    resolved_at?: string | null;
+    ai_summary?: string | null;
+    metadata?: Record<string, unknown> | null;
+    related_events_count: number;
+    primary_event?: IncidentPrimaryEvent | null;
+    related_events?: RelatedEventItem[];
+}
+
+export interface AlertIncidentListItem {
+    id: number;
+    incident_type: IncidentType;
+    type_label: string;
+    severity: Severity;
+    status: IncidentStatus;
+    status_label: string;
+    detected_at: string;
+    resolved_at?: string | null;
+    ai_summary?: string | null;
+    related_events_count: number;
+    primary_event?: {
+        id: number;
+        event_type: string;
+        event_description?: string | null;
+        vehicle_name?: string | null;
+        driver_name?: string | null;
+        occurred_at: string;
+    } | null;
+}
+
+// Incident status options for UI
+export const INCIDENT_STATUS_OPTIONS: { value: IncidentStatus; label: string; color: string }[] = [
+    { value: 'open', label: 'Abierto', color: 'amber' },
+    { value: 'investigating', label: 'En investigación', color: 'blue' },
+    { value: 'resolved', label: 'Resuelto', color: 'emerald' },
+    { value: 'false_positive', label: 'Falso positivo', color: 'slate' },
+];
+
+// Incident type options for UI
+export const INCIDENT_TYPE_OPTIONS: { value: IncidentType; label: string; icon: string; color: string }[] = [
+    { value: 'collision', label: 'Colisión', icon: 'car', color: 'red' },
+    { value: 'emergency', label: 'Emergencia', icon: 'alert-triangle', color: 'orange' },
+    { value: 'pattern', label: 'Patrón', icon: 'activity', color: 'blue' },
+    { value: 'unknown', label: 'Desconocido', icon: 'help-circle', color: 'slate' },
+];
+
