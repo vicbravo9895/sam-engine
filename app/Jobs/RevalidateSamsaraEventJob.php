@@ -238,11 +238,11 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             }
 
             if ($response->failed()) {
-                $this->log('error', 'AI Service returned error', [
+                $this->log('error', 'AI Service returned HTTP error', [
                     'status_code' => $response->status(),
                     'response_body' => substr($response->body(), 0, 1000),
                 ]);
-                throw new \Exception("AI service returned error: " . $response->body());
+                throw new \Exception("AI service returned HTTP error: " . $response->body());
             }
 
             $result = $response->json();
@@ -259,12 +259,37 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             ]);
 
             // =========================================================
+            // VALIDACIÓN CRÍTICA: Verificar status del JSON
+            // El AI Service puede devolver HTTP 200 pero con status "error"
+            // si el pipeline falló internamente
+            // =========================================================
+            if (($result['status'] ?? 'unknown') === 'error') {
+                $errorMessage = $result['error'] ?? 'Unknown pipeline error';
+                $this->log('error', 'AI Service returned error status in JSON', [
+                    'error' => $errorMessage,
+                    'result_keys' => array_keys($result),
+                ]);
+                throw new \Exception("AI service pipeline error: {$errorMessage}");
+            }
+
+            // Validar que tenemos un assessment válido con los campos requeridos
+            $assessment = $result['assessment'] ?? [];
+            if (empty($assessment) || !isset($assessment['verdict'])) {
+                $this->log('error', 'AI Service returned empty or invalid assessment', [
+                    'has_assessment' => !empty($assessment),
+                    'has_verdict' => isset($assessment['verdict']),
+                    'assessment_keys' => array_keys($assessment),
+                ]);
+                throw new \Exception("AI service returned invalid assessment: missing verdict");
+            }
+
+            // =========================================================
             // PASO 5: Extraer y procesar datos de respuesta
             // =========================================================
             $this->log('debug', 'STEP 5: Extracting response data');
 
             $alertContext = $result['alert_context'] ?? $this->event->alert_context;
-            $assessment = $result['assessment'] ?? [];
+            // $assessment ya fue validado arriba
             $humanMessage = $result['human_message'] ?? 'Revalidación completada';
             $notificationDecision = $result['notification_decision'] ?? null;
             $notificationExecution = $result['notification_execution'] ?? null;

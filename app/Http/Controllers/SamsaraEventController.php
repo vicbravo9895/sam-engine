@@ -127,10 +127,11 @@ class SamsaraEventController extends Controller
         ];
 
         $eventTypes = SamsaraEvent::query()
-            ->select('event_type')
+            ->select('event_type', 'created_at')
             ->distinct()
             ->whereNotNull('event_type')
             ->orderBy('event_type')
+            ->orderByDesc('created_at')
             ->pluck('event_type')
             ->filter()
             ->values();

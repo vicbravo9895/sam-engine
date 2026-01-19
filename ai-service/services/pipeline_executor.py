@@ -304,20 +304,40 @@ class PipelineExecutor:
         
         try:
             # Si saltamos el triage, usar el alert_context previo
-            alert_context = context.get("previous_alert_context") if skip_triage else None
+            alert_context = None
+            if skip_triage:
+                alert_context = context.get("previous_alert_context")
+                if not alert_context:
+                    logger.error(f"Revalidation without previous_alert_context (event_id={event_id})")
+                    return PipelineResult(
+                        success=False,
+                        error="Revalidation requires previous_alert_context but it was not provided"
+                    )
+                logger.info(f"Using previous alert_context for revalidation", extra={
+                    "context": {
+                        "alert_type": alert_context.get("alert_type"),
+                        "alert_kind": alert_context.get("alert_kind"),
+                        "event_id": event_id,
+                    }
+                })
+            
             assessment = None
             human_message = None
             notification_decision = None
             
             # Ejecutar pipeline (usa selected_runner según sea revalidación o no)
+            event_count = 0
             async for event in selected_runner.run_async(
                 user_id=ServiceConfig.DEFAULT_USER_ID,
                 session_id=session_id,
                 new_message=initial_message
             ):
+                event_count += 1
+                
                 # Procesar cambio de agente
                 agent_name = self._detect_agent(event)
                 if agent_name:
+                    logger.debug(f"Agent detected: {agent_name} (event #{event_count})")
                     current_input = await self._handle_agent_change(agent_name, session_id, current_input)
                 
                 # Procesar tool calls/responses (fallback)
@@ -328,6 +348,12 @@ class PipelineExecutor:
                 # Capturar texto generado
                 text = self._extract_text(event)
                 if text:
+                    logger.debug(f"Text extracted from {self._current_agent} (event #{event_count})", extra={
+                        "context": {
+                            "text_length": len(text),
+                            "text_preview": text[:200] if len(text) > 200 else text,
+                        }
+                    })
                     self._agent_outputs[self._current_agent] = text
                     self._update_span_output(text)
                     
@@ -336,20 +362,42 @@ class PipelineExecutor:
                         parsed = self._try_parse_json(text, ["alert_type", "alert_kind"])
                         if parsed:
                             alert_context = parsed
+                            logger.info(f"Triage parsed successfully: alert_type={parsed.get('alert_type')}")
                     
                     elif self._current_agent == "investigator_agent":
                         parsed = self._try_parse_json(text, ["likelihood", "verdict"])
                         if parsed:
                             assessment = parsed
+                            logger.info(f"Assessment parsed successfully: verdict={parsed.get('verdict')}, risk_escalation={parsed.get('risk_escalation')}")
+                        else:
+                            logger.warning(f"Failed to parse assessment from investigator output", extra={
+                                "context": {
+                                    "text_length": len(text),
+                                    "is_revalidation": is_revalidation,
+                                }
+                            })
                     
                     elif self._current_agent == "final_agent":
                         # human_message es STRING, no JSON
                         human_message = text.strip()
+                        logger.debug(f"Human message captured: {len(human_message)} chars")
                     
                     elif self._current_agent == "notification_decision_agent":
                         parsed = self._try_parse_json(text, ["should_notify"])
                         if parsed:
                             notification_decision = parsed
+                            logger.info(f"Notification decision parsed: should_notify={parsed.get('should_notify')}")
+            
+            # Log resumen del pipeline
+            logger.info(f"Pipeline iteration completed (event_id={event_id})", extra={
+                "context": {
+                    "total_events": event_count,
+                    "agents_with_output": list(self._agent_outputs.keys()),
+                    "has_assessment": assessment is not None,
+                    "has_alert_context": alert_context is not None,
+                    "is_revalidation": is_revalidation,
+                }
+            })
             
             # Finalizar último agente
             self._finalize_current_agent()
@@ -361,6 +409,44 @@ class PipelineExecutor:
                     self._camera_analysis_task = None
                 except Exception as e:
                     logger.error(f"Error completing camera analysis: {e}")
+            
+            # =========================================================
+            # VALIDACIÓN CRÍTICA: Verificar que tenemos un assessment válido
+            # Si el pipeline no generó un assessment, es un error
+            # =========================================================
+            if not assessment or not isinstance(assessment, dict):
+                logger.error(f"Pipeline completed but no assessment was generated (event_id={event_id})", extra={
+                    "context": {
+                        "has_alert_context": bool(alert_context),
+                        "has_human_message": bool(human_message),
+                        "agent_outputs": list(self._agent_outputs.keys()),
+                        "is_revalidation": is_revalidation,
+                    }
+                })
+                # Cerrar spans antes de retornar error
+                self._close_all_spans()
+                return PipelineResult(
+                    success=False,
+                    error="Pipeline completed but investigator_agent did not generate a valid assessment"
+                )
+            
+            # Validar que el assessment tenga los campos requeridos
+            required_fields = ["verdict", "likelihood", "confidence", "risk_escalation"]
+            missing_fields = [f for f in required_fields if f not in assessment]
+            if missing_fields:
+                logger.error(f"Assessment is missing required fields (event_id={event_id})", extra={
+                    "context": {
+                        "missing_fields": missing_fields,
+                        "assessment_keys": list(assessment.keys()),
+                        "is_revalidation": is_revalidation,
+                    }
+                })
+                # Cerrar spans antes de retornar error
+                self._close_all_spans()
+                return PipelineResult(
+                    success=False,
+                    error=f"Assessment is missing required fields: {', '.join(missing_fields)}"
+                )
             
             # Ejecutar notificaciones (código determinista, no LLM)
             notification_execution = None
@@ -386,6 +472,15 @@ class PipelineExecutor:
             
             # Actualizar trace
             self._finalize_trace(assessment, human_message)
+            
+            logger.info(f"Pipeline completed successfully (event_id={event_id})", extra={
+                "context": {
+                    "verdict": assessment.get("verdict"),
+                    "risk_escalation": assessment.get("risk_escalation"),
+                    "requires_monitoring": assessment.get("requires_monitoring", False),
+                    "is_revalidation": is_revalidation,
+                }
+            })
             
             return PipelineResult(
                 success=True,
@@ -1282,9 +1377,39 @@ Se analizaron {num_images} imágenes con Vision AI:
                 # Verificar que tiene al menos una de las keys requeridas
                 for key in required_keys:
                     if key in parsed:
+                        logger.debug(f"Successfully parsed JSON with key '{key}'", extra={
+                            "context": {
+                                "agent": self._current_agent,
+                                "parsed_keys": list(parsed.keys()),
+                            }
+                        })
                         return parsed
-        except (json.JSONDecodeError, Exception):
-            pass
+                
+                # Si tiene otras keys pero no las requeridas, loguear para debugging
+                logger.warning(f"Parsed JSON but missing required keys", extra={
+                    "context": {
+                        "agent": self._current_agent,
+                        "required_keys": required_keys,
+                        "actual_keys": list(parsed.keys()),
+                        "text_preview": text[:200] if len(text) > 200 else text,
+                    }
+                })
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse JSON from agent output", extra={
+                "context": {
+                    "agent": self._current_agent,
+                    "error": str(e),
+                    "text_preview": text[:500] if len(text) > 500 else text,
+                }
+            })
+        except Exception as e:
+            logger.error(f"Unexpected error parsing JSON", extra={
+                "context": {
+                    "agent": self._current_agent,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                }
+            })
         
         return None
 

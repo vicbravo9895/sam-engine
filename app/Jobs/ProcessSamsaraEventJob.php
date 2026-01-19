@@ -187,7 +187,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
             }
 
             if ($response->failed()) {
-                throw new \Exception("AI service returned error: " . $response->body());
+                throw new \Exception("AI service returned HTTP error: " . $response->body());
             }
 
             $result = $response->json();
@@ -204,9 +204,36 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 'has_execution' => isset($result['execution']),
             ]);
 
+            // =========================================================
+            // VALIDACIÓN CRÍTICA: Verificar status del JSON
+            // El AI Service puede devolver HTTP 200 pero con status "error"
+            // si el pipeline falló internamente
+            // =========================================================
+            if (($result['status'] ?? 'unknown') === 'error') {
+                $errorMessage = $result['error'] ?? 'Unknown pipeline error';
+                Log::error("AI Service returned error status in JSON", [
+                    'event_id' => $this->event->id,
+                    'error' => $errorMessage,
+                    'result_keys' => array_keys($result),
+                ]);
+                throw new \Exception("AI service pipeline error: {$errorMessage}");
+            }
+
+            // Validar que tenemos un assessment válido con los campos requeridos
+            $assessment = $result['assessment'] ?? [];
+            if (empty($assessment) || !isset($assessment['verdict'])) {
+                Log::error("AI Service returned empty or invalid assessment", [
+                    'event_id' => $this->event->id,
+                    'has_assessment' => !empty($assessment),
+                    'has_verdict' => isset($assessment['verdict']),
+                    'assessment_keys' => array_keys($assessment),
+                ]);
+                throw new \Exception("AI service returned invalid assessment: missing verdict");
+            }
+
             // Extraer datos del nuevo contrato
             $alertContext = $result['alert_context'] ?? null;
-            $assessment = $result['assessment'] ?? [];
+            // $assessment ya fue validado arriba
             $humanMessage = $result['human_message'] ?? 'Procesamiento completado';
             $notificationDecision = $result['notification_decision'] ?? null;
             $notificationExecution = $result['notification_execution'] ?? null;
