@@ -320,26 +320,6 @@ class PipelineExecutor:
                         "event_id": event_id,
                     }
                 })
-                
-                # =========================================================
-                # INYECTAR alert_context AL STATE DE LA SESIÓN ADK
-                # =========================================================
-                # Los prompts de final_agent y notification_decision_agent
-                # usan {alert_context} como template variable. Si no existe
-                # en el state, ADK falla con "Context variable not found".
-                # Debemos pre-poblar el state con el alert_context previo.
-                try:
-                    session = await session_service.get_session(
-                        user_id=ServiceConfig.DEFAULT_USER_ID,
-                        session_id=session_id,
-                        app_name=ServiceConfig.APP_NAME
-                    )
-                    if session:
-                        # Inyectar alert_context al state de la sesión
-                        session.state["alert_context"] = json.dumps(alert_context, ensure_ascii=False)
-                        logger.debug(f"Injected alert_context into session state (event_id={event_id})")
-                except Exception as e:
-                    logger.warning(f"Failed to inject alert_context into session state: {e}")
             
             assessment = None
             human_message = None

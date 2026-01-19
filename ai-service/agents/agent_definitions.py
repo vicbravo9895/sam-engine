@@ -28,6 +28,7 @@ from .prompts import (
     TRIAGE_AGENT_PROMPT,
     INVESTIGATOR_AGENT_PROMPT,
     FINAL_AGENT_PROMPT,
+    FINAL_AGENT_REVALIDATION_PROMPT,
     NOTIFICATION_DECISION_PROMPT,
     CORRELATION_AGENT_PROMPT,
 )
@@ -200,7 +201,7 @@ _revalidation_investigator = LlmAgent(
 _revalidation_final = LlmAgent(
     name="final_agent",
     model=LiteLlm(model=OpenAIConfig.MODEL_GPT5_MINI),
-    instruction=FINAL_AGENT_PROMPT,
+    instruction=FINAL_AGENT_REVALIDATION_PROMPT,  # Sin template variables {alert_context}
     description="Genera mensaje final en español para el equipo de monitoreo",
     output_key="human_message"
 )
