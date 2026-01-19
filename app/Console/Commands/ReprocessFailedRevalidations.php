@@ -44,19 +44,28 @@ class ReprocessFailedRevalidations extends Command
         $this->newLine();
 
         $query = SamsaraEvent::query()
-            // Alertas que estaban en investigating o failed
-            ->whereIn('ai_status', [
-                SamsaraEvent::STATUS_INVESTIGATING,
-                SamsaraEvent::STATUS_FAILED,
-            ])
-            // Que tienen investigation_count > 0 (ya tuvieron al menos una investigación)
+            // Alertas que tuvieron al menos una investigación
             ->where('investigation_count', '>', 0)
-            // Que tienen el error específico del bug
+            // Que están en uno de estos estados problemáticos
             ->where(function ($q) {
-                $q->where('ai_error', 'like', '%alert_context%')
-                  ->orWhere('ai_error', 'like', '%Context variable not found%')
-                  // O que no tienen assessment válido a pesar de tener investigaciones
-                  ->orWhereNull('ai_assessment');
+                // Caso 1: Status investigating o failed
+                $q->whereIn('ai_status', [
+                    SamsaraEvent::STATUS_INVESTIGATING,
+                    SamsaraEvent::STATUS_FAILED,
+                ]);
+                
+                // Caso 2: Status completed pero sin assessment válido
+                // (ai_assessment es null, array vacío [], o no tiene verdict)
+                $q->orWhere(function ($q2) {
+                    $q2->where('ai_status', SamsaraEvent::STATUS_COMPLETED)
+                       ->where(function ($q3) {
+                           $q3->whereNull('ai_assessment')
+                              ->orWhere('ai_assessment', '[]')
+                              ->orWhere('ai_assessment', '{}')
+                              // También buscar los que tienen assessment pero sin verdict
+                              ->orWhereNull('verdict');
+                       });
+                });
             });
 
         // Filtros opcionales
