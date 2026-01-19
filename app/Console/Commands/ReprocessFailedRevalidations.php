@@ -55,13 +55,14 @@ class ReprocessFailedRevalidations extends Command
                 ]);
                 
                 // Caso 2: Status completed pero sin assessment válido
-                // (ai_assessment es null, array vacío [], o no tiene verdict)
+                // (ai_assessment es null, array vacío, o no tiene verdict)
                 $q->orWhere(function ($q2) {
                     $q2->where('ai_status', SamsaraEvent::STATUS_COMPLETED)
                        ->where(function ($q3) {
                            $q3->whereNull('ai_assessment')
-                              ->orWhere('ai_assessment', '[]')
-                              ->orWhere('ai_assessment', '{}')
+                              // Para JSON en PostgreSQL, usar cast a text para comparar
+                              ->orWhereRaw("ai_assessment::text = '[]'")
+                              ->orWhereRaw("ai_assessment::text = '{}'")
                               // También buscar los que tienen assessment pero sin verdict
                               ->orWhereNull('verdict');
                        });
