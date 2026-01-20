@@ -146,9 +146,13 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Enriquecer el payload con los contactos
             $enrichedPayload = array_merge($this->event->raw_payload, $contactPayload);
             
+            // Get company AI configuration for time windows
+            $aiConfig = $company->getAiConfig();
+            $timeWindows = $aiConfig['investigation_windows'] ?? [];
+
             // Pre-cargar TODA la información de Samsara en paralelo
             // Esto ahorra ~4-5 segundos al evitar que el AI llame a las tools
-            $enrichedPayload = $this->preloadSamsaraData($enrichedPayload, $samsaraClient);
+            $enrichedPayload = $this->preloadSamsaraData($enrichedPayload, $samsaraClient, $timeWindows);
 
             // Actualizar la descripción del evento si se encontró un behavior_name más específico
             $this->updateEventDescriptionFromSafetyEvent($enrichedPayload);
@@ -162,8 +166,9 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Llamar al servicio de IA (FastAPI)
             $aiServiceUrl = config('services.ai_engine.url');
 
-            // Agregar company_id al payload para que el AI Service pueda extraerlo
+            // Agregar company_id y AI config al payload
             $enrichedPayload['company_id'] = $company->id;
+            $enrichedPayload['company_config'] = $aiConfig;
 
             $response = Http::timeout(300)
                 ->withHeaders([
@@ -623,9 +628,10 @@ class ProcessSamsaraEventJob implements ShouldQueue
      * 
      * @param array $payload El payload original del webhook
      * @param SamsaraClient $samsaraClient Cliente de la API de Samsara
+     * @param array $timeWindows Time window configuration from company settings
      * @return array El payload enriquecido con preloaded_data
      */
-    private function preloadSamsaraData(array $payload, SamsaraClient $samsaraClient): array
+    private function preloadSamsaraData(array $payload, SamsaraClient $samsaraClient, array $timeWindows = []): array
     {
         // Extraer contexto del evento (vehicleId, happenedAtTime)
         $context = SamsaraClient::extractEventContext($payload);
@@ -661,7 +667,8 @@ class ProcessSamsaraEventJob implements ShouldQueue
         $preloadedData = $samsaraClient->preloadAllData(
             vehicleId: $vehicleId,
             eventTime: $eventTime,
-            isSafetyEvent: $isSafetyEvent
+            isSafetyEvent: $isSafetyEvent,
+            timeWindows: $timeWindows
         );
 
         if (empty($preloadedData)) {

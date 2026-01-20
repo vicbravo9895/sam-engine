@@ -31,6 +31,7 @@ from agents.agent_definitions import AGENTS_BY_NAME
 from agents.schemas import ToolResult, AgentResult, PipelineResult
 # NOTA: execute_notifications removido - Laravel ejecuta notificaciones via SendNotificationJob
 from .preloaded_media_analyzer import analyze_preloaded_media
+from .response_builder import _fix_corrupted_encoding, _fix_dict_encoding
 
 
 # ============================================================================
@@ -213,13 +214,16 @@ class PipelineExecutor:
         self._revalidation_context: Optional[Dict[str, Any]] = None
         # Flag para indicar si saltamos el triage (optimización de revalidación)
         self._skip_triage: bool = False
+        # Company-specific AI configuration
+        self._company_config: Optional[Dict[str, Any]] = None
     
     async def execute(
         self,
         payload: Dict[str, Any],
         event_id: int,
         is_revalidation: bool = False,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        company_config: Optional[Dict[str, Any]] = None
     ) -> PipelineResult:
         """
         Ejecuta el pipeline de agentes para una alerta.
@@ -229,6 +233,7 @@ class PipelineExecutor:
             event_id: ID del evento en la base de datos
             is_revalidation: True si es una revalidación
             context: Contexto adicional para revalidaciones
+            company_config: Configuración de AI específica de la empresa
             
         Returns:
             PipelineResult con alert_context, assessment, human_message, etc.
@@ -237,6 +242,7 @@ class PipelineExecutor:
         self._full_payload = payload
         self._is_revalidation = is_revalidation
         self._revalidation_context = context
+        self._company_config = company_config
         
         # Extraer metadata
         alert_type = payload.get("alertType", "unknown")
@@ -931,12 +937,23 @@ class PipelineExecutor:
         y enviamos directamente al investigator_agent. Esto ahorra ~2 minutos.
         
         El mensaje incluye:
+        - Configuración de empresa (si existe)
         - alert_context previo (del triage original)
         - Datos pre-cargados actualizados
         - Datos de revalidación (nuevos desde última investigación)
         - Contexto temporal de la revalidación
         """
         parts = []
+        
+        # 0. Configuración de empresa (si existe)
+        if self._company_config:
+            monitoring_config = self._company_config.get('monitoring', {})
+            if monitoring_config:
+                parts.append("## CONFIGURACIÓN DE EMPRESA")
+                parts.append(f"- Umbral de confianza para monitoreo: {monitoring_config.get('confidence_threshold', 0.80)}")
+                parts.append(f"- Intervalos de revalidación disponibles: {monitoring_config.get('check_intervals', [5, 15, 30, 60])} minutos")
+                parts.append(f"- Máximo de revalidaciones: {monitoring_config.get('max_revalidations', 5)}")
+                parts.append("")
         
         # 1. Alert context previo (del triage original)
         previous_alert_context = context.get("previous_alert_context", {})
@@ -1072,8 +1089,18 @@ class PipelineExecutor:
         OPTIMIZACIÓN: Solo enviamos lo necesario para decidir notificaciones:
         - Assessment (veredicto, risk_escalation, confianza)
         - Contactos disponibles
+        - Matriz de escalación personalizada (si existe)
         """
         parts = []
+        
+        # 0. Matriz de escalación personalizada (si existe)
+        if self._company_config:
+            escalation_matrix = self._company_config.get('escalation_matrix')
+            if escalation_matrix:
+                parts.append("## MATRIZ DE ESCALACIÓN (configuración de empresa)")
+                parts.append("Usa esta matriz personalizada en lugar de la matriz por defecto:")
+                parts.append(json.dumps(escalation_matrix, ensure_ascii=False, indent=2))
+                parts.append("")
         
         # 1. Assessment (es lo principal para decidir notificaciones)
         parts.append("## EVALUACIÓN (assessment)")
@@ -1106,10 +1133,21 @@ class PipelineExecutor:
         - Output del triage (alert_context)
         - Payload completo con preloaded_data
         - Contexto de revalidación si aplica
+        - Configuración de empresa (umbrales, intervalos)
         
         El investigator necesita todos los datos para hacer su análisis.
         """
         parts = []
+        
+        # 0. Configuración de empresa (si existe)
+        if self._company_config:
+            monitoring_config = self._company_config.get('monitoring', {})
+            if monitoring_config:
+                parts.append("## CONFIGURACIÓN DE EMPRESA")
+                parts.append(f"- Umbral de confianza para monitoreo: {monitoring_config.get('confidence_threshold', 0.80)}")
+                parts.append(f"- Intervalos de revalidación disponibles: {monitoring_config.get('check_intervals', [5, 15, 30, 60])} minutos")
+                parts.append(f"- Máximo de revalidaciones: {monitoring_config.get('max_revalidations', 5)}")
+                parts.append("")
         
         # 1. Output del triage (alert_context)
         parts.append("## CONTEXTO DEL TRIAJE (alert_context)")
@@ -1369,9 +1407,18 @@ Se analizaron {num_images} imágenes con Vision AI:
         """Intenta parsear el texto como JSON y verificar keys requeridas."""
         try:
             clean_text = _clean_markdown(text)
+            
+            # Aplicar corrección de encoding ANTES de parsear
+            # Esto ayuda con caracteres corruptos que podrían afectar el JSON
+            clean_text = _fix_corrupted_encoding(clean_text)
+            
             parsed = json.loads(clean_text)
             
             if isinstance(parsed, dict):
+                # Aplicar corrección de encoding DESPUÉS de parsear
+                # para limpiar valores de texto dentro del JSON
+                parsed = _fix_dict_encoding(parsed)
+                
                 # Verificar que tiene al menos una de las keys requeridas
                 for key in required_keys:
                     if key in parsed:

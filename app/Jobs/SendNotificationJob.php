@@ -130,6 +130,10 @@ class SendNotificationJob implements ShouldQueue
 
     /**
      * Envía las notificaciones según la decisión.
+     * 
+     * Los canales se filtran según la configuración de la empresa.
+     * Esto permite que cada empresa habilite/deshabilite canales específicos.
+     * 
      * Orden: call > whatsapp > sms
      */
     private function sendNotifications(
@@ -143,6 +147,18 @@ class SendNotificationJob implements ShouldQueue
         $messageText = $this->decision['message_text'] ?? '';
         $callScript = $this->decision['call_script'] ?? mb_substr($messageText, 0, 200);
         $escalationLevel = $this->decision['escalation_level'] ?? 'low';
+
+        // Filtrar canales según la configuración de la empresa
+        $channels = $this->filterChannelsByCompanyConfig($channels);
+        
+        if (empty($channels)) {
+            Log::info('SendNotificationJob: No hay canales habilitados después del filtro', [
+                'event_id' => $this->event->id,
+                'original_channels' => $this->decision['channels_to_use'] ?? [],
+                'company_id' => $this->event->company_id,
+            ]);
+            return $results;
+        }
 
         // Ordenar recipients por prioridad
         usort($recipients, fn($a, $b) => ($a['priority'] ?? 999) <=> ($b['priority'] ?? 999));
@@ -173,6 +189,60 @@ class SendNotificationJob implements ShouldQueue
     }
 
     /**
+     * Filtra los canales de notificación según la configuración de la empresa.
+     * 
+     * La AI siempre emite su veredicto con los canales recomendados,
+     * pero la empresa puede tener canales deshabilitados.
+     * 
+     * @param array $channels Canales recomendados por la AI
+     * @return array Canales filtrados según config de empresa
+     */
+    private function filterChannelsByCompanyConfig(array $channels): array
+    {
+        $company = $this->event->company;
+        
+        if (!$company) {
+            // Sin empresa, usar todos los canales
+            return $channels;
+        }
+
+        // Mapeo de nombres de canales AI -> config de empresa
+        $channelMapping = [
+            'call' => 'call',
+            'whatsapp' => 'whatsapp',
+            'sms' => 'sms',
+            'email' => 'email',
+        ];
+
+        $filteredChannels = [];
+        $disabledChannels = [];
+
+        foreach ($channels as $channel) {
+            $configKey = $channelMapping[$channel] ?? $channel;
+            $isEnabled = $company->isNotificationChannelEnabled($configKey);
+            
+            if ($isEnabled) {
+                $filteredChannels[] = $channel;
+            } else {
+                $disabledChannels[] = $channel;
+            }
+        }
+
+        // Log si se filtraron canales
+        if (!empty($disabledChannels)) {
+            Log::info('SendNotificationJob: Canales filtrados por config de empresa', [
+                'event_id' => $this->event->id,
+                'company_id' => $company->id,
+                'original_channels' => $channels,
+                'filtered_channels' => $filteredChannels,
+                'disabled_channels' => $disabledChannels,
+            ]);
+        }
+
+        return $filteredChannels;
+    }
+
+    /**
      * Envía una notificación a un destinatario específico.
      */
     private function sendToRecipient(
@@ -190,8 +260,16 @@ class SendNotificationJob implements ShouldQueue
         $result = null;
 
         if ($channel === 'call' && $phone) {
-            // Usar callback para escalation critical/high
-            if (in_array($escalationLevel, ['critical', 'high'])) {
+            // Botón de pánico usa callback especial
+            $isPanic = $this->isPanicButtonEvent();
+            
+            if ($isPanic && in_array($escalationLevel, ['critical', 'high'])) {
+                $response = $twilioService->makePanicCallWithCallback(
+                    to: $phone,
+                    vehicleName: $this->event->vehicle_name ?? 'Unidad',
+                    eventId: $this->event->id
+                );
+            } elseif (in_array($escalationLevel, ['critical', 'high'])) {
                 $response = $twilioService->makeCallWithCallback(
                     to: $phone,
                     message: $callScript,
@@ -216,19 +294,26 @@ class SendNotificationJob implements ShouldQueue
 
         } elseif ($channel === 'whatsapp' && ($whatsapp || $phone)) {
             $target = $whatsapp ?: $phone;
-            $response = $twilioService->sendWhatsapp(
+            
+            // Usar WhatsApp Template para poder iniciar conversaciones
+            $templateSid = $this->getWhatsAppTemplateSid();
+            $templateVars = $this->buildWhatsAppTemplateVariables();
+            
+            $response = $twilioService->sendWhatsappTemplate(
                 to: $target,
-                message: $message
+                templateSid: $templateSid,
+                variables: $templateVars
             );
 
             $result = [
-                'channel' => 'whatsapp',
+                'channel' => 'whatsapp_template',
                 'to' => $target,
                 'recipient_type' => $recipientType,
                 'success' => $response['success'] ?? false,
                 'error' => $response['error'] ?? null,
                 'call_sid' => null,
                 'message_sid' => $response['sid'] ?? null,
+                'template_sid' => $templateSid,
             ];
 
         } elseif ($channel === 'sms' && $phone) {
@@ -249,6 +334,134 @@ class SendNotificationJob implements ShouldQueue
         }
 
         return $result;
+    }
+
+    /**
+     * Determina si el evento es un botón de pánico.
+     */
+    private function isPanicButtonEvent(): bool
+    {
+        $eventType = strtolower($this->event->event_type ?? '');
+        $description = strtolower($this->event->event_description ?? '');
+        
+        return str_contains($eventType, 'panic') || 
+               str_contains($description, 'pánico') ||
+               str_contains($description, 'panic');
+    }
+
+    /**
+     * Selecciona el template de WhatsApp apropiado según el tipo de evento.
+     */
+    private function getWhatsAppTemplateSid(): string
+    {
+        $eventType = $this->event->event_type ?? '';
+        $description = $this->event->event_description ?? '';
+        $combined = strtolower($eventType . ' ' . $description);
+        
+        // Botón de pánico / emergencias
+        if (str_contains($combined, 'panic') || str_contains($combined, 'pánico') || str_contains($combined, 'emergency')) {
+            return TwilioService::TEMPLATE_EMERGENCY_ALERT;
+        }
+        
+        // Eventos de seguridad (colisiones, frenadas, etc.)
+        if (str_contains($combined, 'collision') || 
+            str_contains($combined, 'colisión') ||
+            str_contains($combined, 'harsh') ||
+            str_contains($combined, 'frenada') ||
+            str_contains($combined, 'crash') ||
+            str_contains($combined, 'safety')) {
+            return TwilioService::TEMPLATE_SAFETY_ALERT;
+        }
+        
+        // Por defecto: alerta de flota genérica
+        return TwilioService::TEMPLATE_FLEET_ALERT;
+    }
+
+    /**
+     * Construye las variables para el template de WhatsApp.
+     * 
+     * Las variables dependen del template pero generalmente siguen este patrón:
+     * {{1}} = Tipo de alerta / Título
+     * {{2}} = Nombre del vehículo
+     * {{3}} = Nombre del conductor
+     * {{4}} = Severidad o ubicación
+     * {{5}} = Mensaje del AI / detalles
+     * {{6}} = Timestamp
+     */
+    private function buildWhatsAppTemplateVariables(): array
+    {
+        $event = $this->event;
+        $timezone = $event->company?->timezone ?? 'America/Mexico_City';
+        $occurredAt = $event->occurred_at?->setTimezone($timezone)->format('d/m/Y H:i') ?? 'N/A';
+        
+        // Obtener el mensaje del AI o un fallback
+        $aiMessage = $this->decision['message_text'] ?? $event->ai_message ?? 'Revisar evento';
+        // Truncar si es muy largo (límite de templates ~1024 chars por variable)
+        $aiMessage = mb_substr($aiMessage, 0, 500);
+        
+        // Extraer ubicación si está disponible
+        $location = $this->extractLocationFromPayload();
+        
+        // Severidad legible
+        $severity = match($event->severity ?? 'info') {
+            'critical' => 'Crítico',
+            'warning' => 'Alto',
+            'info' => 'Medio',
+            default => $event->severity ?? 'Info',
+        };
+
+        $templateSid = $this->getWhatsAppTemplateSid();
+        
+        // Variables específicas por template
+        if ($templateSid === TwilioService::TEMPLATE_EMERGENCY_ALERT) {
+            return [
+                '1' => $event->vehicle_name ?? 'Unidad desconocida',
+                '2' => $event->driver_name ?? 'No identificado',
+                '3' => $location,
+                '4' => $occurredAt,
+                '5' => $aiMessage,
+            ];
+        }
+        
+        if ($templateSid === TwilioService::TEMPLATE_SAFETY_ALERT) {
+            return [
+                '1' => $event->event_description ?? 'Evento de Seguridad',
+                '2' => $event->vehicle_name ?? 'Unidad desconocida',
+                '3' => $event->driver_name ?? 'No identificado',
+                '4' => $severity,
+                '5' => $aiMessage,
+                '6' => $occurredAt,
+            ];
+        }
+        
+        // TEMPLATE_FLEET_ALERT (default)
+        return [
+            '1' => $event->event_description ?? $event->event_type ?? 'Alerta de Flota',
+            '2' => $event->vehicle_name ?? 'Unidad desconocida',
+            '3' => $event->driver_name ?? 'No identificado',
+            '4' => $occurredAt,
+            '5' => $aiMessage,
+        ];
+    }
+
+    /**
+     * Extrae la ubicación del payload del evento.
+     */
+    private function extractLocationFromPayload(): string
+    {
+        $payload = $this->event->raw_payload ?? [];
+        
+        if (isset($payload['data']['location']['formattedAddress'])) {
+            return $payload['data']['location']['formattedAddress'];
+        }
+        
+        if (isset($payload['data']['location']['latitude'], $payload['data']['location']['longitude'])) {
+            $lat = round($payload['data']['location']['latitude'], 6);
+            $lng = round($payload['data']['location']['longitude'], 6);
+            return "{$lat}, {$lng}";
+        }
+        
+        return 'Ubicación no disponible';
     }
 
     /**

@@ -14,7 +14,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, AlertTriangle, Building2, Contact, LayoutGrid, Settings, Shield, Sparkles, Truck, User, Users } from 'lucide-react';
+import { Activity, AlertTriangle, Bot, Building2, Contact, LayoutGrid, Settings, Shield, Sparkles, Truck, User, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 // ============================================
@@ -113,6 +113,11 @@ export function AppSidebar() {
             title: 'Empresa',
             href: '/company',
             icon: Settings,
+        });
+        adminNavItems.push({
+            title: 'Configuración AI',
+            href: '/company/ai-settings',
+            icon: Bot,
         });
     }
 

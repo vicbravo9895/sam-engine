@@ -137,6 +137,18 @@ class RevalidateSamsaraEventJob implements ShouldQueue
 
         try {
             // =========================================================
+            // PASO 0: Obtener configuración AI de la empresa
+            // =========================================================
+            $company = $this->event->company;
+            $aiConfig = $company->getAiConfig();
+            $timeWindows = $aiConfig['investigation_windows'] ?? [];
+
+            $this->log('debug', 'STEP 0: Company AI config loaded', [
+                'company_id' => $company->id,
+                'has_custom_time_windows' => !empty($company->getSetting('ai_config.investigation_windows')),
+            ]);
+
+            // =========================================================
             // PASO 1: Resolver contactos para notificaciones
             // =========================================================
             $this->log('debug', 'STEP 1: Resolving contacts for notifications');
@@ -157,7 +169,7 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             // =========================================================
             $this->log('debug', 'STEP 2: Reloading Samsara data with updated time window');
             
-            $enrichedPayload = $this->reloadSamsaraDataForRevalidation($enrichedPayload);
+            $enrichedPayload = $this->reloadSamsaraDataForRevalidation($enrichedPayload, $timeWindows);
 
             // =========================================================
             // PASO 3: Preparar contexto de revalidación
@@ -197,8 +209,9 @@ class RevalidateSamsaraEventJob implements ShouldQueue
             // - Carga del servicio de OpenAI
             $httpTimeout = 300; // 5 minutos
             
-            // Agregar company_id al payload para trazabilidad multi-tenant
+            // Agregar company_id y AI config al payload para trazabilidad multi-tenant
             $enrichedPayload['company_id'] = $this->event->company_id;
+            $enrichedPayload['company_config'] = $aiConfig;
 
             $this->log('info', 'STEP 4: Calling AI Service /alerts/revalidate', [
                 'endpoint' => "{$aiServiceUrl}/alerts/revalidate",
@@ -520,8 +533,12 @@ class RevalidateSamsaraEventJob implements ShouldQueue
 
     /**
      * Recarga datos de Samsara con una ventana temporal ACTUALIZADA.
+     * 
+     * @param array $payload El payload original
+     * @param array $timeWindows Time window configuration from company settings
+     * @return array Payload con datos actualizados
      */
-    private function reloadSamsaraDataForRevalidation(array $payload): array
+    private function reloadSamsaraDataForRevalidation(array $payload, array $timeWindows = []): array
     {
         $company = $this->event->company;
         if (!$company) {
@@ -565,7 +582,8 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                 vehicleId: $vehicleId,
                 originalEventTime: $originalEventTime,
                 lastInvestigationTime: $lastInvestigationTime,
-                isSafetyEvent: $isSafetyEvent
+                isSafetyEvent: $isSafetyEvent,
+                timeWindows: $timeWindows
             );
 
             if (empty($reloadedData)) {

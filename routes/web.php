@@ -82,6 +82,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('company', [CompanyController::class, 'update'])->name('company.update');
     Route::put('company/samsara-key', [CompanyController::class, 'updateSamsaraKey'])->name('company.samsara-key.update');
     Route::delete('company/samsara-key', [CompanyController::class, 'removeSamsaraKey'])->name('company.samsara-key.destroy');
+    
+    // AI Configuration routes (admin only)
+    Route::get('company/ai-settings', [CompanyController::class, 'editAiSettings'])->name('company.ai-settings.edit');
+    Route::put('company/ai-settings', [CompanyController::class, 'updateAiSettings'])->name('company.ai-settings.update');
+    Route::post('company/ai-settings/reset', [CompanyController::class, 'resetAiSettings'])->name('company.ai-settings.reset');
 });
 
 // Super Admin routes

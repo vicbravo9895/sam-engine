@@ -30,6 +30,7 @@ import {
     AlertTriangle,
     ArrowLeft,
     Bell,
+    BellOff,
     BellRing,
     Calendar,
     Camera,
@@ -211,6 +212,16 @@ interface NotificationExecution {
 }
 
 /**
+ * Call Response from panic button callback.
+ */
+interface CallResponse {
+    digits?: string;
+    response_type?: 'confirmed' | 'denied' | 'no_response';
+    responded_at?: string;
+    caller_phone?: string;
+}
+
+/**
  * Alert Context from alert_context column (triage output).
  * Fields: alert_type, alert_kind, alert_category, event_time_utc, time_window,
  * required_tools, investigation_plan, triage_notes, investigation_strategy,
@@ -344,6 +355,12 @@ interface SamsaraEventPayload {
     notification_decision?: NotificationDecision | null;
     // Notification execution results
     notification_execution?: NotificationExecution | null;
+    // Panic callback status
+    notification_status?: string | null;
+    notification_status_label?: string | null;
+    call_response?: CallResponse | null;
+    notification_channels?: string[] | null;
+    notification_sent_at?: string | null;
     // Operational fields
     dedupe_key?: string | null;
     risk_escalation?: string | null;
@@ -664,7 +681,7 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                     )}
 
                     {/* Notification Status */}
-                    {notificationSent && (
+                    {notificationSent && !event.notification_status && (
                         <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 gap-1 px-2.5 py-1">
                             <Bell className="size-3" />
                             Notificado
@@ -674,6 +691,31 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                         <Badge className="bg-slate-500/10 text-slate-600 dark:text-slate-400 gap-1 px-2.5 py-1">
                             <Clock className="size-3" />
                             Throttled
+                        </Badge>
+                    )}
+                    {/* Panic Callback Status */}
+                    {event.notification_status === 'panic_confirmed' && (
+                        <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 gap-1 px-2.5 py-1">
+                            <AlertTriangle className="size-3" />
+                            Pánico Confirmado
+                        </Badge>
+                    )}
+                    {event.notification_status === 'false_alarm' && (
+                        <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 gap-1 px-2.5 py-1">
+                            <CheckCircle2 className="size-3" />
+                            Falsa Alarma
+                        </Badge>
+                    )}
+                    {event.notification_status === 'operator_no_response' && (
+                        <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-300 gap-1 px-2.5 py-1">
+                            <Phone className="size-3" />
+                            Sin Respuesta
+                        </Badge>
+                    )}
+                    {event.notification_status === 'escalated' && (
+                        <Badge className="bg-red-500/10 text-red-600 dark:text-red-400 gap-1 px-2.5 py-1">
+                            <BellRing className="size-3" />
+                            Escalado
                         </Badge>
                     )}
                 </div>
@@ -737,6 +779,212 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                 </div>
             </div>
         </div>
+    );
+}
+
+// ============================================================================
+// PANIC CALLBACK STATUS CARD COMPONENT
+// Shows: callback status for panic button events (confirmed, false alarm, no response)
+// ============================================================================
+
+interface CallbackStatusCardProps {
+    event: SamsaraEventPayload;
+}
+
+function CallbackStatusCard({ event }: CallbackStatusCardProps) {
+    const { timezone, formatDate } = useTimezone();
+    
+    // Only show for events with notification_status (panic callback flow)
+    if (!event.notification_status) return null;
+    
+    const callResponse = event.call_response;
+    const respondedAt = callResponse?.responded_at;
+
+    // Configuración de estados con textos amigables para monitoristas
+    const statusConfigs: Record<string, {
+        icon: typeof Bell;
+        title: string;
+        description: string;
+        bgColor: string;
+        iconColor: string;
+        textColor: string;
+    }> = {
+        // Estados de confirmación del operador
+        panic_confirmed: {
+            icon: AlertTriangle,
+            title: 'Emergencia Confirmada',
+            description: 'El operador confirmó que es una emergencia real. Se ha escalado al equipo de monitoreo.',
+            bgColor: 'bg-red-500/10 border-red-500/30',
+            iconColor: 'text-red-600 dark:text-red-400',
+            textColor: 'text-red-900 dark:text-red-100',
+        },
+        false_alarm: {
+            icon: CheckCircle2,
+            title: 'Falsa Alarma',
+            description: 'El operador indicó que fue una activación accidental. No se requiere acción.',
+            bgColor: 'bg-emerald-500/10 border-emerald-500/30',
+            iconColor: 'text-emerald-600 dark:text-emerald-400',
+            textColor: 'text-emerald-900 dark:text-emerald-100',
+        },
+        operator_no_response: {
+            icon: Phone,
+            title: 'Sin Respuesta',
+            description: 'El operador no respondió la llamada. La alerta queda pendiente de verificación.',
+            bgColor: 'bg-amber-500/10 border-amber-500/30',
+            iconColor: 'text-amber-600 dark:text-amber-400',
+            textColor: 'text-amber-900 dark:text-amber-100',
+        },
+        escalated: {
+            icon: BellRing,
+            title: 'Escalada',
+            description: 'La alerta fue escalada al equipo de monitoreo y emergencias.',
+            bgColor: 'bg-red-500/10 border-red-500/30',
+            iconColor: 'text-red-600 dark:text-red-400',
+            textColor: 'text-red-900 dark:text-red-100',
+        },
+        // Estados de deduplicación y throttling
+        dedupe_blocked: {
+            icon: Bell,
+            title: 'Notificación Omitida',
+            description: 'Ya se envió una notificación similar recientemente. Se evitó duplicar para no saturar.',
+            bgColor: 'bg-slate-500/10 border-slate-500/30',
+            iconColor: 'text-slate-600 dark:text-slate-400',
+            textColor: 'text-slate-900 dark:text-slate-100',
+        },
+        throttled: {
+            icon: Bell,
+            title: 'Notificación en Espera',
+            description: 'La notificación está en cola debido a límites de envío. Se procesará pronto.',
+            bgColor: 'bg-blue-500/10 border-blue-500/30',
+            iconColor: 'text-blue-600 dark:text-blue-400',
+            textColor: 'text-blue-900 dark:text-blue-100',
+        },
+        // Estados de envío
+        pending: {
+            icon: Clock,
+            title: 'Pendiente de Envío',
+            description: 'La notificación está programada y se enviará en breve.',
+            bgColor: 'bg-blue-500/10 border-blue-500/30',
+            iconColor: 'text-blue-600 dark:text-blue-400',
+            textColor: 'text-blue-900 dark:text-blue-100',
+        },
+        sent: {
+            icon: CheckCircle2,
+            title: 'Notificación Enviada',
+            description: 'La notificación se envió correctamente al equipo de monitoreo.',
+            bgColor: 'bg-emerald-500/10 border-emerald-500/30',
+            iconColor: 'text-emerald-600 dark:text-emerald-400',
+            textColor: 'text-emerald-900 dark:text-emerald-100',
+        },
+        failed: {
+            icon: XCircle,
+            title: 'Error de Envío',
+            description: 'Hubo un problema al enviar la notificación. Se reintentará automáticamente.',
+            bgColor: 'bg-red-500/10 border-red-500/30',
+            iconColor: 'text-red-600 dark:text-red-400',
+            textColor: 'text-red-900 dark:text-red-100',
+        },
+        // Estados de monitoreo
+        monitoring: {
+            icon: Eye,
+            title: 'En Monitoreo',
+            description: 'La alerta está siendo monitoreada. Se notificará si hay cambios.',
+            bgColor: 'bg-blue-500/10 border-blue-500/30',
+            iconColor: 'text-blue-600 dark:text-blue-400',
+            textColor: 'text-blue-900 dark:text-blue-100',
+        },
+        no_notification: {
+            icon: BellOff,
+            title: 'Sin Notificación Requerida',
+            description: 'El análisis determinó que no es necesario notificar en este momento.',
+            bgColor: 'bg-slate-500/10 border-slate-500/30',
+            iconColor: 'text-slate-600 dark:text-slate-400',
+            textColor: 'text-slate-900 dark:text-slate-100',
+        },
+    };
+
+    const statusConfig = statusConfigs[event.notification_status] ?? {
+        icon: Bell,
+        title: 'Estado de Notificación',
+        description: event.notification_status_label ?? 'Procesando notificación...',
+        bgColor: 'bg-slate-500/10 border-slate-500/30',
+        iconColor: 'text-slate-600 dark:text-slate-400',
+        textColor: 'text-slate-900 dark:text-slate-100',
+    };
+
+    const StatusIcon = statusConfig.icon;
+
+    return (
+        <Card className={`border-2 ${statusConfig.bgColor}`}>
+            <CardHeader className="pb-3">
+                <div className="flex items-center gap-3">
+                    <div className={`rounded-lg p-2 ${statusConfig.bgColor}`}>
+                        <StatusIcon className={`size-5 ${statusConfig.iconColor}`} />
+                    </div>
+                    <div className="flex-1">
+                        <CardTitle className={`text-base ${statusConfig.textColor}`}>
+                            {statusConfig.title}
+                        </CardTitle>
+                        <CardDescription className="text-xs">
+                            Respuesta del operador al callback de pánico
+                        </CardDescription>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+                <p className={`text-sm ${statusConfig.textColor}`}>
+                    {statusConfig.description}
+                </p>
+
+                {/* Details Grid */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                    {callResponse?.response_type && (
+                        <div className="rounded-lg bg-background/50 p-2.5">
+                            <p className="text-xs text-muted-foreground uppercase mb-1">Respuesta</p>
+                            <p className="font-medium">
+                                {callResponse.response_type === 'confirmed' ? 'Confirmó emergencia' :
+                                 callResponse.response_type === 'denied' ? 'Negó emergencia' :
+                                 'Sin respuesta'}
+                            </p>
+                        </div>
+                    )}
+                    {callResponse?.digits && (
+                        <div className="rounded-lg bg-background/50 p-2.5">
+                            <p className="text-xs text-muted-foreground uppercase mb-1">Tecla presionada</p>
+                            <p className="font-medium font-mono">{callResponse.digits}</p>
+                        </div>
+                    )}
+                    {respondedAt && (
+                        <div className="rounded-lg bg-background/50 p-2.5">
+                            <p className="text-xs text-muted-foreground uppercase mb-1">Hora de respuesta</p>
+                            <p className="font-medium">{formatDate(respondedAt, 'HH:mm:ss')}</p>
+                        </div>
+                    )}
+                    {event.notification_sent_at && (
+                        <div className="rounded-lg bg-background/50 p-2.5">
+                            <p className="text-xs text-muted-foreground uppercase mb-1">Notificación enviada</p>
+                            <p className="font-medium">{formatDate(event.notification_sent_at, 'HH:mm:ss')}</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Channels used */}
+                {event.notification_channels && event.notification_channels.length > 0 && (
+                    <div className="pt-2 border-t">
+                        <p className="text-xs text-muted-foreground uppercase mb-2">Canales utilizados</p>
+                        <div className="flex flex-wrap gap-1.5">
+                            {event.notification_channels.map((channel, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs">
+                                    {channel === 'call' ? '📞 Llamada' :
+                                     channel === 'whatsapp' || channel === 'whatsapp_template' ? '💬 WhatsApp' :
+                                     channel === 'sms' ? '📱 SMS' : channel}
+                                </Badge>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
     );
 }
 
@@ -2452,6 +2700,9 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
 
                         {/* AI Verdict Card - Hero section when completed */}
                         <AIVerdictCard event={event} />
+
+                        {/* Callback Status Card - For panic button events */}
+                        <CallbackStatusCard event={event} />
 
                         {/* Next Actions Card */}
                         <NextActionsCard event={event} />

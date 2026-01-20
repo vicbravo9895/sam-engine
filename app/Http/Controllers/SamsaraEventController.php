@@ -127,11 +127,9 @@ class SamsaraEventController extends Controller
         ];
 
         $eventTypes = SamsaraEvent::query()
-            ->select('event_type', 'created_at')
-            ->distinct()
             ->whereNotNull('event_type')
+            ->distinct('event_type')
             ->orderBy('event_type')
-            ->orderByDesc('created_at')
             ->pluck('event_type')
             ->filter()
             ->values();
@@ -350,6 +348,12 @@ class SamsaraEventController extends Controller
                 'risk_escalation' => $samsaraEvent->risk_escalation ?? ($samsaraEvent->ai_assessment['risk_escalation'] ?? null),
                 'proactive_flag' => $samsaraEvent->proactive_flag ?? ($alertContext['proactive_flag'] ?? null),
                 'dedupe_key' => $samsaraEvent->dedupe_key ?? ($samsaraEvent->ai_assessment['dedupe_key'] ?? null),
+                // Callback status (panic button flow)
+                'notification_status' => $samsaraEvent->notification_status,
+                'notification_status_label' => $this->notificationStatusLabel($samsaraEvent->notification_status),
+                'call_response' => $samsaraEvent->call_response,
+                'notification_channels' => $samsaraEvent->notification_channels,
+                'notification_sent_at' => $samsaraEvent->notification_sent_at?->toIso8601String(),
                 // Human review data
                 'human_status' => $samsaraEvent->human_status,
                 'human_status_label' => $this->humanStatusLabel($samsaraEvent->human_status),
@@ -1136,6 +1140,27 @@ class SamsaraEventController extends Controller
             SamsaraEvent::HUMAN_STATUS_RESOLVED => 'Resuelto',
             SamsaraEvent::HUMAN_STATUS_FALSE_POSITIVE => 'Falso positivo',
             default => 'Desconocido',
+        };
+    }
+
+    /**
+     * Label para notification_status (callback de pánico).
+     */
+    private function notificationStatusLabel(?string $status): ?string
+    {
+        if (!$status) {
+            return null;
+        }
+        
+        return match ($status) {
+            'panic_confirmed' => 'Pánico Confirmado',
+            'false_alarm' => 'Falsa Alarma',
+            'operator_no_response' => 'Sin Respuesta',
+            'escalated' => 'Escalado',
+            'pending' => 'Pendiente',
+            'sent' => 'Enviado',
+            'failed' => 'Fallido',
+            default => ucfirst(str_replace('_', ' ', $status)),
         };
     }
 

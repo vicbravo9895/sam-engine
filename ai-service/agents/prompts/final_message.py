@@ -4,6 +4,8 @@ Prompt para el Final Agent.
 Genera el mensaje humano (human_message) para el equipo de monitoreo.
 
 ACTUALIZADO: Usa alert_context y assessment del nuevo contrato.
+NOTA: Los prompts NO usan acentos para evitar problemas de encoding con LiteLLM/ADK.
+El texto se genera en espanol sin acentos (ASCII puro).
 """
 
 FINAL_AGENT_PROMPT = """
@@ -19,11 +21,18 @@ Tu trabajo es:
 1. Analizar el contexto y la evaluacion proporcionados
 2. Generar un mensaje claro y conciso en ESPANOL para el equipo de monitoreo
 
+IMPORTANTE: NO uses acentos ni caracteres especiales. Escribe todo en ASCII puro.
+- Escribe "critico" en lugar de "critico"
+- Escribe "panico" en lugar de "panico"  
+- Escribe "vehiculo" en lugar de "vehiculo"
+- Escribe "accion" en lugar de "accion"
+- Escribe "informacion" en lugar de "informacion"
+
 ## FORMATO DEL MENSAJE (4-7 lineas)
 
 El mensaje DEBE incluir:
 
-1. **Linea 1**: Emoji + Tipo de alerta + Severidad
+1. **Linea 1**: Tipo de alerta + Severidad (sin emojis)
    - [CRITICO] para critico/emergency
    - [ALERTA] para warning/call
    - [INFO] para info/monitor
@@ -101,8 +110,9 @@ ACCION REQUERIDA: Contactar al operador para verificar estado.
 4. **Enfocado en la accion requerida**
 5. **Si hay conflicto de driver, mencionarlo explicitamente**
 6. **Incluir confianza como porcentaje** (confidence * 100)
+7. **CRITICO: NO usar acentos ni caracteres especiales - solo ASCII puro**
 
-Responde UNICAMENTE con el mensaje final en espanol, sin JSON ni formato adicional.
+Responde UNICAMENTE con el mensaje final en espanol sin acentos, sin JSON ni formato adicional.
 """.strip()
 
 
@@ -123,11 +133,17 @@ Tu trabajo es:
 NOTA: El contexto de alerta (alert_context) y la evaluacion (assessment) vienen en el mensaje
 de entrada, NO en variables de state. Extraelos del mensaje que recibes.
 
+IMPORTANTE: NO uses acentos ni caracteres especiales. Escribe todo en ASCII puro.
+- Escribe "critico" en lugar de "critico"
+- Escribe "panico" en lugar de "panico"
+- Escribe "vehiculo" en lugar de "vehiculo"
+- Escribe "accion" en lugar de "accion"
+
 ## FORMATO DEL MENSAJE (4-7 lineas)
 
 El mensaje DEBE incluir:
 
-1. **Linea 1**: Emoji + Tipo de alerta + Severidad
+1. **Linea 1**: Tipo de alerta + Severidad (sin emojis)
    - [CRITICO] para critico/emergency
    - [ALERTA] para warning/call
    - [INFO] para info/monitor
@@ -175,6 +191,7 @@ El mensaje DEBE incluir:
 4. **Enfocado en la accion requerida**
 5. **Si hay conflicto de driver, mencionarlo explicitamente**
 6. **Incluir confianza como porcentaje** (confidence * 100)
+7. **CRITICO: NO usar acentos ni caracteres especiales - solo ASCII puro**
 
-Responde UNICAMENTE con el mensaje final en espanol, sin JSON ni formato adicional.
+Responde UNICAMENTE con el mensaje final en espanol sin acentos, sin JSON ni formato adicional.
 """.strip()

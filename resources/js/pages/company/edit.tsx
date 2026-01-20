@@ -12,9 +12,10 @@ import {
 import { Separator } from '@/components/ui/separator';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { Head, useForm, usePage } from '@inertiajs/react';
+import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import {
     AlertTriangle,
+    Bot,
     Building2,
     Check,
     Clock,
@@ -304,6 +305,30 @@ export default function CompanyEdit() {
                                 </div>
                             </form>
                         </CardContent>
+                    </Card>
+
+                    {/* AI Settings Link Card */}
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex size-12 items-center justify-center rounded-full bg-blue-500/10">
+                                        <Bot className="size-6 text-blue-600" />
+                                    </div>
+                                    <div>
+                                        <CardTitle>Configuración de AI</CardTitle>
+                                        <CardDescription>
+                                            Personaliza el comportamiento del sistema de análisis de alertas
+                                        </CardDescription>
+                                    </div>
+                                </div>
+                                <Link href="/company/ai-settings">
+                                    <Button variant="outline">
+                                        Configurar
+                                    </Button>
+                                </Link>
+                            </div>
+                        </CardHeader>
                     </Card>
 
                     {/* Samsara Integration Card */}

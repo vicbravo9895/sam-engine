@@ -168,6 +168,140 @@ class CompanyController extends Controller
     }
 
     /**
+     * Show the AI settings configuration page.
+     */
+    public function editAiSettings(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            abort(403, 'Solo los administradores pueden editar la configuración de AI.');
+        }
+
+        $company = Company::findOrFail($user->company_id);
+
+        return Inertia::render('company/ai-settings', [
+            'company' => [
+                'id' => $company->id,
+                'name' => $company->name,
+            ],
+            'aiConfig' => $company->getAiConfig(),
+            'notificationConfig' => $company->getNotificationConfig(),
+            'defaults' => [
+                'ai_config' => Company::DEFAULT_AI_CONFIG,
+                'notifications' => Company::DEFAULT_NOTIFICATION_CONFIG,
+            ],
+        ]);
+    }
+
+    /**
+     * Update the AI configuration settings.
+     */
+    public function updateAiSettings(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            abort(403, 'Solo los administradores pueden actualizar la configuración de AI.');
+        }
+
+        $company = $user->company;
+
+        if (!$company) {
+            abort(404, 'No se encontró la empresa.');
+        }
+
+        $validated = $request->validate([
+            // Investigation windows
+            'investigation_windows' => ['required', 'array'],
+            'investigation_windows.correlation_window_minutes' => ['required', 'integer', 'min:5', 'max:120'],
+            'investigation_windows.media_window_seconds' => ['required', 'integer', 'min:30', 'max:600'],
+            'investigation_windows.safety_events_before_minutes' => ['required', 'integer', 'min:5', 'max:120'],
+            'investigation_windows.safety_events_after_minutes' => ['required', 'integer', 'min:1', 'max:60'],
+            'investigation_windows.vehicle_stats_before_minutes' => ['required', 'integer', 'min:1', 'max:30'],
+            'investigation_windows.vehicle_stats_after_minutes' => ['required', 'integer', 'min:1', 'max:15'],
+            'investigation_windows.camera_media_window_minutes' => ['required', 'integer', 'min:1', 'max:10'],
+            // Monitoring
+            'monitoring' => ['required', 'array'],
+            'monitoring.confidence_threshold' => ['required', 'numeric', 'min:0.5', 'max:0.99'],
+            'monitoring.max_revalidations' => ['required', 'integer', 'min:1', 'max:20'],
+            'monitoring.check_intervals' => ['required', 'array', 'min:1'],
+            'monitoring.check_intervals.*' => ['integer', 'min:1', 'max:120'],
+            // Notification channels
+            'channels_enabled' => ['required', 'array'],
+            'channels_enabled.sms' => ['required', 'boolean'],
+            'channels_enabled.whatsapp' => ['required', 'boolean'],
+            'channels_enabled.call' => ['required', 'boolean'],
+            'channels_enabled.email' => ['required', 'boolean'],
+        ], [
+            'investigation_windows.required' => 'Los parámetros de investigación son requeridos.',
+            'monitoring.required' => 'Los parámetros de monitoreo son requeridos.',
+            'monitoring.check_intervals.required' => 'Debes especificar al menos un intervalo de revalidación.',
+            'monitoring.check_intervals.min' => 'Debes especificar al menos un intervalo de revalidación.',
+            'channels_enabled.required' => 'Los canales de notificación son requeridos.',
+        ]);
+
+        // Build ai_config from validated data
+        $aiConfig = [
+            'investigation_windows' => $validated['investigation_windows'],
+            'monitoring' => $validated['monitoring'],
+        ];
+
+        // Build notifications config
+        $notificationsConfig = [
+            'channels_enabled' => $validated['channels_enabled'],
+        ];
+
+        // Update settings
+        $settings = $company->settings ?? [];
+        
+        // Merge with existing config to preserve escalation_matrix and other settings
+        $settings['ai_config'] = array_replace_recursive(
+            $settings['ai_config'] ?? Company::DEFAULT_AI_CONFIG,
+            $aiConfig
+        );
+        
+        $settings['notifications'] = array_replace_recursive(
+            $settings['notifications'] ?? Company::DEFAULT_NOTIFICATION_CONFIG,
+            $notificationsConfig
+        );
+        
+        $company->settings = $settings;
+        $company->save();
+
+        return back()->with('success', 'Configuración de AI actualizada exitosamente.');
+    }
+
+    /**
+     * Reset AI settings to defaults.
+     */
+    public function resetAiSettings(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            abort(403, 'Solo los administradores pueden restablecer la configuración de AI.');
+        }
+
+        $company = $user->company;
+
+        if (!$company) {
+            abort(404, 'No se encontró la empresa.');
+        }
+
+        $settings = $company->settings ?? [];
+        
+        // Reset to defaults
+        $settings['ai_config'] = Company::DEFAULT_AI_CONFIG;
+        $settings['notifications'] = Company::DEFAULT_NOTIFICATION_CONFIG;
+        
+        $company->settings = $settings;
+        $company->save();
+
+        return back()->with('success', 'Configuración de AI restablecida a valores predeterminados.');
+    }
+
+    /**
      * Get available timezones for Mexico and common American timezones.
      */
     private function getAvailableTimezones(): array

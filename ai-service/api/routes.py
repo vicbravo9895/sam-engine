@@ -66,10 +66,14 @@ async def ingest_alert(request: AlertRequest):
     company_id = _extract_company_id(request.payload) if request.payload else None
     set_company_id(company_id)
     
+    # Extract company_config if present (for customizable AI settings)
+    company_config = _extract_company_config(request.payload) if request.payload else None
+    
     logger.info("Alert ingest started", context={
         "payload_keys": list(request.payload.keys()) if request.payload else [],
         "has_preloaded_data": "preloaded_data" in request.payload if request.payload else False,
         "company_id": company_id,
+        "has_company_config": company_config is not None,
     })
     
     try:
@@ -83,7 +87,8 @@ async def ingest_alert(request: AlertRequest):
             result = await executor.execute(
                 payload=request.payload,
                 event_id=request.event_id,
-                is_revalidation=False
+                is_revalidation=False,
+                company_config=company_config
             )
             
             duration_ms = round((time.time() - start_time) * 1000, 2)
@@ -150,11 +155,15 @@ async def revalidate_alert(request: RevalidateRequest):
     
     investigation_count = request.context.get("investigation_count", 0) if request.context else 0
     
+    # Extract company_config if present (for customizable AI settings)
+    company_config = _extract_company_config(request.payload) if request.payload else None
+    
     logger.info("Alert revalidation started", context={
         "investigation_count": investigation_count,
         "has_context": request.context is not None,
         "previous_verdict": request.context.get("previous_assessment", {}).get("verdict") if request.context else None,
         "company_id": company_id,
+        "has_company_config": company_config is not None,
     })
     
     try:
@@ -169,7 +178,8 @@ async def revalidate_alert(request: RevalidateRequest):
                 payload=request.payload,
                 event_id=request.event_id,
                 is_revalidation=True,
-                context=request.context
+                context=request.context,
+                company_config=company_config
             )
             
             duration_ms = round((time.time() - start_time) * 1000, 2)
@@ -289,3 +299,20 @@ def _extract_company_id(payload: dict) -> Optional[int]:
         return int(company_id)
     
     return None
+
+
+def _extract_company_config(payload: dict) -> Optional[dict]:
+    """
+    Extrae la configuración de AI de la empresa del payload.
+    
+    El company_config contiene configuraciones personalizables por empresa:
+    - investigation_windows: Ventanas de tiempo para investigación
+    - monitoring: Umbrales de confianza e intervalos de revalidación
+    - escalation_matrix: Matriz de escalación personalizada
+    
+    Esta configuración es agregada por Laravel desde Company->getAiConfig().
+    """
+    if not payload:
+        return None
+    
+    return payload.get("company_config")

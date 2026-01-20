@@ -58,13 +58,15 @@ class SamsaraClient
      * @param string $originalEventTime Timestamp ISO 8601 del evento original
      * @param string $lastInvestigationTime Timestamp de la última investigación
      * @param bool $isSafetyEvent Si es un safety event
+     * @param array $timeWindows Optional time window configuration from company settings
      * @return array Datos actualizados para revalidación
      */
     public function reloadDataForRevalidation(
         string $vehicleId,
         string $originalEventTime,
         string $lastInvestigationTime,
-        bool $isSafetyEvent = false
+        bool $isSafetyEvent = false,
+        array $timeWindows = []
     ): array {
         if (empty($this->apiToken)) {
             Log::warning('SamsaraClient: API token not configured, skipping reload');
@@ -231,12 +233,14 @@ class SamsaraClient
      * @param string $vehicleId ID del vehículo
      * @param string $eventTime Timestamp ISO 8601 del evento
      * @param bool $isSafetyEvent Si es un safety event (buscar detalle específico)
+     * @param array $timeWindows Optional time window configuration from company settings
      * @return array Datos pre-cargados
      */
     public function preloadAllData(
         string $vehicleId,
         string $eventTime,
-        bool $isSafetyEvent = false
+        bool $isSafetyEvent = false,
+        array $timeWindows = []
     ): array {
         if (empty($this->apiToken)) {
             Log::warning('SamsaraClient: API token not configured, skipping preload');
@@ -245,10 +249,22 @@ class SamsaraClient
 
         $eventDt = Carbon::parse($eventTime);
         
+        // Use company-specific time windows or defaults
+        $vehicleStatsBefore = $timeWindows['vehicle_stats_before_minutes'] ?? 5;
+        $vehicleStatsAfter = $timeWindows['vehicle_stats_after_minutes'] ?? 2;
+        $safetyEventsBefore = $timeWindows['safety_events_before_minutes'] ?? 30;
+        $safetyEventsAfter = $timeWindows['safety_events_after_minutes'] ?? 10;
+        $cameraMediaWindow = $timeWindows['camera_media_window_minutes'] ?? 2;
+        
         Log::info('SamsaraClient: Starting parallel preload', [
             'vehicle_id' => $vehicleId,
             'event_time' => $eventTime,
             'is_safety_event' => $isSafetyEvent,
+            'time_windows' => [
+                'vehicle_stats' => "-{$vehicleStatsBefore}/+{$vehicleStatsAfter} min",
+                'safety_events' => $isSafetyEvent ? '±2 min (specific)' : "-{$safetyEventsBefore}/+{$safetyEventsAfter} min",
+                'camera_media' => "±{$cameraMediaWindow} min",
+            ],
         ]);
 
         $startTime = microtime(true);
@@ -270,20 +286,20 @@ class SamsaraClient
                     'vehicleIds' => $vehicleId,
                 ]),
             
-            // 3. Vehicle Stats (GPS, velocidad, etc.) - 5 min antes, 2 min después
+            // 3. Vehicle Stats (GPS, velocidad, etc.) - configurable time window
             $pool->as('vehicle_stats')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
                 ->get("{$this->baseUrl}/fleet/vehicles/stats/history", [
                     'vehicleIds' => $vehicleId,
-                    'startTime' => $eventDt->copy()->subMinutes(5)->toIso8601String(),
-                    'endTime' => $eventDt->copy()->addMinutes(2)->toIso8601String(),
+                    'startTime' => $eventDt->copy()->subMinutes($vehicleStatsBefore)->toIso8601String(),
+                    'endTime' => $eventDt->copy()->addMinutes($vehicleStatsAfter)->toIso8601String(),
                     'types' => 'gps,engineStates',
                 ]),
             
             // 4. Safety Events - ventana depende del tipo de evento
             // Safety event: ±2 minutos (buscar el evento específico - ampliado para capturar diferencias de tiempo)
-            // Panic/otro: -30min/+10min (buscar eventos correlacionados)
+            // Panic/otro: configurable window (buscar eventos correlacionados)
             $pool->as('safety_events')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
@@ -295,20 +311,20 @@ class SamsaraClient
                     ]
                     : [
                         'vehicleIds' => $vehicleId,
-                        'startTime' => $eventDt->copy()->subMinutes(30)->toIso8601String(),
-                        'endTime' => $eventDt->copy()->addMinutes(10)->toIso8601String(),
+                        'startTime' => $eventDt->copy()->subMinutes($safetyEventsBefore)->toIso8601String(),
+                        'endTime' => $eventDt->copy()->addMinutes($safetyEventsAfter)->toIso8601String(),
                     ]
                 ),
             
-            // 6. Camera Media (URLs) - 2 min antes, 2 min después (o hasta ahora-60s si es futuro)
+            // 6. Camera Media (URLs) - configurable time window
             $pool->as('camera_media')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
                 ->get("{$this->baseUrl}/cameras/media", [
                     'vehicleIds' => $vehicleId,
-                    'startTime' => $eventDt->copy()->subMinutes(2)->toIso8601String(),
+                    'startTime' => $eventDt->copy()->subMinutes($cameraMediaWindow)->toIso8601String(),
                     // Evitar "End time cannot be in the future"
-                    'endTime' => $eventDt->copy()->addMinutes(2)->min(Carbon::now()->subSeconds(60))->toIso8601String(),
+                    'endTime' => $eventDt->copy()->addMinutes($cameraMediaWindow)->min(Carbon::now()->subSeconds(60))->toIso8601String(),
                 ]),
         ]);
 
