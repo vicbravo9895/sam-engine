@@ -52,11 +52,18 @@ class TelescopeServiceProvider extends TelescopeApplicationServiceProvider
      * Register the Telescope gate.
      *
      * This gate determines who can access Telescope in non-local environments.
+     * Super admins can always access Telescope, even in production.
      */
     protected function gate(): void
     {
         Gate::define('viewTelescope', function ($user) {
-            return in_array($user->email, [
+            // Super admins can always access Telescope
+            if ($user && method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+                return true;
+            }
+
+            // Allow specific emails if needed (for non-super-admin access)
+            return in_array($user->email ?? [], [
                 //
             ]);
         });
