@@ -21,12 +21,18 @@ class TelescopeServiceProvider extends TelescopeApplicationServiceProvider
         $isLocal = $this->app->environment('local');
 
         Telescope::filter(function (IncomingEntry $entry) use ($isLocal) {
-            return $isLocal ||
-                   $entry->isReportableException() ||
-                   $entry->isFailedRequest() ||
-                   $entry->isFailedJob() ||
-                   $entry->isScheduledTask() ||
-                   $entry->hasMonitoredTag();
+            // In local environment, record everything
+            if ($isLocal) {
+                return true;
+            }
+
+            // In production, record ALL entries for super admin observability
+            // The gate() method already controls who can access Telescope,
+            // so we can safely record everything here
+            // This ensures all requests, queries, HTTP client calls, jobs, etc. are logged
+            
+            // Always record everything - let the gate handle access control
+            return true;
         });
     }
 
