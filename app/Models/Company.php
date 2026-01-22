@@ -162,6 +162,22 @@ class Company extends Model
     }
 
     /**
+     * Get the safety signals for this company.
+     */
+    public function safetySignals(): HasMany
+    {
+        return $this->hasMany(SafetySignal::class);
+    }
+
+    /**
+     * Get the incidents for this company.
+     */
+    public function incidents(): HasMany
+    {
+        return $this->hasMany(Incident::class);
+    }
+
+    /**
      * Check if the company has a valid Samsara API key configured.
      */
     public function hasSamsaraApiKey(): bool

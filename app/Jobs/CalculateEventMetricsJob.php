@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
-use App\Models\AlertIncident;
 use App\Models\Company;
+use App\Models\Incident;
 use App\Models\EventMetric;
 use App\Models\NotificationResult;
 use App\Models\SamsaraEvent;
@@ -123,11 +123,11 @@ class CalculateEventMetricsJob implements ShouldQueue
         $avgResponseTime = $this->calculateAverageResponseTime($company->id, $dateStart, $dateEnd);
 
         // Incident metrics
-        $incidentsDetected = AlertIncident::forCompany($company->id)
+        $incidentsDetected = Incident::forCompany($company->id)
             ->whereBetween('detected_at', [$dateStart, $dateEnd])
             ->count();
 
-        $incidentsResolved = AlertIncident::forCompany($company->id)
+        $incidentsResolved = Incident::forCompany($company->id)
             ->whereBetween('resolved_at', [$dateStart, $dateEnd])
             ->count();
 

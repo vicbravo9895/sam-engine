@@ -25,10 +25,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * - notification_decisions: Decisiones de notificación
  * - notification_results: Resultados de notificaciones
  * 
- * CORRELACIÓN:
- * - alert_incidents: Incidentes que agrupan alertas relacionadas
- * - alert_correlations: Correlaciones entre alertas
- * 
  * HUMAN REVIEW: Sistema de revisión humana independiente del AI.
  */
 class SamsaraEvent extends Model
@@ -87,12 +83,6 @@ class SamsaraEvent extends Model
         // Raw AI output for audit
         'raw_ai_output',
         
-        // =====================================================
-        // CORRELACIÓN
-        // =====================================================
-        'incident_id',
-        'is_primary_event',
-        
         // Legacy JSON fields (mantener por compatibilidad)
         'alert_context',
         'notification_decision',
@@ -133,7 +123,6 @@ class SamsaraEvent extends Model
         
         // Campos normalizados
         'confidence' => 'decimal:2',
-        'is_primary_event' => 'boolean',
         
         // JSONB validado
         'supporting_evidence' => 'array',
@@ -288,36 +277,6 @@ class SamsaraEvent extends Model
             ->orderBy('timestamp_utc');
     }
     
-    /**
-     * ========================================
-     * RELACIONES DE CORRELACIÓN
-     * ========================================
-     */
-    
-    /**
-     * Incidente al que pertenece este evento.
-     */
-    public function incident(): BelongsTo
-    {
-        return $this->belongsTo(AlertIncident::class, 'incident_id');
-    }
-    
-    /**
-     * Correlaciones de este evento (cuando es parte de un incidente).
-     */
-    public function correlations(): HasMany
-    {
-        return $this->hasMany(AlertCorrelation::class, 'samsara_event_id');
-    }
-    
-    /**
-     * Incidente donde este evento es el primario.
-     */
-    public function primaryIncident(): HasOne
-    {
-        return $this->hasOne(AlertIncident::class, 'primary_event_id');
-    }
-
     /**
      * ========================================
      * SCOPES
@@ -482,22 +441,6 @@ class SamsaraEvent extends Model
     public function scopeHighConfidence($query, float $threshold = 0.8)
     {
         return $query->where('confidence', '>=', $threshold);
-    }
-    
-    /**
-     * Scope para eventos que son parte de un incidente.
-     */
-    public function scopePartOfIncident($query)
-    {
-        return $query->whereNotNull('incident_id');
-    }
-    
-    /**
-     * Scope para eventos primarios de incidentes.
-     */
-    public function scopePrimaryEvents($query)
-    {
-        return $query->where('is_primary_event', true);
     }
     
     /**
@@ -1054,43 +997,6 @@ class SamsaraEvent extends Model
         
         // Fallback a JSON legacy
         return $this->alert_context['investigation_plan'] ?? [];
-    }
-    
-    /**
-     * ========================================
-     * MÉTODOS HELPER - CORRELACIÓN
-     * ========================================
-     */
-    
-    /**
-     * Verificar si este evento es parte de un incidente.
-     */
-    public function isPartOfIncident(): bool
-    {
-        return $this->incident_id !== null;
-    }
-    
-    /**
-     * Verificar si este evento es el primario de un incidente.
-     */
-    public function isPrimaryOfIncident(): bool
-    {
-        return $this->is_primary_event === true;
-    }
-    
-    /**
-     * Obtener eventos correlacionados del mismo incidente.
-     */
-    public function getCorrelatedEvents(): \Illuminate\Database\Eloquent\Collection
-    {
-        if (!$this->incident_id) {
-            return collect();
-        }
-        
-        return self::where('incident_id', $this->incident_id)
-            ->where('id', '!=', $this->id)
-            ->orderBy('occurred_at')
-            ->get();
     }
     
     /**

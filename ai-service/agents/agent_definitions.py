@@ -30,9 +30,8 @@ from .prompts import (
     FINAL_AGENT_PROMPT,
     FINAL_AGENT_REVALIDATION_PROMPT,
     NOTIFICATION_DECISION_PROMPT,
-    CORRELATION_AGENT_PROMPT,
 )
-from .schemas import TriageResult, AlertAssessment, NotificationDecision, CorrelationResult
+from .schemas import TriageResult, AlertAssessment, NotificationDecision
 
 # Compatibilidad con imports existentes
 from .schemas.investigation import PanicAssessment
@@ -84,29 +83,6 @@ investigator_agent = LlmAgent(
     description="Investiga alertas usando datos pre-cargados y genera evaluación técnica basada en evidencia",
     output_key="assessment",  # Stores assessment in state['assessment']
     output_schema=AlertAssessment
-)
-
-
-# ============================================================================
-# CORRELATION AGENT (NUEVO)
-# ============================================================================
-# Propósito: Analizar eventos relacionados para detectar patrones/incidentes
-# Modelo: GPT-4o-mini (análisis de patrones con reglas claras)
-# Tools: Ninguna (datos de eventos relacionados vienen pre-cargados)
-# Input: related_events (lista de eventos del mismo vehículo en ventana temporal)
-# Output: correlation_result (JSON estructurado)
-#
-# NOTA: Este agente es OPCIONAL. La correlación también se hace en Laravel
-# con AlertCorrelationService. Este agente proporciona análisis más profundo.
-# ============================================================================
-correlation_agent = LlmAgent(
-    name="correlation_agent",
-    model=LiteLlm(model=OpenAIConfig.MODEL_GPT5_MINI),
-    tools=[],  # SIN TOOLS - Datos de eventos relacionados vienen pre-cargados
-    instruction=CORRELATION_AGENT_PROMPT,
-    description="Analiza eventos relacionados para detectar patrones y generar resumen de incidente",
-    output_key="correlation_result",  # Stores result in state['correlation_result']
-    output_schema=CorrelationResult
 )
 
 
@@ -233,7 +209,6 @@ revalidation_agent = SequentialAgent(
 AGENTS_BY_NAME = {
     "triage_agent": triage_agent,
     "investigator_agent": investigator_agent,
-    "correlation_agent": correlation_agent,
     "final_agent": final_agent,
     "notification_decision_agent": notification_decision_agent,
     # Aliases para compatibilidad

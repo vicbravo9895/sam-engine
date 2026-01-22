@@ -2,7 +2,6 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\AlertIncidentController;
 use App\Http\Controllers\SamsaraWebhookController;
 use App\Http\Controllers\SamsaraEventController;
 use App\Http\Controllers\SamsaraEventReviewController;
@@ -44,12 +43,4 @@ Route::prefix('events/{event}')->middleware(['web', 'auth'])->group(function () 
     
     // Reprocesar alerta (solo super_admin)
     Route::post('/reprocess', [SamsaraEventReviewController::class, 'reprocess']);
-    
-    // Incident correlation info for this event
-    Route::get('/incident', [AlertIncidentController::class, 'apiEventIncident']);
-});
-
-// API para incidentes (requiere autenticación de sesión web)
-Route::prefix('incidents')->middleware(['web', 'auth'])->group(function () {
-    Route::get('/', [AlertIncidentController::class, 'apiIndex']);
 });

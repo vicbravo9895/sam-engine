@@ -236,11 +236,22 @@ class SamsaraClient
      * @param array $timeWindows Optional time window configuration from company settings
      * @return array Datos pre-cargados
      */
+    /**
+     * Pre-carga datos de Samsara en paralelo.
+     * 
+     * @param string $vehicleId ID del vehículo
+     * @param string $eventTime Tiempo del evento
+     * @param bool $isSafetyEvent Si es un safety event
+     * @param array $timeWindows Configuración de ventanas de tiempo
+     * @param array $dbSafetyEvents Safety events ya obtenidos de la BD (opcional)
+     * @return array Datos pre-cargados
+     */
     public function preloadAllData(
         string $vehicleId,
         string $eventTime,
         bool $isSafetyEvent = false,
-        array $timeWindows = []
+        array $timeWindows = [],
+        array $dbSafetyEvents = []
     ): array {
         if (empty($this->apiToken)) {
             Log::warning('SamsaraClient: API token not configured, skipping preload');
@@ -248,6 +259,7 @@ class SamsaraClient
         }
 
         $eventDt = Carbon::parse($eventTime);
+        $hasSafetyEventsFromDb = !empty($dbSafetyEvents);
         
         // Use company-specific time windows or defaults
         $vehicleStatsBefore = $timeWindows['vehicle_stats_before_minutes'] ?? 5;
@@ -260,25 +272,28 @@ class SamsaraClient
             'vehicle_id' => $vehicleId,
             'event_time' => $eventTime,
             'is_safety_event' => $isSafetyEvent,
+            'safety_events_from_db' => $hasSafetyEventsFromDb,
+            'db_events_count' => count($dbSafetyEvents),
             'time_windows' => [
                 'vehicle_stats' => "-{$vehicleStatsBefore}/+{$vehicleStatsAfter} min",
-                'safety_events' => $isSafetyEvent ? '±2 min (specific)' : "-{$safetyEventsBefore}/+{$safetyEventsAfter} min",
+                'safety_events' => $hasSafetyEventsFromDb ? 'from_database' : ($isSafetyEvent ? '±2 min (specific)' : "-{$safetyEventsBefore}/+{$safetyEventsAfter} min"),
                 'camera_media' => "±{$cameraMediaWindow} min",
             ],
         ]);
 
         $startTime = microtime(true);
 
-        // Ejecutar todas las llamadas en PARALELO
-        $responses = Http::pool(fn (Pool $pool) => [
+        // Construir las llamadas en paralelo
+        // Si tenemos safety events de la BD, no los pedimos a la API
+        $poolCallbacks = [
             // 1. Vehicle Info (información estática)
-            $pool->as('vehicle_info')
+            fn (Pool $pool) => $pool->as('vehicle_info')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
                 ->get("{$this->baseUrl}/fleet/vehicles/{$vehicleId}"),
             
             // 2. Driver Assignment (conductor asignado)
-            $pool->as('driver_assignment')
+            fn (Pool $pool) => $pool->as('driver_assignment')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
                 ->get("{$this->baseUrl}/fleet/driver-vehicle-assignments", [
@@ -287,7 +302,7 @@ class SamsaraClient
                 ]),
             
             // 3. Vehicle Stats (GPS, velocidad, etc.) - configurable time window
-            $pool->as('vehicle_stats')
+            fn (Pool $pool) => $pool->as('vehicle_stats')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
                 ->get("{$this->baseUrl}/fleet/vehicles/stats/history", [
@@ -297,10 +312,21 @@ class SamsaraClient
                     'types' => 'gps,engineStates',
                 ]),
             
-            // 4. Safety Events - ventana depende del tipo de evento
-            // Safety event: ±2 minutos (buscar el evento específico - ampliado para capturar diferencias de tiempo)
-            // Panic/otro: configurable window (buscar eventos correlacionados)
-            $pool->as('safety_events')
+            // 4. Camera Media (URLs) - configurable time window
+            fn (Pool $pool) => $pool->as('camera_media')
+                ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
+                ->timeout(15)
+                ->get("{$this->baseUrl}/cameras/media", [
+                    'vehicleIds' => $vehicleId,
+                    'startTime' => $eventDt->copy()->subMinutes($cameraMediaWindow)->toIso8601String(),
+                    // Evitar "End time cannot be in the future"
+                    'endTime' => $eventDt->copy()->addMinutes($cameraMediaWindow)->min(Carbon::now()->subSeconds(60))->toIso8601String(),
+                ]),
+        ];
+
+        // Solo agregar safety events API call si NO tenemos datos de la BD
+        if (!$hasSafetyEventsFromDb) {
+            $poolCallbacks[] = fn (Pool $pool) => $pool->as('safety_events')
                 ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
                 ->timeout(15)
                 ->get("{$this->baseUrl}/fleet/safety-events", $isSafetyEvent 
@@ -314,19 +340,11 @@ class SamsaraClient
                         'startTime' => $eventDt->copy()->subMinutes($safetyEventsBefore)->toIso8601String(),
                         'endTime' => $eventDt->copy()->addMinutes($safetyEventsAfter)->toIso8601String(),
                     ]
-                ),
-            
-            // 6. Camera Media (URLs) - configurable time window
-            $pool->as('camera_media')
-                ->withHeaders(['Authorization' => "Bearer {$this->apiToken}"])
-                ->timeout(15)
-                ->get("{$this->baseUrl}/cameras/media", [
-                    'vehicleIds' => $vehicleId,
-                    'startTime' => $eventDt->copy()->subMinutes($cameraMediaWindow)->toIso8601String(),
-                    // Evitar "End time cannot be in the future"
-                    'endTime' => $eventDt->copy()->addMinutes($cameraMediaWindow)->min(Carbon::now()->subSeconds(60))->toIso8601String(),
-                ]),
-        ]);
+                );
+        }
+
+        // Ejecutar todas las llamadas en PARALELO
+        $responses = Http::pool(fn (Pool $pool) => array_map(fn ($cb) => $cb($pool), $poolCallbacks));
 
         $duration = round((microtime(true) - $startTime) * 1000);
         
@@ -389,8 +407,39 @@ class SamsaraClient
         }
 
         // Safety Events - procesamiento según tipo de evento
-        if ($responses['safety_events']->successful()) {
+        // Primero usar los de la BD si existen, si no usar los de la API
+        if ($hasSafetyEventsFromDb) {
+            // Usar eventos de la base de datos
+            Log::info('SamsaraClient: Using safety events from database', [
+                'vehicle_id' => $vehicleId,
+                'count' => count($dbSafetyEvents),
+            ]);
+            
+            if ($isSafetyEvent) {
+                // Safety Event: buscar el evento específico en la ventana de ±2 minutos
+                if (!empty($dbSafetyEvents)) {
+                    $closest = $this->findClosestEvent($dbSafetyEvents, $eventDt);
+                    if ($closest) {
+                        $preloadedData['safety_event_detail'] = $this->formatSafetyEvent($closest);
+                        $preloadedData['safety_event_detail']['_from_database'] = true;
+                    }
+                }
+            } else {
+                // Panic/Otro: todos los eventos son correlación
+                $preloadedData['safety_events_correlation'] = [
+                    'total_events' => count($dbSafetyEvents),
+                    'events' => array_map(fn($e) => $this->formatSafetyEventSummary($e), $dbSafetyEvents),
+                    '_from_database' => true,
+                ];
+            }
+        } elseif (isset($responses['safety_events']) && $responses['safety_events']->successful()) {
+            // Usar eventos de la API
             $events = $responses['safety_events']->json('data') ?? [];
+            
+            // Guardar eventos raw para persistir en la BD después
+            if (!empty($events)) {
+                $preloadedData['_api_safety_events'] = $events;
+            }
             
             if ($isSafetyEvent) {
                 // Safety Event: buscar el evento específico en la ventana de ±2 minutos
@@ -408,7 +457,7 @@ class SamsaraClient
                     'events' => array_map(fn($e) => $this->formatSafetyEventSummary($e), $events),
                 ];
             }
-        } else {
+        } elseif (isset($responses['safety_events'])) {
             Log::warning('SamsaraClient::preloadAllData - Safety events API call failed', [
                 'vehicle_id' => $vehicleId,
                 'status' => $responses['safety_events']->status(),
@@ -441,6 +490,8 @@ class SamsaraClient
             'duration_ms' => $duration,
             'vehicle_id' => $vehicleId,
             'event_time' => $eventTime,
+            'safety_events_source' => $hasSafetyEventsFromDb ? 'database' : 'api',
+            'db_events_count' => $hasSafetyEventsFromDb ? count($dbSafetyEvents) : 0,
         ];
 
         return $preloadedData;

@@ -14,7 +14,7 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, AlertTriangle, Bot, Building2, Contact, LayoutGrid, Settings, Shield, Sparkles, Truck, User, Users } from 'lucide-react';
+import { Activity, AlertTriangle, Bot, Building2, Contact, LayoutGrid, Radio, Settings, Shield, Sparkles, Truck, User, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 // ============================================
@@ -39,8 +39,13 @@ const controlCenterNavItems: NavItem[] = [
     },
     {
         title: 'Incidentes',
-        href: '/samsara/incidents',
+        href: '/incidents',
         icon: Activity,
+    },
+    {
+        title: 'Señales',
+        href: '/safety-signals',
+        icon: Radio,
     },
     {
         title: 'Copilot',

@@ -1,12 +1,13 @@
 <?php
 
-use App\Http\Controllers\AlertIncidentController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CopilotController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\FleetReportController;
+use App\Http\Controllers\IncidentController;
+use App\Http\Controllers\SafetySignalController;
 use App\Http\Controllers\SamsaraEventController;
 use App\Http\Controllers\StorageController;
 use App\Http\Controllers\UserController;
@@ -53,11 +54,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/{samsaraEvent}', [SamsaraEventController::class, 'show'])->name('show');
     });
 
-    // Samsara incidents routes (correlations)
-    Route::prefix('samsara/incidents')->name('samsara.incidents.')->group(function () {
-        Route::get('/', [AlertIncidentController::class, 'index'])->name('index');
-        Route::get('/{incident}', [AlertIncidentController::class, 'show'])->name('show');
-        Route::patch('/{incident}/status', [AlertIncidentController::class, 'updateStatus'])->name('update-status');
+    // Safety Signals routes
+    Route::prefix('safety-signals')->name('safety-signals.')->group(function () {
+        Route::get('/', [SafetySignalController::class, 'index'])->name('index');
+        Route::get('/{safetySignal}', [SafetySignalController::class, 'show'])->name('show');
+    });
+
+    // Incidents routes
+    Route::prefix('incidents')->name('incidents.')->group(function () {
+        Route::get('/', [IncidentController::class, 'index'])->name('index');
+        Route::get('/{incident}', [IncidentController::class, 'show'])->name('show');
+        Route::patch('/{incident}/status', [IncidentController::class, 'updateStatus'])->name('update-status');
     });
 
     // Fleet Report

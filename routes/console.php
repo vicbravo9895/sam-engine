@@ -46,3 +46,11 @@ Schedule::command('samsara:sync-vehicle-stats')
 Schedule::job(new CalculateEventMetricsJob())
     ->dailyAt('01:00')
     ->withoutOverlapping();
+
+// Detect safety patterns and create aggregated incidents every 15 minutes
+// Analyzes the last 4 hours with a threshold of 3 occurrences
+Schedule::command('samsara:detect-patterns --hours=4 --threshold=3')
+    ->everyFifteenMinutes()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/pattern-detection.log'));

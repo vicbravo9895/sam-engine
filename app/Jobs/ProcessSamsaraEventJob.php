@@ -3,9 +3,12 @@
 namespace App\Jobs;
 
 use App\Jobs\Traits\PersistsEvidenceImages;
+use App\Models\SafetySignal;
 use App\Models\SamsaraEvent;
 use App\Services\ContactResolver;
+use App\Services\Incidents\IncidentCreationGate;
 use App\Services\SamsaraClient;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -327,6 +330,9 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'proactive_flag' => $alertContext['proactive_flag'] ?? false,
                     'duration_ms' => $jobDuration,
                 ]);
+                
+                // Crear incidente si cumple los criterios
+                $this->createIncidentIfNeeded($assessment);
             } else {
                 // Flujo normal - completar
                 $this->event->markAsCompleted(
@@ -351,9 +357,6 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     ]);
                 }
                 
-                // Check for correlations with other events
-                $this->checkCorrelations();
-
                 $jobDuration = round((microtime(true) - $jobStartTime) * 1000, 2);
                 
                 Log::info("Job completed: ProcessSamsaraEvent", [
@@ -365,9 +368,11 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'verdict' => $assessment['verdict'] ?? 'unknown',
                     'risk_escalation' => $assessment['risk_escalation'] ?? 'unknown',
                     'notification_dispatched' => $notificationDispatched,
-                    'has_incident' => $this->event->fresh()->incident_id !== null,
                     'duration_ms' => $jobDuration,
                 ]);
+                
+                // Crear incidente si cumple los criterios
+                $this->createIncidentIfNeeded($assessment);
             }
 
         } catch (\Exception $e) {
@@ -466,47 +471,6 @@ class ProcessSamsaraEventJob implements ShouldQueue
         }
     }
     
-    /**
-     * Check for correlations with other events after processing.
-     * 
-     * This method is called after successful AI processing to detect
-     * patterns like harsh_braking + panic_button = collision.
-     */
-    protected function checkCorrelations(): void
-    {
-        try {
-            $correlationService = app(\App\Services\AlertCorrelationService::class);
-            $incident = $correlationService->checkCorrelations($this->event);
-            
-            if ($incident) {
-                Log::info("Correlation detected: Event linked to incident", [
-                    'event_id' => $this->event->id,
-                    'incident_id' => $incident->id,
-                    'incident_type' => $incident->incident_type,
-                    'is_primary' => $this->event->is_primary_event,
-                ]);
-                
-                // Log activity
-                \App\Models\SamsaraEventActivity::logAiAction(
-                    $this->event->id,
-                    $this->event->company_id,
-                    'correlation_detected',
-                    [
-                        'incident_id' => $incident->id,
-                        'incident_type' => $incident->incident_type,
-                        'related_events' => $incident->correlations()->count(),
-                    ]
-                );
-            }
-        } catch (\Throwable $e) {
-            // Don't fail the job if correlation check fails
-            Log::warning("Correlation check failed (non-fatal)", [
-                'event_id' => $this->event->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
     // Métodos persistEvidenceImages y downloadAndStoreImage están en el trait PersistsEvidenceImages
     // NOTA: persistTwilioCallSid fue removido porque ahora SendNotificationJob maneja esto
 
@@ -626,6 +590,9 @@ class ProcessSamsaraEventJob implements ShouldQueue
      * - safety_event_detail: Detalle del evento específico (si es safety event)
      * - camera_media: URLs de imágenes (el análisis Vision se hace en AI)
      * 
+     * NOTA: Los safety events se buscan primero en la BD (safety_signals).
+     * Si no están disponibles, se obtienen de la API y se persisten.
+     * 
      * @param array $payload El payload original del webhook
      * @param SamsaraClient $samsaraClient Cliente de la API de Samsara
      * @param array $timeWindows Time window configuration from company settings
@@ -656,19 +623,30 @@ class ProcessSamsaraEventJob implements ShouldQueue
         $eventTime = $context['happened_at_time'];
         $isSafetyEvent = SamsaraClient::isSafetyEvent($payload);
 
+        // Primero buscar safety events en la BD (safety_signals)
+        $dbSafetyEvents = $this->getSafetyEventsFromDatabase(
+            vehicleId: $vehicleId,
+            eventTime: $eventTime,
+            isSafetyEvent: $isSafetyEvent,
+            timeWindows: $timeWindows
+        );
+
         Log::info("Pre-loading Samsara data", [
             'event_id' => $this->event->id,
             'vehicle_id' => $vehicleId,
             'event_time' => $eventTime,
             'is_safety_event' => $isSafetyEvent,
+            'db_safety_events_found' => count($dbSafetyEvents),
         ]);
 
         // Pre-cargar toda la información en paralelo
+        // Pasamos los safety events de la BD para que no los busque en la API si ya existen
         $preloadedData = $samsaraClient->preloadAllData(
             vehicleId: $vehicleId,
             eventTime: $eventTime,
             isSafetyEvent: $isSafetyEvent,
-            timeWindows: $timeWindows
+            timeWindows: $timeWindows,
+            dbSafetyEvents: $dbSafetyEvents
         );
 
         if (empty($preloadedData)) {
@@ -676,6 +654,12 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 'event_id' => $this->event->id,
             ]);
             return $payload;
+        }
+
+        // Si obtuvimos safety events de la API (no de la BD), persistirlos
+        if (empty($dbSafetyEvents) && !empty($preloadedData['_api_safety_events'])) {
+            $this->persistSafetyEventsFromApi($preloadedData['_api_safety_events']);
+            unset($preloadedData['_api_safety_events']); // No enviar al AI Service
         }
 
         // Añadir datos pre-cargados al payload
@@ -712,10 +696,198 @@ class ProcessSamsaraEventJob implements ShouldQueue
             'has_vehicle_stats' => !empty($preloadedData['vehicle_stats']),
             'safety_events_count' => $preloadedData['safety_events_correlation']['total_events'] ?? 0,
             'camera_items_count' => $preloadedData['camera_media']['total_items'] ?? 0,
+            'safety_events_source' => !empty($dbSafetyEvents) ? 'database' : 'api',
             'duration_ms' => $preloadedData['_metadata']['duration_ms'] ?? null,
         ]);
 
         return $payload;
+    }
+
+    /**
+     * Busca safety events en la base de datos local (safety_signals).
+     * 
+     * @param string $vehicleId ID del vehículo
+     * @param string $eventTime Tiempo del evento
+     * @param bool $isSafetyEvent Si es un safety event (ventana ±2 min) o correlación (ventana más amplia)
+     * @param array $timeWindows Configuración de ventanas de tiempo
+     * @return array Safety events encontrados en la BD
+     */
+    private function getSafetyEventsFromDatabase(
+        string $vehicleId,
+        string $eventTime,
+        bool $isSafetyEvent,
+        array $timeWindows = []
+    ): array {
+        $eventDt = Carbon::parse($eventTime);
+        $companyId = $this->event->company_id;
+
+        // Ventana de tiempo según tipo de evento
+        if ($isSafetyEvent) {
+            // Safety event: ±2 minutos para buscar el evento específico
+            $startTime = $eventDt->copy()->subMinutes(2);
+            $endTime = $eventDt->copy()->addMinutes(2);
+        } else {
+            // Panic/otro: ventana configurable para correlación
+            $beforeMinutes = $timeWindows['safety_events_before_minutes'] ?? 30;
+            $afterMinutes = $timeWindows['safety_events_after_minutes'] ?? 10;
+            $startTime = $eventDt->copy()->subMinutes($beforeMinutes);
+            $endTime = $eventDt->copy()->addMinutes($afterMinutes);
+        }
+
+        $signals = SafetySignal::query()
+            ->forCompany($companyId)
+            ->forVehicle($vehicleId)
+            ->inDateRange($startTime, $endTime)
+            ->orderBy('occurred_at', 'desc')
+            ->get();
+
+        if ($signals->isEmpty()) {
+            Log::debug("No safety signals found in database", [
+                'event_id' => $this->event->id,
+                'company_id' => $companyId,
+                'vehicle_id' => $vehicleId,
+                'start_time' => $startTime->toIso8601String(),
+                'end_time' => $endTime->toIso8601String(),
+            ]);
+            return [];
+        }
+
+        Log::info("Safety signals found in database", [
+            'event_id' => $this->event->id,
+            'count' => $signals->count(),
+            'vehicle_id' => $vehicleId,
+            'time_range' => "{$startTime->toIso8601String()} to {$endTime->toIso8601String()}",
+        ]);
+
+        // Convertir al formato esperado por el SamsaraClient
+        return $signals->map(function (SafetySignal $signal) {
+            return [
+                'id' => $signal->samsara_event_id,
+                'asset' => [
+                    'id' => $signal->vehicle_id,
+                    'name' => $signal->vehicle_name,
+                ],
+                'driver' => $signal->driver_id ? [
+                    'id' => $signal->driver_id,
+                    'name' => $signal->driver_name,
+                ] : null,
+                'location' => [
+                    'latitude' => $signal->latitude,
+                    'longitude' => $signal->longitude,
+                    'address' => $signal->address ? ['formattedAddress' => $signal->address] : [],
+                ],
+                'behaviorLabels' => $signal->behavior_labels ?? [],
+                'contextLabels' => $signal->context_labels ?? [],
+                'eventState' => $signal->event_state,
+                'maxAccelerationGForce' => $signal->max_acceleration_g,
+                'speedingMetadata' => $signal->speeding_metadata,
+                'media' => $signal->media_urls,
+                'inboxEventUrl' => $signal->inbox_event_url,
+                'incidentReportUrl' => $signal->incident_report_url,
+                'startMs' => $signal->occurred_at?->getTimestampMs(),
+                'createdAtTime' => $signal->samsara_created_at?->toIso8601String(),
+                'updatedAtTime' => $signal->samsara_updated_at?->toIso8601String(),
+                '_from_database' => true,
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Persiste safety events obtenidos de la API en la tabla safety_signals.
+     * 
+     * @param array $apiEvents Eventos obtenidos de la API de Samsara
+     */
+    private function persistSafetyEventsFromApi(array $apiEvents): void
+    {
+        if (empty($apiEvents)) {
+            return;
+        }
+
+        $companyId = $this->event->company_id;
+        $persisted = 0;
+        $skipped = 0;
+
+        foreach ($apiEvents as $eventData) {
+            $samsaraEventId = $eventData['id'] ?? null;
+            
+            if (!$samsaraEventId) {
+                $skipped++;
+                continue;
+            }
+
+            // Verificar si ya existe
+            $exists = SafetySignal::where('company_id', $companyId)
+                ->where('samsara_event_id', $samsaraEventId)
+                ->exists();
+
+            if ($exists) {
+                $skipped++;
+                continue;
+            }
+
+            try {
+                SafetySignal::createFromStreamEvent($companyId, $eventData);
+                $persisted++;
+            } catch (\Exception $e) {
+                Log::warning("Failed to persist safety event from API", [
+                    'event_id' => $this->event->id,
+                    'samsara_event_id' => $samsaraEventId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        Log::info("Safety events persisted from API", [
+            'event_id' => $this->event->id,
+            'persisted' => $persisted,
+            'skipped' => $skipped,
+            'total' => count($apiEvents),
+        ]);
+    }
+
+    /**
+     * Crea un incidente si el evento cumple los criterios.
+     * 
+     * Utiliza IncidentCreationGate para:
+     * - Evaluar si el evento amerita un incidente
+     * - Evitar duplicados (dedupe por samsara_event_id)
+     * - Crear el incidente con prioridad y tipo adecuados
+     */
+    private function createIncidentIfNeeded(array $assessment): void
+    {
+        try {
+            $gate = app(IncidentCreationGate::class);
+            
+            // Verificar si debe crear un incidente
+            if (!$gate->shouldCreateIncident($this->event, $assessment)) {
+                Log::debug("Incident not needed for event", [
+                    'event_id' => $this->event->id,
+                    'severity' => $this->event->severity,
+                    'verdict' => $assessment['verdict'] ?? 'unknown',
+                ]);
+                return;
+            }
+            
+            // Crear el incidente (con manejo de duplicados)
+            $incident = $gate->createFromWebhook($this->event, $assessment);
+            
+            if ($incident) {
+                Log::info("Incident created for event", [
+                    'incident_id' => $incident->id,
+                    'event_id' => $this->event->id,
+                    'samsara_event_id' => $this->event->samsara_event_id,
+                    'incident_type' => $incident->incident_type,
+                    'priority' => $incident->priority,
+                    'severity' => $incident->severity,
+                ]);
+            }
+        } catch (\Exception $e) {
+            // No fallar el job principal si la creación de incidente falla
+            Log::error("Failed to create incident for event", [
+                'event_id' => $this->event->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }
 
