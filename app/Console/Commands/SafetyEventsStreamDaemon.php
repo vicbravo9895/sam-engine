@@ -78,13 +78,21 @@ class SafetyEventsStreamDaemon extends Command
                 $cycleDuration = round((microtime(true) - $cycleStart) * 1000);
                 
                 if ($stats['total_events'] > 0 || $iteration % 10 === 0) {
+                    // Format startTime for display (show only time if today, otherwise date+time)
+                    $startTimeDisplay = $stats['start_time'] 
+                        ? \Carbon\Carbon::parse($stats['start_time'])->format('Y-m-d H:i')
+                        : 'N/A';
+                    $cursorStatus = $stats['has_cursor'] ? 'cursor' : 'no-cursor';
+                    
                     $this->line(sprintf(
-                        '[%s] Cycle %d: %d companies, %d new events, %d updated (%dms)',
+                        '[%s] Cycle %d: %d companies, %d new, %d updated | startTime: %s (%s) | %dms',
                         now()->format('H:i:s'),
                         $iteration,
                         $stats['companies_synced'],
                         $stats['new_events'],
                         $stats['updated_events'],
+                        $startTimeDisplay,
+                        $cursorStatus,
                         $cycleDuration
                     ));
                 }
@@ -149,6 +157,8 @@ class SafetyEventsStreamDaemon extends Command
             'total_events' => 0,
             'new_events' => 0,
             'updated_events' => 0,
+            'start_time' => null,
+            'has_cursor' => false,
         ];
 
         // Get companies to sync
@@ -174,6 +184,9 @@ class SafetyEventsStreamDaemon extends Command
                 $stats['total_events'] += $companyStats['total_events'];
                 $stats['new_events'] += $companyStats['new_events'];
                 $stats['updated_events'] += $companyStats['updated_events'];
+                // Keep last company's time info for logging
+                $stats['start_time'] = $companyStats['start_time'];
+                $stats['has_cursor'] = $companyStats['has_cursor'];
                 
             } catch (\Exception $e) {
                 Log::warning('SafetyEventsStreamDaemon: Failed to sync company', [
@@ -196,6 +209,8 @@ class SafetyEventsStreamDaemon extends Command
             'total_events' => 0,
             'new_events' => 0,
             'updated_events' => 0,
+            'start_time' => null,
+            'has_cursor' => false,
         ];
 
         // Create Samsara client with company's API key
@@ -203,6 +218,7 @@ class SafetyEventsStreamDaemon extends Command
 
         // Get cursor for pagination (null = start fresh)
         $cursor = $company->safety_stream_cursor;
+        $stats['has_cursor'] = $cursor !== null;
 
         // Samsara API always requires startTime
         // When using cursor, we still need to provide startTime (API requirement)
@@ -210,6 +226,8 @@ class SafetyEventsStreamDaemon extends Command
         $startTime = $cursor 
             ? now()->subHour()->toIso8601String() 
             : now()->subDay()->toIso8601String();
+        
+        $stats['start_time'] = $startTime;
 
         try {
             $response = $client->getSafetyEventsStream(
