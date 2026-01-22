@@ -81,6 +81,9 @@ class Company extends Model
         'logo_path',
         'is_active',
         'settings',
+        // Safety events stream daemon
+        'safety_stream_cursor',
+        'safety_stream_last_sync',
     ];
 
     protected function casts(): array
@@ -89,6 +92,7 @@ class Company extends Model
             'samsara_api_key' => 'encrypted',
             'settings' => 'array',
             'is_active' => 'boolean',
+            'safety_stream_last_sync' => 'datetime',
         ];
     }
 
