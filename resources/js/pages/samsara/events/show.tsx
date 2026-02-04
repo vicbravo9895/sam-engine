@@ -472,33 +472,26 @@ const getAgentIcon = (agentName: string): LucideIcon => {
     }
 };
 
-/**
- * Parse date string treating the time as UTC (ignoring incorrect offset from backend)
- */
-const parseAsUtc = (value: string): Date => {
-    // Remove timezone offset and treat as UTC
-    const dateWithoutOffset = value.replace(/[+-]\d{2}:\d{2}$/, '');
-    return new Date(dateWithoutOffset + 'Z');
-};
-
 const formatFullDate = (value?: string | null, timezone?: string) => {
     if (!value) return 'Sin registro';
+    // JavaScript handles ISO8601 with timezone offset correctly
     return new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'full',
         timeStyle: 'short',
         timeZone: timezone,
-    }).format(parseAsUtc(value));
+    }).format(new Date(value));
 };
 
 const formatShortDateTime = (value?: string | null, timezone?: string) => {
     if (!value) return 'Sin determinar';
+    // JavaScript handles ISO8601 with timezone offset correctly
     return new Intl.DateTimeFormat('es-MX', {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
         timeZone: timezone,
-    }).format(parseAsUtc(value));
+    }).format(new Date(value));
 };
 
 const formatDuration = (ms?: number | null): string => {

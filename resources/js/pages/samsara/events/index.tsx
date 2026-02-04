@@ -246,22 +246,14 @@ const urgencyStyles: Record<UrgencyLevel, string> = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Parse date string treating the time as UTC (ignoring incorrect offset from backend)
- */
-const parseAsUtc = (value: string): Date => {
-    // Remove timezone offset and treat as UTC
-    const dateWithoutOffset = value.replace(/[+-]\d{2}:\d{2}$/, '');
-    return new Date(dateWithoutOffset + 'Z');
-};
-
 const formatDate = (value?: string | null, timezone?: string) => {
     if (!value) return 'Sin fecha';
+    // JavaScript handles ISO8601 with timezone offset correctly
     return new Intl.DateTimeFormat('es-MX', {
         dateStyle: 'medium',
         timeStyle: 'short',
         timeZone: timezone,
-    }).format(parseAsUtc(value));
+    }).format(new Date(value));
 };
 
 const formatEventType = (type?: string | null) => {

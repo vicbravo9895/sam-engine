@@ -6,6 +6,7 @@ namespace App\Services\Incidents;
 
 use App\Models\Company;
 use App\Models\Incident;
+use App\Models\SafetySignal;
 use App\Models\SamsaraEvent;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
@@ -16,15 +17,25 @@ use Illuminate\Support\Facades\Log;
  * Prevents duplicate incidents by:
  * - Checking unique constraints (samsara_event_id, dedupe_key)
  * - Returning existing incident on constraint violation
+ * 
+ * Also links related SafetySignals as supporting evidence.
  */
 class IncidentCreationGate
 {
+    /**
+     * Time window (in minutes) to search for related SafetySignals.
+     */
+    private const SIGNAL_SEARCH_WINDOW_MINUTES = 5;
+
     public function __construct(
         protected IncidentService $incidentService
     ) {}
 
     /**
      * Create an incident from a webhook, with dedupe by samsara_event_id.
+     * 
+     * Also searches for related SafetySignals in a time window and links them
+     * as supporting evidence.
      * 
      * Returns null if duplicate, or the created/existing incident.
      */
@@ -44,7 +55,14 @@ class IncidentCreationGate
         }
         
         try {
-            return $this->incidentService->createFromWebhook($event, $assessment);
+            $incident = $this->incidentService->createFromWebhook($event, $assessment);
+            
+            // Link related SafetySignals as supporting evidence
+            if ($incident) {
+                $this->linkRelatedSignals($incident, $event);
+            }
+            
+            return $incident;
         } catch (QueryException $e) {
             // Handle race condition: unique constraint violation
             if ($this->isUniqueConstraintViolation($e)) {
@@ -59,6 +77,59 @@ class IncidentCreationGate
             
             throw $e;
         }
+    }
+
+    /**
+     * Search for and link related SafetySignals to an incident.
+     * 
+     * Searches for signals from the same vehicle/driver within a time window
+     * around the event occurrence.
+     */
+    protected function linkRelatedSignals(Incident $incident, SamsaraEvent $event): void
+    {
+        if (!$event->occurred_at) {
+            return;
+        }
+
+        $windowMinutes = self::SIGNAL_SEARCH_WINDOW_MINUTES;
+        $startTime = $event->occurred_at->copy()->subMinutes($windowMinutes);
+        $endTime = $event->occurred_at->copy()->addMinutes($windowMinutes);
+
+        // Build query for related signals
+        $query = SafetySignal::where('company_id', $event->company_id)
+            ->whereBetween('occurred_at', [$startTime, $endTime]);
+
+        // Search by vehicle_id or driver_id (whichever is available)
+        if ($event->vehicle_id) {
+            $query->where('vehicle_id', $event->vehicle_id);
+        } elseif ($event->driver_id) {
+            $query->where('driver_id', $event->driver_id);
+        } else {
+            // No vehicle or driver to match against
+            return;
+        }
+
+        $signals = $query->get();
+
+        if ($signals->isEmpty()) {
+            Log::debug('No related SafetySignals found for incident', [
+                'incident_id' => $incident->id,
+                'vehicle_id' => $event->vehicle_id,
+                'driver_id' => $event->driver_id,
+                'time_window' => "±{$windowMinutes} minutes",
+            ]);
+            return;
+        }
+
+        // Link signals as supporting evidence
+        $incident->linkSignals($signals, 'supporting');
+
+        Log::info('Linked SafetySignals to incident', [
+            'incident_id' => $incident->id,
+            'signal_count' => $signals->count(),
+            'vehicle_id' => $event->vehicle_id,
+            'time_window' => "±{$windowMinutes} minutes",
+        ]);
     }
 
     /**

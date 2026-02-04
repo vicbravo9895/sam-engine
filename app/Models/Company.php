@@ -83,6 +83,7 @@ class Company extends Model
         'settings',
         // Safety events stream daemon
         'safety_stream_cursor',
+        'safety_stream_start_time',
         'safety_stream_last_sync',
     ];
 

@@ -218,18 +218,44 @@ class SafetyEventsStreamDaemon extends Command
 
         // Get cursor for pagination (null = start fresh)
         $cursor = $company->safety_stream_cursor;
+        $storedStartTime = $company->safety_stream_start_time;
         $stats['has_cursor'] = $cursor !== null;
 
-        // Samsara API always requires startTime
-        // When using cursor, we still need to provide startTime (API requirement)
-        // Default to 24 hours ago if no cursor, or 1 hour ago with cursor
-        $startTime = $cursor 
-            ? now()->subHour()->toIso8601String() 
-            : now()->subDay()->toIso8601String();
+        // Samsara API requires consistent startTime when using cursor pagination.
+        // The startTime used with a cursor MUST match the original request that generated it.
+        // 
+        // Strategy:
+        // - If we have a cursor AND a stored startTime, use the stored startTime
+        // - If no cursor, use a reasonable lookback (1 hour for real-time streaming)
+        // - Store the startTime we used so we can reuse it with the cursor
+        
+        if ($cursor && $storedStartTime) {
+            // Use the same startTime that was used when the cursor was created
+            $startTime = $storedStartTime;
+            $startTimeSource = 'stored';
+        } else {
+            // Fresh start: look back 1 hour for recent events
+            // (24h was too aggressive and not needed for streaming mode)
+            $startTime = now('UTC')->subHour()->toIso8601String();
+            $startTimeSource = 'fresh';
+        }
         
         $stats['start_time'] = $startTime;
 
+        // Log sync attempt with full context
+        Log::info('SafetyEventsStreamDaemon: Starting company sync', [
+            'company_id' => $company->id,
+            'company_name' => $company->name,
+            'has_cursor' => $cursor !== null,
+            'cursor_preview' => $cursor ? substr($cursor, 0, 20) . '...' : null,
+            'stored_start_time' => $storedStartTime,
+            'start_time_used' => $startTime,
+            'start_time_source' => $startTimeSource,
+        ]);
+
         try {
+            $apiCallStart = microtime(true);
+            
             $response = $client->getSafetyEventsStream(
                 startTime: $startTime,
                 endTime: null, // Real-time mode
@@ -239,11 +265,23 @@ class SafetyEventsStreamDaemon extends Command
                 limit: 100
             );
 
+            $apiCallDuration = round((microtime(true) - $apiCallStart) * 1000);
+
             $events = $response['data'] ?? [];
             $newCursor = $response['pagination']['endCursor'] ?? null;
             $hasNextPage = $response['pagination']['hasNextPage'] ?? false;
 
             $stats['total_events'] = count($events);
+
+            // Log API response summary
+            Log::info('SafetyEventsStreamDaemon: API response received', [
+                'company_id' => $company->id,
+                'events_count' => count($events),
+                'has_next_page' => $hasNextPage,
+                'new_cursor_preview' => $newCursor ? substr($newCursor, 0, 20) . '...' : null,
+                'cursor_changed' => $newCursor !== $cursor,
+                'api_duration_ms' => $apiCallDuration,
+            ]);
 
             // Process each event
             $downloadMedia = $this->option('download-media');
@@ -262,10 +300,22 @@ class SafetyEventsStreamDaemon extends Command
                 }
             }
 
-            // Update cursor and last sync time
+            // Update cursor, startTime used, and last sync time
+            $previousCursor = $company->safety_stream_cursor;
             $company->safety_stream_cursor = $newCursor;
+            $company->safety_stream_start_time = $startTime; // Keep for cursor consistency
             $company->safety_stream_last_sync = now();
             $company->save();
+
+            // Log state update
+            Log::info('SafetyEventsStreamDaemon: Company sync completed', [
+                'company_id' => $company->id,
+                'new_events' => $stats['new_events'],
+                'updated_events' => $stats['updated_events'],
+                'cursor_updated' => $previousCursor !== $newCursor,
+                'start_time_stored' => $startTime,
+                'has_next_page' => $hasNextPage,
+            ]);
 
             // If there are more pages, we'll get them in the next cycle
             if ($hasNextPage && $stats['total_events'] > 0) {
@@ -276,18 +326,32 @@ class SafetyEventsStreamDaemon extends Command
             }
 
         } catch (\Exception $e) {
+            // Log full error details for debugging
+            Log::error('SafetyEventsStreamDaemon: API call failed', [
+                'company_id' => $company->id,
+                'company_name' => $company->name,
+                'error_message' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'cursor_used' => $cursor ? substr($cursor, 0, 20) . '...' : null,
+                'start_time_used' => $startTime,
+                'start_time_source' => $startTimeSource ?? 'unknown',
+            ]);
+
             // If cursor is invalid or parameters issue, reset and retry
             $shouldRetry = str_contains($e->getMessage(), 'Parameters differ') || 
                 str_contains($e->getMessage(), 'Invalid cursor') ||
                 str_contains($e->getMessage(), 'startTime');
             
             if ($shouldRetry && $cursor !== null) {
-                Log::warning('SafetyEventsStreamDaemon: Cursor issue, resetting and retrying', [
+                Log::warning('SafetyEventsStreamDaemon: Cursor issue detected, resetting cursor and startTime for retry', [
                     'company_id' => $company->id,
                     'error' => $e->getMessage(),
+                    'old_cursor' => substr($cursor, 0, 20) . '...',
+                    'old_start_time' => $storedStartTime,
                 ]);
                 
                 $company->safety_stream_cursor = null;
+                $company->safety_stream_start_time = null; // Reset startTime too
                 $company->save();
                 
                 // Retry without cursor
@@ -308,6 +372,10 @@ class SafetyEventsStreamDaemon extends Command
         $samsaraEventId = $eventData['id'] ?? null;
         
         if (!$samsaraEventId) {
+            Log::warning('SafetyEventsStreamDaemon: Event without ID received', [
+                'company_id' => $companyId,
+                'event_keys' => array_keys($eventData),
+            ]);
             return ['is_new' => false];
         }
 
@@ -319,11 +387,27 @@ class SafetyEventsStreamDaemon extends Command
         if ($existing) {
             // Update existing event
             $existing->updateFromStreamEvent($eventData);
+            Log::debug('SafetyEventsStreamDaemon: Updated existing event', [
+                'company_id' => $companyId,
+                'samsara_event_id' => $samsaraEventId,
+                'signal_id' => $existing->id,
+            ]);
             return ['is_new' => false];
         }
 
         // Create new event
         $signal = SafetySignal::createFromStreamEvent($companyId, $eventData);
+        
+        // Log new event creation with key details
+        Log::info('SafetyEventsStreamDaemon: New safety signal created', [
+            'company_id' => $companyId,
+            'signal_id' => $signal?->id,
+            'samsara_event_id' => $samsaraEventId,
+            'vehicle_name' => $eventData['vehicle']['name'] ?? null,
+            'driver_name' => $eventData['driver']['name'] ?? null,
+            'behavior' => $eventData['behaviorLabels'][0]['label'] ?? null,
+            'occurred_at' => $eventData['time'] ?? $eventData['createdAtTime'] ?? null,
+        ]);
         
         // Download media immediately if enabled
         if ($downloadMedia && $signal && !empty($signal->media_urls)) {

@@ -40,24 +40,15 @@ export function formatDate(
     if (!date) return '-';
     
     try {
-        let dateObj: Date;
-        
-        if (typeof date === 'string') {
-            // The backend sends dates with incorrect offset (e.g., "04:55-06:00" when it should be UTC)
-            // We need to treat the time portion as UTC by removing the offset
-            // Extract the datetime part without the timezone offset and treat as UTC
-            const dateWithoutOffset = date.replace(/[+-]\d{2}:\d{2}$/, '');
-            dateObj = new Date(dateWithoutOffset + 'Z'); // Treat as UTC
-        } else {
-            dateObj = date;
-        }
+        // Parse the date - JavaScript handles ISO8601 with timezone offset correctly
+        const dateObj = typeof date === 'string' ? new Date(date) : date;
         
         // Check if date is valid
         if (isNaN(dateObj.getTime())) {
             return '-';
         }
         
-        // Convert from UTC to the company's timezone
+        // Convert to the company's timezone for display
         const zonedDate = toZonedTime(dateObj, timezone);
         return format(zonedDate, formatStr, { locale: es });
     } catch {
