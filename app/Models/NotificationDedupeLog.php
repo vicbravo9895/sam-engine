@@ -13,6 +13,11 @@ use Illuminate\Database\Eloquent\Model;
 class NotificationDedupeLog extends Model
 {
     /**
+     * The table associated with the model.
+     */
+    protected $table = 'notification_dedupe_log';
+
+    /**
      * Disable timestamps - using custom timestamp columns.
      */
     public $timestamps = false;

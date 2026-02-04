@@ -14,6 +14,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class NotificationThrottleLog extends Model
 {
     /**
+     * The table associated with the model.
+     */
+    protected $table = 'notification_throttle_log';
+
+    /**
      * Disable timestamps - using custom timestamp column.
      */
     public $timestamps = false;
