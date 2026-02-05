@@ -115,6 +115,15 @@ COPY docker/nginx.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/app.ini
 
+# =============================================================================
+# TEMPORARY DEBUG MODE - REMOVE AFTER DEBUGGING
+# =============================================================================
+# Force debug mode to see errors - this .env file takes precedence
+RUN echo "APP_ENV=local" > /var/www/html/.env \
+    && echo "APP_DEBUG=true" >> /var/www/html/.env \
+    && echo "TELESCOPE_ENABLED=false" >> /var/www/html/.env
+# =============================================================================
+
 # Set proper permissions
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
