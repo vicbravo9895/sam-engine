@@ -31,6 +31,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import {
     Activity,
     AlertTriangle,
+    BarChart3,
     Car,
     Clock,
     ExternalLink,
@@ -169,6 +170,29 @@ export default function SafetySignalsIndex({ signals, stats, filters }: IndexPro
                         </CardHeader>
                     </Card>
                 </section>
+
+                {/* Analytics Link */}
+                <Card className="bg-gradient-to-r from-primary/5 to-transparent">
+                    <CardHeader className="flex flex-row items-center justify-between py-3">
+                        <div className="flex items-center gap-3">
+                            <div className="rounded-full bg-primary/10 p-2 text-primary">
+                                <BarChart3 className="size-4" />
+                            </div>
+                            <div>
+                                <CardTitle className="text-sm">Centro de Analytics</CardTitle>
+                                <CardDescription className="text-xs">
+                                    Patrones, riesgos, predicciones e insights de AI
+                                </CardDescription>
+                            </div>
+                        </div>
+                        <Button variant="outline" size="sm" asChild className="gap-2">
+                            <Link href="/analytics">
+                                Ver Analytics
+                                <ExternalLink className="size-4" />
+                            </Link>
+                        </Button>
+                    </CardHeader>
+                </Card>
 
                 {/* Filters */}
                 <Card>

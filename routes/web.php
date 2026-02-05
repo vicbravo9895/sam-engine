@@ -70,6 +70,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Fleet Report
     Route::get('fleet-report', [FleetReportController::class, 'index'])->name('fleet-report.index');
 
+    // Analytics Center
+    Route::get('analytics', fn() => \Inertia\Inertia::render('analytics/index'))->name('analytics.index');
+
     // Contacts Management
     Route::resource('contacts', ContactController::class);
     Route::post('contacts/{contact}/toggle-active', [ContactController::class, 'toggleActive'])->name('contacts.toggle-active');

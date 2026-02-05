@@ -31,11 +31,14 @@ import {
     AlertCircle,
     AlertTriangle,
     AlertOctagon,
+    ArrowDownNarrowWide,
+    ArrowUpNarrowWide,
     BarChart3,
     Bell,
     Calendar,
     Camera,
     CheckCircle2,
+    Clock,
     Eye,
     Filter,
     Flag,
@@ -178,6 +181,9 @@ const getAlertShowUrl = (id: number) => `/samsara/alerts/${id}`;
 const POLLING_INTERVAL_MS = 5000;
 const STORAGE_KEY_VIEW_MODE = 'sam_alerts_view_mode';
 const STORAGE_KEY_QUICK_FILTERS = 'sam_alerts_quick_filters';
+const STORAGE_KEY_SORT_MODE = 'sam_alerts_sort_mode';
+
+type SortMode = 'date' | 'priority';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Alertas Samsara', href: ALERTS_INDEX_URL },
@@ -330,6 +336,18 @@ const sortEventsByPriority = (events: EventListItem[]): EventListItem[] => {
 };
 
 /**
+ * Sort events by occurred_at (desc, most recent first).
+ * This is the chronological order - same as backend sends.
+ */
+const sortEventsByDate = (events: EventListItem[]): EventListItem[] => {
+    return [...events].sort((a, b) => {
+        const dateA = a.occurred_at ? new Date(a.occurred_at).getTime() : 0;
+        const dateB = b.occurred_at ? new Date(b.occurred_at).getTime() : 0;
+        return dateB - dateA;
+    });
+};
+
+/**
  * Determine Kanban column key for an event.
  * Precedence: ai_status (primary grouping), but we also consider human_status for special treatment.
  * - If ai_status is 'processing' or 'investigating', those take priority
@@ -418,6 +436,13 @@ export default function SamsaraAlertsIndex({
         }
         return 'kanban';
     });
+    const [sortMode, setSortMode] = useState<SortMode>(() => {
+        if (typeof window !== 'undefined') {
+            const saved = localStorage.getItem(STORAGE_KEY_SORT_MODE);
+            return (saved === 'date' || saved === 'priority') ? saved : 'date';
+        }
+        return 'date';
+    });
     const [quickViewId, setQuickViewId] = useState<number | null>(null);
     const [activeQuickFilters, setActiveQuickFilters] = useState<string[]>(() => {
         if (typeof window !== 'undefined') {
@@ -442,6 +467,11 @@ export default function SamsaraAlertsIndex({
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY_VIEW_MODE, viewMode);
     }, [viewMode]);
+
+    // Persist sort mode
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY_SORT_MODE, sortMode);
+    }, [sortMode]);
 
     // Persist quick filters
     useEffect(() => {
@@ -501,8 +531,12 @@ export default function SamsaraAlertsIndex({
         return result;
     }, [events.data, activeQuickFilters]);
 
-    // Sort events by priority
-    const sortedEvents = useMemo(() => sortEventsByPriority(filteredEvents), [filteredEvents]);
+    // Sort events based on selected mode
+    const sortedEvents = useMemo(() => {
+        return sortMode === 'priority' 
+            ? sortEventsByPriority(filteredEvents) 
+            : sortEventsByDate(filteredEvents);
+    }, [filteredEvents, sortMode]);
 
     // Handlers
     const sanitizedFilters = (values: Filters) =>
@@ -593,7 +627,7 @@ export default function SamsaraAlertsIndex({
             switch (e.key) {
                 case 'k':
                     e.preventDefault();
-                    setViewMode((prev) => (prev === 'kanban' ? 'list' : 'kanban'));
+                    setViewMode((prev) => prev === 'kanban' ? 'list' : 'kanban');
                     break;
                 case '/':
                     e.preventDefault();
@@ -688,6 +722,48 @@ export default function SamsaraAlertsIndex({
                                 <span className="hidden sm:inline">Lista</span>
                             </Button>
                         </div>
+
+                        {/* Analytics Link */}
+                        <Button variant="outline" size="sm" asChild className="gap-2">
+                            <Link href="/analytics">
+                                <BarChart3 className="size-4" />
+                                <span className="hidden sm:inline">Analytics</span>
+                            </Link>
+                        </Button>
+
+                        {/* Sort Mode Toggle */}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="flex items-center rounded-lg border bg-background p-1">
+                                    <Button
+                                        variant={sortMode === 'date' ? 'secondary' : 'ghost'}
+                                        size="sm"
+                                        onClick={() => setSortMode('date')}
+                                        className="gap-1.5"
+                                    >
+                                        <Clock className="size-4" />
+                                        <span className="hidden sm:inline">Fecha</span>
+                                    </Button>
+                                    <Button
+                                        variant={sortMode === 'priority' ? 'secondary' : 'ghost'}
+                                        size="sm"
+                                        onClick={() => setSortMode('priority')}
+                                        className="gap-1.5"
+                                    >
+                                        <ArrowDownNarrowWide className="size-4" />
+                                        <span className="hidden sm:inline">Prioridad</span>
+                                    </Button>
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p className="font-medium">Ordenar por</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {sortMode === 'date' 
+                                        ? 'Mostrando más recientes primero' 
+                                        : 'Mostrando más urgentes primero'}
+                                </p>
+                            </TooltipContent>
+                        </Tooltip>
 
                         {/* Refresh */}
                         <Tooltip>

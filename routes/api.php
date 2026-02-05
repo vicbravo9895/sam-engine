@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SamsaraWebhookController;
 use App\Http\Controllers\SamsaraEventController;
 use App\Http\Controllers\SamsaraEventReviewController;
+use App\Http\Controllers\SafetySignalController;
 use App\Http\Controllers\TwilioCallbackController;
 
 Route::get('/user', function (Request $request) {
@@ -22,6 +23,10 @@ Route::prefix('webhooks/twilio')->group(function () {
 
 // API para el frontend (consultar eventos)
 Route::prefix('events')->group(function () {
+    // Analytics debe ir ANTES de /{id} para evitar que "analytics" se interprete como ID
+    Route::get('/analytics', [SamsaraEventController::class, 'analytics'])
+        ->middleware(['web', 'auth']);
+    
     Route::get('/', [SamsaraEventController::class, 'index']);
     Route::get('/{id}', [SamsaraEventController::class, 'show']);
     Route::get('/{id}/stream', [SamsaraEventController::class, 'stream']);
@@ -43,4 +48,10 @@ Route::prefix('events/{event}')->middleware(['web', 'auth'])->group(function () 
     
     // Reprocesar alerta (solo super_admin)
     Route::post('/reprocess', [SamsaraEventReviewController::class, 'reprocess']);
+});
+
+// Safety Signals API
+Route::prefix('safety-signals')->middleware(['web', 'auth'])->group(function () {
+    Route::get('/analytics', [SafetySignalController::class, 'analytics']);
+    Route::get('/analytics/advanced', [SafetySignalController::class, 'advancedAnalytics']);
 });

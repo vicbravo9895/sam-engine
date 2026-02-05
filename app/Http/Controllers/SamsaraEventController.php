@@ -1187,4 +1187,174 @@ class SamsaraEventController extends Controller
             default => $label ? Str::headline($label) : 'Sin clasificar',
         };
     }
+
+    /**
+     * Get analytics data for the events dashboard.
+     */
+    public function analytics(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $user = $request->user();
+        
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+        
+        $days = (int) $request->input('days', 30);
+        $startDate = now()->subDays($days)->startOfDay();
+        $companyId = $user->company_id;
+        
+        $query = SamsaraEvent::query();
+        
+        // Multi-tenant isolation
+        if ($companyId) {
+            $query->forCompany($companyId);
+        }
+        
+        $query->where('occurred_at', '>=', $startDate);
+        
+        // 1. Events by type (top 10)
+        $eventsByType = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->selectRaw('event_description, COUNT(*) as count')
+            ->groupBy('event_description')
+            ->orderByDesc('count')
+            ->limit(10)
+            ->get()
+            ->map(fn($row) => [
+                'label' => $row->event_description ?? 'Sin descripción',
+                'value' => $row->count,
+            ]);
+        
+        // 2. Top vehicles with most events
+        $topVehicles = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->whereNotNull('vehicle_name')
+            ->selectRaw('vehicle_id, vehicle_name, COUNT(*) as count')
+            ->groupBy('vehicle_id', 'vehicle_name')
+            ->orderByDesc('count')
+            ->limit(10)
+            ->get()
+            ->map(fn($row) => [
+                'id' => $row->vehicle_id,
+                'name' => $row->vehicle_name,
+                'count' => $row->count,
+            ]);
+        
+        // 3. Top drivers with most events
+        $topDrivers = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->whereNotNull('driver_name')
+            ->where('driver_name', '!=', '')
+            ->selectRaw('driver_id, driver_name, COUNT(*) as count')
+            ->groupBy('driver_id', 'driver_name')
+            ->orderByDesc('count')
+            ->limit(10)
+            ->get()
+            ->map(fn($row) => [
+                'id' => $row->driver_id,
+                'name' => $row->driver_name,
+                'count' => $row->count,
+            ]);
+        
+        // 4. Events by severity
+        $eventsBySeverity = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->selectRaw('severity, COUNT(*) as count')
+            ->groupBy('severity')
+            ->get()
+            ->mapWithKeys(fn($row) => [
+                $row->severity => $row->count,
+            ]);
+        
+        // 5. Events by verdict
+        $eventsByVerdict = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->whereNotNull('verdict')
+            ->selectRaw('verdict, COUNT(*) as count')
+            ->groupBy('verdict')
+            ->orderByDesc('count')
+            ->limit(10)
+            ->get()
+            ->map(fn($row) => [
+                'verdict' => $row->verdict,
+                'label' => $this->assessmentVerdictLabel($row->verdict),
+                'count' => $row->count,
+            ]);
+        
+        // 6. Events by day (trend)
+        $eventsByDay = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->selectRaw("DATE(occurred_at) as date, COUNT(*) as count")
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get()
+            ->map(fn($row) => [
+                'date' => $row->date,
+                'count' => $row->count,
+            ]);
+        
+        // 7. Events by hour of day (pattern)
+        $eventsByHour = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->selectRaw("EXTRACT(HOUR FROM occurred_at) as hour, COUNT(*) as count")
+            ->groupBy('hour')
+            ->orderBy('hour')
+            ->get()
+            ->map(fn($row) => [
+                'hour' => (int) $row->hour,
+                'count' => $row->count,
+            ]);
+        
+        // 8. Summary stats
+        $totalEvents = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->count();
+        
+        $falsePositiveCount = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->where(function ($q) {
+                $q->where('verdict', 'likely_false_positive')
+                  ->orWhere('verdict', 'no_action_needed')
+                  ->orWhere('human_status', SamsaraEvent::HUMAN_STATUS_FALSE_POSITIVE);
+            })
+            ->count();
+        
+        $realAlertCount = SamsaraEvent::query()
+            ->when($companyId, fn($q) => $q->forCompany($companyId))
+            ->where('occurred_at', '>=', $startDate)
+            ->whereIn('verdict', ['real_panic', 'confirmed_violation', 'risk_detected'])
+            ->count();
+        
+        return response()->json([
+            'period_days' => $days,
+            'period_start' => $startDate->toIso8601String(),
+            'summary' => [
+                'total_events' => $totalEvents,
+                'false_positives' => $falsePositiveCount,
+                'false_positive_rate' => $totalEvents > 0 
+                    ? round(($falsePositiveCount / $totalEvents) * 100, 1) 
+                    : 0,
+                'real_alerts' => $realAlertCount,
+                'real_alert_rate' => $totalEvents > 0 
+                    ? round(($realAlertCount / $totalEvents) * 100, 1) 
+                    : 0,
+            ],
+            'events_by_type' => $eventsByType,
+            'top_vehicles' => $topVehicles,
+            'top_drivers' => $topDrivers,
+            'events_by_severity' => $eventsBySeverity,
+            'events_by_verdict' => $eventsByVerdict,
+            'events_by_day' => $eventsByDay,
+            'events_by_hour' => $eventsByHour,
+        ]);
+    }
 }
