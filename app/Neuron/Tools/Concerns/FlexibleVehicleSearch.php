@@ -40,18 +40,29 @@ trait FlexibleVehicleSearch
      * Find a vehicle using flexible matching.
      * Returns exact match if found, or suggestions if multiple matches.
      * 
+     * IMPROVED: Better prioritization for number-based searches.
+     * When searching for "796", it will prioritize "T-796" over vehicles
+     * that just happen to contain "796" somewhere in other fields.
+     * 
      * @param string $searchTerm The search term (name or partial number)
      * @return array{exact: bool, vehicle: ?Vehicle, suggestions: array}
      */
     protected function findVehicleFlexible(string $searchTerm): array
     {
+        // Normalize search term
+        $searchTerm = trim($searchTerm);
+        
         // First try exact match - FILTERED BY COMPANY
         $exactMatch = $this->getVehicleQuery()->where('name', $searchTerm)->first();
         if ($exactMatch) {
             return ['exact' => true, 'vehicle' => $exactMatch, 'suggestions' => []];
         }
 
-        // Try LIKE match - FILTERED BY COMPANY
+        // Extract numbers from search term for smart matching
+        preg_match_all('/\d+/', $searchTerm, $matches);
+        $numbers = $matches[0] ?? [];
+        
+        // Try LIKE match on name - FILTERED BY COMPANY
         $likeMatches = $this->getVehicleQuery()
             ->where('name', 'like', '%' . $searchTerm . '%')
             ->orderBy('name')
@@ -63,6 +74,15 @@ trait FlexibleVehicleSearch
         }
 
         if ($likeMatches->count() > 1) {
+            // If we have multiple matches, try to find the best one
+            // Prioritize matches where the number appears after common prefixes (T-, TR-, etc.)
+            if (!empty($numbers)) {
+                $bestMatch = $this->findBestNumberMatch($likeMatches, $numbers[0]);
+                if ($bestMatch) {
+                    return ['exact' => true, 'vehicle' => $bestMatch, 'suggestions' => []];
+                }
+            }
+            
             return [
                 'exact' => false, 
                 'vehicle' => null, 
@@ -73,10 +93,9 @@ trait FlexibleVehicleSearch
             ];
         }
 
-        // If search contains numbers, search by those numbers - FILTERED BY COMPANY
-        preg_match_all('/\d+/', $searchTerm, $matches);
-        if (!empty($matches[0])) {
-            foreach ($matches[0] as $number) {
+        // If no direct LIKE match, search by extracted numbers - FILTERED BY COMPANY
+        if (!empty($numbers)) {
+            foreach ($numbers as $number) {
                 $numberMatches = $this->getVehicleQuery()
                     ->where('name', 'like', '%' . $number . '%')
                     ->orderBy('name')
@@ -88,6 +107,12 @@ trait FlexibleVehicleSearch
                 }
                 
                 if ($numberMatches->count() > 1) {
+                    // Try to find the best match based on common naming patterns
+                    $bestMatch = $this->findBestNumberMatch($numberMatches, $number);
+                    if ($bestMatch) {
+                        return ['exact' => true, 'vehicle' => $bestMatch, 'suggestions' => []];
+                    }
+                    
                     return [
                         'exact' => false, 
                         'vehicle' => null, 
@@ -101,6 +126,43 @@ trait FlexibleVehicleSearch
         }
 
         return ['exact' => false, 'vehicle' => null, 'suggestions' => []];
+    }
+    
+    /**
+     * Find the best matching vehicle from a collection based on number patterns.
+     * 
+     * Prioritizes vehicles where the number appears:
+     * 1. Right after a prefix like "T-", "TR-", "Unidad-" (e.g., "T-796" for search "796")
+     * 2. At the start of the name
+     * 3. As a distinct segment (surrounded by non-digits)
+     * 
+     * @param \Illuminate\Support\Collection $vehicles Collection of vehicles to search
+     * @param string $number The number to match
+     * @return Vehicle|null The best matching vehicle, or null if no clear winner
+     */
+    protected function findBestNumberMatch($vehicles, string $number): ?Vehicle
+    {
+        // Common vehicle name prefixes
+        $prefixes = ['T-', 'TR-', 'Unidad-', 'Unidad ', 'Camion-', 'Camion ', 'Camión-', 'Camión ', 'V-'];
+        
+        foreach ($vehicles as $vehicle) {
+            $name = $vehicle->name;
+            
+            // Check if name matches pattern: PREFIX + NUMBER (e.g., "T-796 ...")
+            foreach ($prefixes as $prefix) {
+                // Pattern: prefix followed by the exact number, then non-digit or end
+                if (preg_match('/^' . preg_quote($prefix, '/') . $number . '(?:\D|$)/i', $name)) {
+                    return $vehicle;
+                }
+            }
+            
+            // Check if name starts with the number followed by non-digit
+            if (preg_match('/^' . $number . '(?:\D|$)/', $name)) {
+                return $vehicle;
+            }
+        }
+        
+        return null;
     }
 
     /**

@@ -108,24 +108,47 @@ class GetVehicles extends Tool
             }
 
             if ($search) {
+                // PRIORITIZED SEARCH: Name matches are more important than VIN/plate matches
+                // This prevents "796" from matching T-021 (VIN ends in 796) before T-796
                 $query->where(function ($q) use ($search) {
-                    // Direct search
                     $searchTerm = '%' . $search . '%';
-                    $q->where('name', 'like', $searchTerm)
-                        ->orWhere('vin', 'like', $searchTerm)
-                        ->orWhere('license_plate', 'like', $searchTerm)
-                        ->orWhere('make', 'like', $searchTerm)
+                    
+                    // Extract numbers for flexible name matching
+                    preg_match_all('/\d+/', $search, $matches);
+                    $numbers = $matches[0] ?? [];
+                    
+                    // Priority 1: Direct name match or numeric name match
+                    $q->where('name', 'like', $searchTerm);
+                    
+                    // If search contains numbers, also match those numbers in name
+                    // This allows "606" to match "T-606", "TR-606", "Camion606", etc.
+                    foreach ($numbers as $number) {
+                        $q->orWhere('name', 'like', '%' . $number . '%');
+                    }
+                    
+                    // Priority 2: License plate match (user might search by plate)
+                    $q->orWhere('license_plate', 'like', $searchTerm);
+                    
+                    // Priority 3: Make/model match
+                    $q->orWhere('make', 'like', $searchTerm)
                         ->orWhere('model', 'like', $searchTerm);
                     
-                    // If search contains numbers, also search for those numbers anywhere in the name
-                    // This allows "606" to match "T-606", "TR-606", "Camion606", etc.
-                    preg_match_all('/\d+/', $search, $matches);
-                    if (!empty($matches[0])) {
-                        foreach ($matches[0] as $number) {
-                            $q->orWhere('name', 'like', '%' . $number . '%');
-                        }
+                    // Priority 4: VIN match (least priority - VINs have many random number sequences)
+                    // Only search VIN if search term is long enough to be meaningful
+                    if (strlen($search) >= 6) {
+                        $q->orWhere('vin', 'like', $searchTerm);
                     }
                 });
+                
+                // Order results to prioritize name matches over VIN/plate matches
+                $query->orderByRaw("
+                    CASE 
+                        WHEN name LIKE ? THEN 0
+                        WHEN license_plate LIKE ? THEN 1
+                        WHEN make LIKE ? OR model LIKE ? THEN 2
+                        ELSE 3
+                    END
+                ", ['%' . $search . '%', '%' . $search . '%', '%' . $search . '%', '%' . $search . '%']);
             }
 
             // Get total count before limiting
@@ -149,7 +172,12 @@ class GetVehicles extends Tool
             }
 
             // Get limited vehicles for the listing
-            $vehicles = $query->orderBy('name')->limit($limit)->get();
+            // Note: when $search is provided, ordering is already applied in the search logic
+            // to prioritize name matches over VIN/plate matches
+            if (!$search) {
+                $query->orderBy('name');
+            }
+            $vehicles = $query->limit($limit)->get();
 
             $response['showing'] = $vehicles->count();
             $response['limit'] = $limit;
