@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Neuron\CompanyContext;
 use App\Neuron\FleetAgent;
 use App\Neuron\Observers\TokenTrackingObserver;
+use App\Pulse\Recorders\CopilotRecorder;
+use App\Pulse\Recorders\TokenUsageRecorder;
 use App\Services\StreamingService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -62,6 +64,7 @@ class ProcessCopilotMessageJob implements ShouldQueue
      */
     public function handle(StreamingService $streamingService): void
     {
+        $jobStartTime = microtime(true);
         $user = User::findOrFail($this->userId);
         
         // Validate user has a company
@@ -254,6 +257,37 @@ class ProcessCopilotMessageJob implements ShouldQueue
                         'tools' => $toolMeta,
                     ]),
                 ]);
+            }
+
+            // Calcular duración total del job para métricas
+            $jobEndTime = microtime(true);
+            $jobStartTime = $jobStartTime ?? $jobEndTime; // Fallback si no está definido
+            $jobDurationMs = (int) round(($jobEndTime - ($jobStartTime ?? $jobEndTime)) * 1000);
+
+            // Registrar métricas del Copilot en Pulse
+            $toolsUsedNames = collect($toolMeta)
+                ->filter(fn($t) => ($t['type'] ?? '') === 'tool_start')
+                ->flatMap(fn($t) => collect($t['tools'] ?? [])->pluck('name'))
+                ->unique()
+                ->values()
+                ->toArray();
+
+            CopilotRecorder::recordCopilotMessage(
+                userId: $this->userId,
+                durationMs: $jobDurationMs,
+                toolsUsed: $toolsUsedNames,
+                model: $model
+            );
+
+            // Registrar consumo de tokens en Pulse
+            if (($tokenStats['total_tokens'] ?? 0) > 0) {
+                TokenUsageRecorder::recordTokenUsage(
+                    model: $model,
+                    inputTokens: $tokenStats['input_tokens'] ?? 0,
+                    outputTokens: $tokenStats['output_tokens'] ?? 0,
+                    userId: $this->userId,
+                    requestType: 'copilot'
+                );
             }
 
             Log::info('Copilot message processed successfully', [

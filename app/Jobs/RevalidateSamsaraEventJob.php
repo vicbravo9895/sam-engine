@@ -4,6 +4,8 @@ namespace App\Jobs;
 
 use App\Jobs\Traits\PersistsEvidenceImages;
 use App\Models\SamsaraEvent;
+use App\Pulse\Recorders\AiServiceRecorder;
+use App\Pulse\Recorders\AlertProcessingRecorder;
 use App\Services\ContactResolver;
 use App\Services\SamsaraClient;
 use Illuminate\Bus\Queueable;
@@ -233,6 +235,14 @@ class RevalidateSamsaraEventJob implements ShouldQueue
 
             $requestDuration = round((microtime(true) - $requestStartTime) * 1000, 2);
 
+            // Registrar métricas del AI Service en Pulse
+            AiServiceRecorder::recordAiServiceCall(
+                endpoint: '/alerts/revalidate',
+                success: $response->successful(),
+                durationMs: (int) $requestDuration,
+                statusCode: $response->status()
+            );
+
             $this->log('debug', 'AI Service response received', [
                 'status_code' => $response->status(),
                 'duration_ms' => $requestDuration,
@@ -398,6 +408,13 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'duration_ms' => $jobDuration,
                 ]);
 
+                // Registrar métricas de procesamiento en Pulse
+                AlertProcessingRecorder::recordAlertProcessing(
+                    event: $this->event,
+                    durationMs: (int) $jobDuration,
+                    status: 'investigating'
+                );
+
             } else {
                 $this->log('info', 'STEP 6: Event investigation COMPLETED', [
                     'action' => 'markAsCompleted',
@@ -435,6 +452,13 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'notification_dispatched' => $notificationDispatched,
                     'duration_ms' => $jobDuration,
                 ]);
+
+                // Registrar métricas de procesamiento en Pulse
+                AlertProcessingRecorder::recordAlertProcessing(
+                    event: $this->event,
+                    durationMs: (int) $jobDuration,
+                    status: 'completed'
+                );
             }
 
         } catch (\Exception $e) {

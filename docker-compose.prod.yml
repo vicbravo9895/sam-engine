@@ -48,6 +48,14 @@ services:
       AI_SERVICE_BASE_URL: http://ai-service:8000
       SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Laravel Pulse
+      PULSE_ENABLED: "true"
+      PULSE_INGEST_DRIVER: redis
+      PULSE_REDIS_CONNECTION: default
+      PULSE_DB_CONNECTION: pgsql
+      PULSE_CACHE_DRIVER: redis
+      PULSE_SERVER_NAME: "${PULSE_SERVER_NAME:-sam-app}"
+      PULSE_STORAGE_KEEP: "14 days"
     volumes:
       # Persistent storage for uploaded files (dashcam images, evidence, etc.)
       - sam-storage:/var/www/html/storage/app/public
@@ -96,6 +104,12 @@ services:
       AI_SERVICE_BASE_URL: http://ai-service:8000
       SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      # Laravel Pulse (para métricas de jobs)
+      PULSE_ENABLED: "true"
+      PULSE_INGEST_DRIVER: redis
+      PULSE_REDIS_CONNECTION: default
+      PULSE_DB_CONNECTION: pgsql
+      PULSE_SERVER_NAME: "${PULSE_SERVER_NAME:-sam-horizon}"
     volumes:
       # Share storage volume with app (horizon saves evidence images)
       - sam-storage:/var/www/html/storage/app/public

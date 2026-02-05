@@ -582,8 +582,76 @@ sail artisan test --coverage
 
 ## Observabilidad
 
+- **Laravel Pulse** (`/pulse`): Dashboard de monitoreo en tiempo real
 - **Langfuse** (`localhost:3030`): Traces de ejecución de agentes AI Service
 - **Laravel Telescope** (`/telescope`): Requests, jobs, queries
 - **Laravel Horizon** (`/horizon`): Dashboard de queues
 - **TokenUsage model**: Tracking de tokens del copilot
 - **Logs**: `storage/logs/laravel.log` y `docker logs ai-service`
+
+### Laravel Pulse - Métricas SAM
+
+Pulse está configurado con cards personalizadas para métricas específicas de SAM:
+
+| Card | Descripción | Métricas |
+|------|-------------|----------|
+| **Alertas Procesadas** | Procesamiento de alertas AI | Por tipo, severidad, verdict, status |
+| **AI Performance** | Rendimiento del AI Service | Latencia, éxito/fallo, códigos HTTP |
+| **Notificaciones** | Estado de notificaciones | Por canal (SMS, WhatsApp, Call), tasa de éxito |
+| **Copilot Usage** | Uso del FleetAgent | Mensajes, tools, usuarios top |
+| **Token Consumption** | Consumo de tokens LLM | Por modelo, tipo de request, usuarios |
+
+#### Recorders Personalizados
+
+```
+app/Pulse/
+├── Recorders/
+│   ├── AlertProcessingRecorder.php  # Métricas de procesamiento de alertas
+│   ├── AiServiceRecorder.php        # Llamadas al AI Service (FastAPI)
+│   ├── NotificationRecorder.php     # Envío de notificaciones Twilio
+│   ├── TokenUsageRecorder.php       # Consumo de tokens OpenAI
+│   └── CopilotRecorder.php          # Uso del Copilot/FleetAgent
+└── Cards/
+    ├── AlertsProcessed.php          # Card de alertas procesadas
+    ├── AiPerformance.php            # Card de performance AI
+    ├── NotificationStatus.php       # Card de notificaciones
+    ├── TokenConsumption.php         # Card de tokens
+    └── CopilotUsage.php             # Card de copilot
+```
+
+#### Configuración
+
+```bash
+# Variables de entorno principales
+PULSE_ENABLED=true
+PULSE_INGEST_DRIVER=redis      # Usar Redis para alto rendimiento
+PULSE_STORAGE_KEEP="14 days"   # Retención de datos
+PULSE_DB_CONNECTION=pgsql      # Usar PostgreSQL
+
+# Recorders personalizados SAM
+PULSE_ALERT_PROCESSING_ENABLED=true
+PULSE_TOKEN_USAGE_ENABLED=true
+PULSE_NOTIFICATION_ENABLED=true
+PULSE_AI_SERVICE_ENABLED=true
+PULSE_COPILOT_ENABLED=true
+```
+
+#### Comandos
+
+```bash
+# Ver dashboard (requiere super_admin)
+# URL: http://localhost/pulse
+
+# Procesar entradas de Redis (para PULSE_INGEST_DRIVER=redis)
+sail artisan pulse:work
+
+# Monitoreo de servidor (CPU, memoria, disco)
+sail artisan pulse:check
+
+# Reiniciar workers de Pulse
+sail artisan pulse:restart
+```
+
+#### Acceso al Dashboard
+
+El dashboard de Pulse está disponible en `/pulse` y requiere que el usuario sea `is_super_admin = true`. La autorización está configurada en `AppServiceProvider`.

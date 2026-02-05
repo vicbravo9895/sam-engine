@@ -6,6 +6,7 @@ use App\Models\NotificationDecision;
 use App\Models\NotificationRecipient;
 use App\Models\NotificationResult;
 use App\Models\SamsaraEvent;
+use App\Pulse\Recorders\NotificationRecorder;
 use App\Services\NotificationDedupeService;
 use App\Services\TwilioService;
 use Illuminate\Bus\Queueable;
@@ -126,6 +127,17 @@ class SendNotificationJob implements ShouldQueue
             'failed' => collect($results)->where('success', false)->count(),
             'duration_ms' => $duration,
         ]);
+
+        // Registrar métricas de notificación en Pulse
+        foreach ($results as $result) {
+            NotificationRecorder::recordNotification(
+                channel: $result['channel'] ?? 'unknown',
+                success: $result['success'] ?? false,
+                durationMs: (int) $duration,
+                companyId: $this->event->company_id,
+                escalationLevel: $this->decision['escalation_level'] ?? 'standard'
+            );
+        }
     }
 
     /**

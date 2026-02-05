@@ -1,0 +1,330 @@
+<?php
+
+use App\Pulse\Recorders\AiServiceRecorder;
+use App\Pulse\Recorders\AlertProcessingRecorder;
+use App\Pulse\Recorders\CopilotRecorder;
+use App\Pulse\Recorders\NotificationRecorder;
+use App\Pulse\Recorders\TokenUsageRecorder;
+use Laravel\Pulse\Http\Middleware\Authorize;
+use Laravel\Pulse\Pulse;
+use Laravel\Pulse\Recorders;
+
+return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Domain
+    |--------------------------------------------------------------------------
+    |
+    | This is the subdomain which the Pulse dashboard will be accessible from.
+    | When set to null, the dashboard will reside under the same domain as
+    | the application. Remember to configure your DNS entries correctly.
+    |
+    */
+
+    'domain' => env('PULSE_DOMAIN'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Path
+    |--------------------------------------------------------------------------
+    |
+    | This is the path which the Pulse dashboard will be accessible from. Feel
+    | free to change this path to anything you'd like. Note that this won't
+    | affect the path of the internal API that is never exposed to users.
+    |
+    */
+
+    'path' => env('PULSE_PATH', 'pulse'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Master Switch
+    |--------------------------------------------------------------------------
+    |
+    | This configuration option may be used to completely disable all Pulse
+    | data recorders regardless of their individual configurations. This
+    | provides a single option to quickly disable all Pulse recording.
+    |
+    */
+
+    'enabled' => env('PULSE_ENABLED', true),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Storage Driver
+    |--------------------------------------------------------------------------
+    |
+    | This configuration option determines which storage driver will be used
+    | while storing entries from Pulse's recorders. In addition, you also
+    | may provide any options to configure the selected storage driver.
+    |
+    */
+
+    'storage' => [
+        'driver' => env('PULSE_STORAGE_DRIVER', 'database'),
+
+        'trim' => [
+            // Mantener datos por 14 días para análisis histórico
+            'keep' => env('PULSE_STORAGE_KEEP', '14 days'),
+        ],
+
+        'database' => [
+            // Usar la misma conexión PostgreSQL del proyecto
+            'connection' => env('PULSE_DB_CONNECTION', 'pgsql'),
+            'chunk' => 1000,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Ingest Driver
+    |--------------------------------------------------------------------------
+    |
+    | This configuration options determines the ingest driver that will be used
+    | to capture entries from Pulse's recorders. Ingest drivers are great to
+    | free up your request workers quickly by offloading the data storage.
+    |
+    */
+
+    'ingest' => [
+        // Usar Redis para alto rendimiento en producción
+        'driver' => env('PULSE_INGEST_DRIVER', 'redis'),
+
+        'buffer' => env('PULSE_INGEST_BUFFER', 5_000),
+
+        'trim' => [
+            'lottery' => [1, 1_000],
+            'keep' => env('PULSE_INGEST_KEEP', '14 days'),
+        ],
+
+        'redis' => [
+            // Usar conexión Redis dedicada para Pulse
+            'connection' => env('PULSE_REDIS_CONNECTION', 'default'),
+            'chunk' => 1000,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Cache Driver
+    |--------------------------------------------------------------------------
+    |
+    | This configuration option determines the cache driver that will be used
+    | for various tasks, including caching dashboard results, establishing
+    | locks for events that should only occur on one server and signals.
+    |
+    */
+
+    'cache' => env('PULSE_CACHE_DRIVER', 'redis'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Route Middleware
+    |--------------------------------------------------------------------------
+    |
+    | These middleware will be assigned to every Pulse route, giving you the
+    | chance to add your own middleware to this list or change any of the
+    | existing middleware. Of course, reasonable defaults are provided.
+    |
+    */
+
+    'middleware' => [
+        'web',
+        Authorize::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pulse Recorders
+    |--------------------------------------------------------------------------
+    |
+    | The following array lists the "recorders" that will be registered with
+    | Pulse, along with their configuration. Recorders gather application
+    | event data from requests and tasks to pass to your ingest driver.
+    |
+    */
+
+    'recorders' => [
+        /*
+        |--------------------------------------------------------------------------
+        | SAM Custom Recorders
+        |--------------------------------------------------------------------------
+        |
+        | Recorders personalizados para métricas específicas de SAM:
+        | - Procesamiento de alertas AI
+        | - Consumo de tokens LLM
+        | - Notificaciones multicanal
+        | - Performance del AI Service
+        | - Uso del Copilot
+        |
+        */
+
+        AlertProcessingRecorder::class => [
+            'enabled' => env('PULSE_ALERT_PROCESSING_ENABLED', true),
+        ],
+
+        TokenUsageRecorder::class => [
+            'enabled' => env('PULSE_TOKEN_USAGE_ENABLED', true),
+        ],
+
+        NotificationRecorder::class => [
+            'enabled' => env('PULSE_NOTIFICATION_ENABLED', true),
+        ],
+
+        AiServiceRecorder::class => [
+            'enabled' => env('PULSE_AI_SERVICE_ENABLED', true),
+        ],
+
+        CopilotRecorder::class => [
+            'enabled' => env('PULSE_COPILOT_ENABLED', true),
+        ],
+
+        /*
+        |--------------------------------------------------------------------------
+        | Laravel Default Recorders
+        |--------------------------------------------------------------------------
+        */
+
+        Recorders\CacheInteractions::class => [
+            'enabled' => env('PULSE_CACHE_INTERACTIONS_ENABLED', true),
+            'sample_rate' => env('PULSE_CACHE_INTERACTIONS_SAMPLE_RATE', 1),
+            'ignore' => [
+                ...Pulse::defaultVendorCacheKeys(),
+            ],
+            'groups' => [
+                '/^job-exceptions:.*/' => 'job-exceptions:*',
+                // Agrupar claves de streaming del copilot
+                '/^copilot:stream:.*/' => 'copilot:stream:*',
+                // Agrupar claves de deduplicación
+                '/^notification:dedupe:.*/' => 'notification:dedupe:*',
+            ],
+        ],
+
+        Recorders\Exceptions::class => [
+            'enabled' => env('PULSE_EXCEPTIONS_ENABLED', true),
+            'sample_rate' => env('PULSE_EXCEPTIONS_SAMPLE_RATE', 1),
+            'location' => env('PULSE_EXCEPTIONS_LOCATION', true),
+            'ignore' => [
+                // Ignorar excepciones de validación comunes
+                '/^Illuminate\\\\Validation\\\\ValidationException/',
+                '/^Symfony\\\\Component\\\\HttpKernel\\\\Exception\\\\NotFoundHttpException/',
+            ],
+        ],
+
+        Recorders\Queues::class => [
+            'enabled' => env('PULSE_QUEUES_ENABLED', true),
+            'sample_rate' => env('PULSE_QUEUES_SAMPLE_RATE', 1),
+            'ignore' => [
+                // No ignorar ningún job, todos son importantes para SAM
+            ],
+        ],
+
+        Recorders\Servers::class => [
+            'server_name' => env('PULSE_SERVER_NAME', gethostname()),
+            'directories' => explode(':', env('PULSE_SERVER_DIRECTORIES', '/')),
+        ],
+
+        Recorders\SlowJobs::class => [
+            'enabled' => env('PULSE_SLOW_JOBS_ENABLED', true),
+            'sample_rate' => env('PULSE_SLOW_JOBS_SAMPLE_RATE', 1),
+            // Thresholds personalizados por tipo de job
+            'threshold' => [
+                // ProcessSamsaraEventJob puede tardar hasta 5 minutos
+                '#^App\\\\Jobs\\\\ProcessSamsaraEventJob$#' => 60000,
+                // RevalidateSamsaraEventJob similar
+                '#^App\\\\Jobs\\\\RevalidateSamsaraEventJob$#' => 60000,
+                // ProcessCopilotMessageJob puede tardar más por streaming
+                '#^App\\\\Jobs\\\\ProcessCopilotMessageJob$#' => 30000,
+                // SendNotificationJob debería ser rápido
+                '#^App\\\\Jobs\\\\SendNotificationJob$#' => 5000,
+                // Default para otros jobs
+                'default' => env('PULSE_SLOW_JOBS_THRESHOLD', 1000),
+            ],
+            'ignore' => [],
+        ],
+
+        Recorders\SlowOutgoingRequests::class => [
+            'enabled' => env('PULSE_SLOW_OUTGOING_REQUESTS_ENABLED', true),
+            'sample_rate' => env('PULSE_SLOW_OUTGOING_REQUESTS_SAMPLE_RATE', 1),
+            // Thresholds personalizados por destino
+            'threshold' => [
+                // AI Service puede tardar más
+                '#^http://ai-service#' => 30000,
+                // Samsara API
+                '#^https://api\.samsara\.com#' => 10000,
+                // Twilio puede tardar en llamadas de voz
+                '#^https://api\.twilio\.com#' => 15000,
+                // OpenAI puede tardar
+                '#^https://api\.openai\.com#' => 30000,
+                // Default
+                'default' => env('PULSE_SLOW_OUTGOING_REQUESTS_THRESHOLD', 1000),
+            ],
+            'ignore' => [
+                '#^http://127\.0\.0\.1:13714#', // Inertia SSR
+                '#^http://localhost#', // Local requests
+            ],
+            'groups' => [
+                // Agrupar requests al AI Service
+                '#^http://ai-service:8000/alerts/.*$#' => 'ai-service/alerts/*',
+                '#^http://ai-service:8000/analytics/.*$#' => 'ai-service/analytics/*',
+                // Agrupar requests a Samsara
+                '#^https://api\.samsara\.com/.*$#' => 'api.samsara.com/*',
+                // Agrupar requests a Twilio
+                '#^https://api\.twilio\.com/.*$#' => 'api.twilio.com/*',
+                // Agrupar requests a OpenAI
+                '#^https://api\.openai\.com/.*$#' => 'api.openai.com/*',
+            ],
+        ],
+
+        Recorders\SlowQueries::class => [
+            'enabled' => env('PULSE_SLOW_QUERIES_ENABLED', true),
+            'sample_rate' => env('PULSE_SLOW_QUERIES_SAMPLE_RATE', 1),
+            'threshold' => env('PULSE_SLOW_QUERIES_THRESHOLD', 500),
+            'location' => env('PULSE_SLOW_QUERIES_LOCATION', true),
+            'max_query_length' => env('PULSE_SLOW_QUERIES_MAX_QUERY_LENGTH', 2000),
+            'ignore' => [
+                '/(["`])pulse_[\w]+?\1/', // Pulse tables
+                '/(["`])telescope_[\w]+?\1/', // Telescope tables
+                '/(["`])horizon_[\w]+?\1/', // Horizon tables
+            ],
+        ],
+
+        Recorders\SlowRequests::class => [
+            'enabled' => env('PULSE_SLOW_REQUESTS_ENABLED', true),
+            'sample_rate' => env('PULSE_SLOW_REQUESTS_SAMPLE_RATE', 1),
+            // Thresholds personalizados por ruta
+            'threshold' => [
+                // El copilot puede tardar más por streaming
+                '#^/copilot#' => 30000,
+                // Webhooks deberían ser rápidos
+                '#^/api/samsara/webhook#' => 5000,
+                // Default
+                'default' => env('PULSE_SLOW_REQUESTS_THRESHOLD', 1000),
+            ],
+            'ignore' => [
+                '#^/'.env('PULSE_PATH', 'pulse').'$#', // Pulse dashboard
+                '#^/telescope#', // Telescope dashboard
+                '#^/horizon#', // Horizon dashboard
+                '#^/_debugbar#', // Laravel Debugbar
+            ],
+        ],
+
+        Recorders\UserJobs::class => [
+            'enabled' => env('PULSE_USER_JOBS_ENABLED', true),
+            'sample_rate' => env('PULSE_USER_JOBS_SAMPLE_RATE', 1),
+            'ignore' => [],
+        ],
+
+        Recorders\UserRequests::class => [
+            'enabled' => env('PULSE_USER_REQUESTS_ENABLED', true),
+            'sample_rate' => env('PULSE_USER_REQUESTS_SAMPLE_RATE', 1),
+            'ignore' => [
+                '#^/'.env('PULSE_PATH', 'pulse').'$#', // Pulse dashboard
+                '#^/telescope#', // Telescope dashboard
+                '#^/horizon#', // Horizon dashboard
+                '#^/api/samsara/webhook#', // Webhooks no tienen usuario
+            ],
+        ],
+    ],
+];

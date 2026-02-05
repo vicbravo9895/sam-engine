@@ -5,6 +5,8 @@ namespace App\Jobs;
 use App\Jobs\Traits\PersistsEvidenceImages;
 use App\Models\SafetySignal;
 use App\Models\SamsaraEvent;
+use App\Pulse\Recorders\AiServiceRecorder;
+use App\Pulse\Recorders\AlertProcessingRecorder;
 use App\Services\ContactResolver;
 use App\Services\Incidents\IncidentCreationGate;
 use App\Services\SamsaraClient;
@@ -173,6 +175,8 @@ class ProcessSamsaraEventJob implements ShouldQueue
             $enrichedPayload['company_id'] = $company->id;
             $enrichedPayload['company_config'] = $aiConfig;
 
+            $aiRequestStart = microtime(true);
+            
             $response = Http::timeout(300)
                 ->withHeaders([
                     'X-Trace-ID' => $traceId, // Propagar trace_id para trazabilidad distribuida
@@ -181,6 +185,16 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'event_id' => $this->event->id,
                     'payload' => $enrichedPayload,
                 ]);
+
+            $aiRequestDuration = (int) round((microtime(true) - $aiRequestStart) * 1000);
+            
+            // Registrar métricas del AI Service en Pulse
+            AiServiceRecorder::recordAiServiceCall(
+                endpoint: '/alerts/ingest',
+                success: $response->successful(),
+                durationMs: $aiRequestDuration,
+                statusCode: $response->status()
+            );
 
             // Manejar 503 (Service at Capacity) - el AI Service está sobrecargado
             // Laravel reintentará automáticamente después del backoff
@@ -330,6 +344,13 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'proactive_flag' => $alertContext['proactive_flag'] ?? false,
                     'duration_ms' => $jobDuration,
                 ]);
+
+                // Registrar métricas de procesamiento en Pulse
+                AlertProcessingRecorder::recordAlertProcessing(
+                    event: $this->event,
+                    durationMs: (int) $jobDuration,
+                    status: 'investigating'
+                );
                 
                 // Crear incidente si cumple los criterios
                 $this->createIncidentIfNeeded($assessment);
@@ -370,6 +391,13 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'notification_dispatched' => $notificationDispatched,
                     'duration_ms' => $jobDuration,
                 ]);
+
+                // Registrar métricas de procesamiento en Pulse
+                AlertProcessingRecorder::recordAlertProcessing(
+                    event: $this->event,
+                    durationMs: (int) $jobDuration,
+                    status: 'completed'
+                );
                 
                 // Crear incidente si cumple los criterios
                 $this->createIncidentIfNeeded($assessment);
@@ -395,6 +423,13 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Si es el último intento, marcar como fallido
             if ($this->attempts() >= $this->tries) {
                 $this->event->markAsFailed($e->getMessage());
+                
+                // Registrar métricas de fallo en Pulse
+                AlertProcessingRecorder::recordAlertProcessing(
+                    event: $this->event,
+                    durationMs: (int) $jobDuration,
+                    status: 'failed'
+                );
             }
 
             // Re-lanzar la excepción para que Laravel maneje el retry
