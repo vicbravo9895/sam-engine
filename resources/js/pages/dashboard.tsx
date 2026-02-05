@@ -8,18 +8,13 @@ import { type BreadcrumbItem } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
 import {
     AlertTriangle,
-    Activity,
     CheckCircle2,
-    Clock,
-    FileWarning,
     Loader2,
     Truck,
     Users,
     Phone,
     MessageSquare,
-    XCircle,
     Eye,
-    TrendingUp,
     AlertCircle,
 } from 'lucide-react';
 
@@ -105,14 +100,6 @@ const severityLabels: Record<string, string> = {
     info: 'Informativo',
 };
 
-const aiStatusColors: Record<string, string> = {
-    pending: 'bg-gray-500',
-    processing: 'bg-blue-500',
-    investigating: 'bg-yellow-500',
-    completed: 'bg-green-500',
-    failed: 'bg-red-500',
-};
-
 const aiStatusLabels: Record<string, string> = {
     pending: 'Pendiente',
     processing: 'Procesando',
@@ -166,8 +153,6 @@ export default function Dashboard() {
         contactsStats,
         usersStats,
         conversationsStats,
-        eventsBySeverity,
-        eventsByAiStatus,
         eventsByDay,
         eventsByType,
         recentEvents,

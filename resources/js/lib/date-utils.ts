@@ -3,19 +3,6 @@ import { es } from 'date-fns/locale';
 import { toZonedTime } from 'date-fns-tz';
 
 /**
- * Format a date to the company's timezone
- */
-export function formatInTimezone(
-    date: Date | string,
-    timezone: string,
-    formatStr: string = 'PPp'
-): string {
-    const dateObj = typeof date === 'string' ? new Date(date) : date;
-    const zonedDate = toZonedTime(dateObj, timezone);
-    return format(zonedDate, formatStr, { locale: es });
-}
-
-/**
  * Format a date as relative time (e.g., "hace 5 minutos")
  */
 export function formatRelative(date: Date | string): string {

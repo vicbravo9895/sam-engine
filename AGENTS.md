@@ -143,8 +143,10 @@ app/
 │       └── Concerns/
 │           ├── UsesCompanyContext.php
 │           └── FlexibleVehicleSearch.php
+├── Samsara/Client/
+│   └── SamsaraClient.php              # API general (Neuron Tools, sync, daemon)
 └── Services/
-    ├── SamsaraClient.php              # Cliente API Samsara
+    ├── SamsaraClient.php              # Pre-carga para pipeline de alertas (Jobs)
     ├── ContactResolver.php            # Resuelve contactos para notificaciones
     └── StreamingService.php           # SSE para copilot
 
@@ -153,6 +155,8 @@ routes/
 ├── web.php               # Rutas web (Inertia)
 └── settings.php          # Rutas de configuración usuario
 ```
+
+**Dos clientes Samsara:** `App\Services\SamsaraClient` = preload/revalidación (Jobs). `App\Samsara\Client\SamsaraClient` = API general (Neuron Tools, sync, daemon). Ver `docs/AUDITORIA_CODIGO_MUERTO.md`.
 
 ### AI Service (`/ai-service`)
 
@@ -364,6 +368,106 @@ Aquí tienes el estado de T-012021:
 4. **SSE Streaming** → Respuesta en tiempo real al frontend
 5. **Rich Cards** → Frontend renderiza cards interactivas
 
+#### SSE real con Redis Streams (Camino A)
+- **Canal por conversación**: `copilot:stream:{threadId}:events` (Redis Stream).
+- **Job** escribe cada chunk/evento con `XADD` (chunk, tool_start, tool_end, stream_end, stream_error).
+- **Endpoint SSE** (`stream`, `resume`) usa `XREAD BLOCK 5000`: bloquea en Redis hasta que haya datos, sin polling → bajo CPU, escalable (gate: 200 usuarios concurrentes sin saturar CPU).
+- **Reconexión**: cada evento SSE lleva `id` = ID del stream en Redis; el cliente envía `Last-Event-ID` y el servidor lee desde ese ID → el cliente no pierde chunks.
+- **Hash** `copilot:stream:{threadId}` se mantiene para estado (status, content) y `streamProgress` (fallback).
+
+---
+
+## Pipeline metrics (T1 — instrumentación mínima)
+
+Métricas por evento en `samsara_events` (por `company_id`):
+
+| Métrica | Origen |
+|--------|--------|
+| **time_webhook_received** | `created_at` |
+| **time_ai_started** | `pipeline_time_ai_started_at` |
+| **time_ai_finished** | `pipeline_time_ai_finished_at` |
+| **time_notifications_sent** | `notification_sent_at` |
+| **pipeline_latency_ms** | webhook → fin AI (ms) |
+| **ai_tokens** | opcional, desde AI Service `execution.total_tokens` |
+| **ai_cost_estimate** | opcional, desde AI Service `execution.cost_estimate` |
+
+### Estado de salud por tenant
+
+- **Última alerta procesada**: evento más reciente con `ai_status` en `completed`, `investigating` o `failed`.
+- **Fallos últimas 24h**: conteo de `ai_status = 'failed'` con `ai_processed_at` en las últimas 24h.
+
+### Consultas SQL (gates)
+
+**P95 latencia hoy por company (PostgreSQL):**
+
+```sql
+SELECT
+  company_id,
+  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY pipeline_latency_ms) AS p95_latency_ms
+FROM samsara_events
+WHERE pipeline_latency_ms IS NOT NULL
+  AND pipeline_time_ai_finished_at >= CURRENT_DATE
+  AND pipeline_time_ai_finished_at < CURRENT_DATE + INTERVAL '1 day'
+GROUP BY company_id;
+```
+
+**Tasa de fallos por tipo de alerta (últimas 24h):**
+
+```sql
+SELECT
+  event_type,
+  COUNT(*) FILTER (WHERE ai_status = 'failed') AS failed_count,
+  COUNT(*) AS total_count,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE ai_status = 'failed') / NULLIF(COUNT(*), 0), 2) AS failure_rate_pct
+FROM samsara_events
+WHERE ai_processed_at >= NOW() - INTERVAL '24 hours'
+GROUP BY event_type;
+```
+
+**Última alerta procesada por tenant:**
+
+```sql
+SELECT DISTINCT ON (company_id)
+  company_id,
+  id AS last_event_id,
+  ai_processed_at AS last_processed_at,
+  ai_status
+FROM samsara_events
+WHERE ai_status IN ('completed', 'investigating', 'failed')
+ORDER BY company_id, ai_processed_at DESC NULLS LAST;
+```
+
+**Conteo de failed últimas 24h por company:**
+
+```sql
+SELECT
+  company_id,
+  COUNT(*) AS failed_last_24h
+FROM samsara_events
+WHERE ai_status = 'failed'
+  AND ai_processed_at >= NOW() - INTERVAL '24 hours'
+GROUP BY company_id;
+```
+
+---
+
+## Fuente de verdad única (T3 — recommended_actions / investigation_steps)
+
+**Objetivo**: Eliminar bugs por leer `recommended_actions` / `investigation_plan` desde JSON vs tablas.
+
+**Estrategia (Opción A)**: Tablas normalizadas como source of truth.
+
+| Dato | Tabla | Lectura | Escritura |
+|------|--------|---------|-----------|
+| Acciones recomendadas | `event_recommended_actions` | UI y API solo vía `getRecommendedActionsArray()` (tabla → fallback JSON) | `ProcessSamsaraEventJob` / `RevalidateSamsaraEventJob` → `saveRecommendedActions()` |
+| Pasos de investigación | `event_investigation_steps` | API vía `getInvestigationStepsArray()` (tabla → fallback `alert_context.investigation_plan`) | Mismos jobs → `saveInvestigationSteps()` |
+
+- **Backend**: Controlador envía `recommended_actions` e `investigation_steps` en el payload del evento desde las tablas (no desde `ai_assessment` / `alert_context` para display).
+- **Frontend**: `show.tsx` usa solo `event.recommended_actions` (y opcionalmente `event.investigation_steps` si se muestra).
+- **JSON** (`samsara_events.recommended_actions`, `ai_assessment`, `alert_context`) se mantiene como snapshot raw; la UI no lo usa para acciones/pasos.
+
+**Gate**: Un solo camino de lectura/escritura — búsqueda en repo por `recommended_actions` e `investigation_steps` debe mostrar que la UI lee solo desde el payload enviado por el controlador (origen en tablas). **Test snapshot**: el mismo evento debe renderizarse igual antes y después de T3 (misma lista de acciones y pasos).
+
 ---
 
 ## Comandos de Desarrollo
@@ -417,7 +521,7 @@ cd ai-service && poetry run mypy .
 
 ### Laravel (`.env`)
 ```env
-AI_ENGINE_URL=http://ai-service:8000
+AI_SERVICE_BASE_URL=http://ai-service:8000
 DB_CONNECTION=pgsql
 QUEUE_CONNECTION=redis
 SAMSARA_API_KEY=samsara_api_...

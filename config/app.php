@@ -122,8 +122,4 @@ return [
         'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
-
-    'ai' => [
-        'base_url' => env('AI_SERVICE_BASE_URL', 'http://ai-service:8000'),
-    ],
 ];

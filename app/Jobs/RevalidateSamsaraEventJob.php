@@ -368,6 +368,10 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     execution: $execution
                 );
 
+                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
+                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+
                 $this->event->addInvestigationRecord(
                     reason: $monitoringReason ?? 'Requiere más tiempo para contexto'
                 );
@@ -429,6 +433,10 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
                     execution: $execution
                 );
+
+                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
+                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
 
                 // Despachar job de notificaciones si hay decisión de notificar
                 $notificationDispatched = false;

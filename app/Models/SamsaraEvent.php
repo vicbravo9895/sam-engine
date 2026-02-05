@@ -54,6 +54,12 @@ class SamsaraEvent extends Model
         'ai_processed_at',
         'ai_error',
         'ai_actions',
+        // Pipeline metrics (T1 instrumentation)
+        'pipeline_time_ai_started_at',
+        'pipeline_time_ai_finished_at',
+        'pipeline_latency_ms',
+        'ai_tokens',
+        'ai_cost_estimate',
         
         // =====================================================
         // CAMPOS NORMALIZADOS (antes en ai_assessment JSON)
@@ -114,6 +120,11 @@ class SamsaraEvent extends Model
         'reviewed_at',
     ];
 
+    /**
+     * Campo calculado (T4) — incluido en toArray/JSON.
+     */
+    protected $appends = ['needs_attention'];
+
     protected $casts = [
         // Payloads JSON
         'raw_payload' => 'array',
@@ -123,7 +134,8 @@ class SamsaraEvent extends Model
         
         // Campos normalizados
         'confidence' => 'decimal:2',
-        
+        'ai_cost_estimate' => 'decimal:6',
+
         // JSONB validado
         'supporting_evidence' => 'array',
         'raw_ai_output' => 'array',
@@ -141,6 +153,8 @@ class SamsaraEvent extends Model
         // Timestamps
         'occurred_at' => 'datetime',
         'ai_processed_at' => 'datetime',
+        'pipeline_time_ai_started_at' => 'datetime',
+        'pipeline_time_ai_finished_at' => 'datetime',
         'last_investigation_at' => 'datetime',
         
         // Notification fields (legacy)
@@ -368,10 +382,10 @@ class SamsaraEvent extends Model
     }
     
     /**
-     * Scope para alertas que requieren atención humana.
-     * Lógica: AI no completó o está en estados que sugieren revisión.
+     * Criterio unificado "requiere atención" (T4 — Attention Center).
+     * Una sola definición: evita duplicar lógica en frontend.
      */
-    public function scopeNeedsHumanAttention($query)
+    public function scopeNeedsAttention($query)
     {
         return $query->where('human_status', self::HUMAN_STATUS_PENDING)
             ->where(function ($q) {
@@ -380,7 +394,46 @@ class SamsaraEvent extends Model
                   ->orWhereIn('risk_escalation', [self::RISK_CALL, self::RISK_EMERGENCY]);
             });
     }
-    
+
+    /**
+     * Alias para compatibilidad con código existente.
+     * @deprecated Prefer scopeNeedsAttention()
+     */
+    public function scopeNeedsHumanAttention($query)
+    {
+        return $query->needsAttention();
+    }
+
+    /**
+     * Orden para Attention Center: mayor prioridad primero (T4).
+     * risk_escalation desc → severity desc → human pending first → ai failed/investigating first → occurred_at desc.
+     */
+    public function scopeOrderByAttentionPriority($query)
+    {
+        $driver = $query->getConnection()->getDriverName();
+        if ($driver === 'pgsql') {
+            return $query->orderByRaw(
+                "CASE risk_escalation WHEN 'emergency' THEN 4 WHEN 'call' THEN 3 WHEN 'warn' THEN 2 WHEN 'monitor' THEN 1 ELSE 0 END DESC"
+            )->orderByRaw(
+                "CASE severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 WHEN 'info' THEN 1 ELSE 0 END DESC"
+            )->orderByRaw(
+                "CASE WHEN human_status = 'pending' THEN 1 ELSE 0 END DESC"
+            )->orderByRaw(
+                "CASE ai_status WHEN 'failed' THEN 3 WHEN 'investigating' THEN 2 WHEN 'processing' THEN 1 WHEN 'pending' THEN 0 ELSE -1 END DESC"
+            )->orderByDesc('occurred_at')->orderByDesc('created_at');
+        }
+        // MySQL
+        return $query->orderByRaw(
+            "CASE risk_escalation WHEN 'emergency' THEN 4 WHEN 'call' THEN 3 WHEN 'warn' THEN 2 WHEN 'monitor' THEN 1 ELSE 0 END DESC"
+        )->orderByRaw(
+            "CASE severity WHEN 'critical' THEN 3 WHEN 'warning' THEN 2 WHEN 'info' THEN 1 ELSE 0 END DESC"
+        )->orderByRaw(
+            "CASE WHEN human_status = 'pending' THEN 1 ELSE 0 END DESC"
+        )->orderByRaw(
+            "CASE ai_status WHEN 'failed' THEN 3 WHEN 'investigating' THEN 2 WHEN 'processing' THEN 1 WHEN 'pending' THEN 0 ELSE -1 END DESC"
+        )->orderByDesc('occurred_at')->orderByDesc('created_at');
+    }
+
     /**
      * ========================================
      * SCOPES PARA CAMPOS NORMALIZADOS
@@ -682,11 +735,12 @@ class SamsaraEvent extends Model
     }
     
     /**
-     * Obtener la primera acción recomendada
+     * Obtener la primera acción recomendada.
+     * T3: Una sola fuente (tablas normalizadas, fallback a JSON legacy).
      */
     public function getFirstRecommendedAction(): ?string
     {
-        $actions = $this->recommended_actions ?? [];
+        $actions = $this->getRecommendedActionsArray();
         return $actions[0] ?? null;
     }
 
@@ -844,18 +898,27 @@ class SamsaraEvent extends Model
     }
     
     /**
-     * Verificar si requiere atención humana.
+     * Campo calculado: requiere atención (T4 — criterio unificado).
+     * Una sola definición para backend y frontend.
      */
-    public function needsHumanAttention(): bool
+    public function getNeedsAttentionAttribute(): bool
     {
         if ($this->human_status !== self::HUMAN_STATUS_PENDING) {
             return false;
         }
-        
         return $this->ai_status === self::STATUS_FAILED
             || $this->ai_status === self::STATUS_INVESTIGATING
             || $this->severity === self::SEVERITY_CRITICAL
             || $this->requiresUrgentEscalation();
+    }
+
+    /**
+     * Verificar si requiere atención humana (alias para compatibilidad).
+     * @deprecated Usar $event->needs_attention
+     */
+    public function needsHumanAttention(): bool
+    {
+        return $this->needs_attention;
     }
     
     /**

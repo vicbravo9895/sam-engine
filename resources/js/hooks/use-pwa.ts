@@ -144,7 +144,7 @@ export function usePWA(): UsePWAReturn {
             } else {
                 return false;
             }
-        } catch (error) {
+        } catch {
             return false;
         }
     }, [deferredPrompt]);

@@ -172,20 +172,20 @@ class CopilotController extends Controller
 
     /**
      * Endpoint SSE para streaming en tiempo real.
-     * Usa un loop que lee el estado de Redis periódicamente.
+     * Usa Redis Streams con XREAD BLOCK: sin polling, bajo CPU, escalable (200+ usuarios).
+     * El id de cada evento SSE es el ID del stream en Redis para reconexión sin perder chunks.
      */
     public function stream(Request $request, string $threadId, StreamingService $streamingService): StreamedResponse
     {
         $user = $request->user();
-        
+
         Log::info('SSE stream requested', ['thread_id' => $threadId, 'user_id' => $user->id]);
-        
-        // Verificar que el thread pertenece al usuario
+
         $conversation = Conversation::where('thread_id', $threadId)
             ->where('user_id', $user->id)
             ->where('company_id', $user->company_id)
             ->first();
-        
+
         if (!$conversation) {
             Log::warning('SSE stream: conversation not found', ['thread_id' => $threadId]);
             return response()->stream(function () {
@@ -196,147 +196,97 @@ class CopilotController extends Controller
             }, 200, $this->getSseHeaders());
         }
 
-        return response()->stream(function () use ($threadId, $streamingService) {
-            // Desactivar buffering para SSE
+        $lastEventId = $request->header('Last-Event-ID', '0');
+
+        return response()->stream(function () use ($threadId, $streamingService, $lastEventId) {
             @ini_set('output_buffering', 'off');
             @ini_set('zlib.output_compression', false);
-            while (ob_get_level()) ob_end_clean();
-            
-            Log::info('SSE stream started', ['thread_id' => $threadId]);
-            
-            $lastEventId = 0;
-            $lastContent = '';
-            $lastToolState = null;
-            $maxIterations = 3000; // 5 minutos máximo (3000 * 100ms = 300 segundos)
-            $iteration = 0;
-            $waitingForStream = true;
+            while (ob_get_level()) {
+                ob_end_clean();
+            }
+
+            Log::info('SSE stream started (Redis Streams)', ['thread_id' => $threadId, 'last_id' => $lastEventId]);
+
+            $startId = $lastEventId !== '' ? $lastEventId : '0';
             $lastHeartbeat = time();
-            
-            // Loop que lee el estado de Redis periódicamente
-            while ($iteration < $maxIterations) {
-                $iteration++;
-                
-                // Verificar si el cliente se desconectó
+            $maxRuntime = 300; // 5 minutos
+            $startTime = time();
+
+            while (time() - $startTime < $maxRuntime) {
                 if (connection_aborted()) {
                     Log::info('SSE stream: client disconnected', ['thread_id' => $threadId]);
                     break;
                 }
-                
-                $state = $streamingService->getStreamState($threadId);
-                
-                if (!$state) {
-                    if ($waitingForStream && $iteration % 10 === 0) {
-                        Log::debug('SSE stream: waiting for Redis state', ['thread_id' => $threadId, 'iteration' => $iteration]);
-                    }
-                    // Esperar a que el Job inicialice el stream
-                    usleep(100000); // 100ms
-                    continue;
-                }
-                
-                if ($waitingForStream) {
-                    Log::info('SSE stream: Redis state found', ['thread_id' => $threadId, 'status' => $state['status']]);
-                    $waitingForStream = false;
-                }
-                
-                // Enviar chunk si hay contenido nuevo
-                $currentContent = $state['content'] ?? '';
-                if ($currentContent !== $lastContent) {
-                    $newContent = substr($currentContent, strlen($lastContent));
-                    if ($newContent !== '') {
-                        $lastEventId++;
-                        echo "id: {$lastEventId}\n";
-                        echo "data: " . json_encode([
-                            'type' => 'chunk',
-                            'content' => $newContent,
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
-                        if (ob_get_level()) ob_flush();
+
+                $events = $streamingService->readStreamEvents($threadId, $startId, 5000);
+
+                if ($events !== []) {
+                    foreach ($events as $ev) {
+                        $id = $ev['id'];
+                        $startId = $id;
+                        $eventType = $ev['event'];
+                        $data = $ev['data'];
+
+                        if ($eventType === 'stream_start') {
+                            continue;
+                        }
+
+                        $payload = ['type' => $eventType, 'timestamp' => $data['timestamp'] ?? now()->toISOString()];
+                        if (isset($data['content'])) {
+                            $payload['content'] = $data['content'];
+                        }
+                        if (isset($data['tool_info'])) {
+                            $payload['tool_info'] = $data['tool_info'];
+                        }
+                        if (isset($data['tokens'])) {
+                            $payload['tokens'] = $data['tokens'];
+                        }
+                        if (isset($data['error'])) {
+                            $payload['error'] = $data['error'];
+                        }
+
+                        echo "id: {$id}\n";
+                        echo "data: " . json_encode($payload) . "\n\n";
+                        if (ob_get_level()) {
+                            ob_flush();
+                        }
                         flush();
                         $lastHeartbeat = time();
                     }
-                    $lastContent = $currentContent;
-                }
-                
-                // Enviar cambio de tool si es diferente
-                $currentTool = $state['active_tool'];
-                if ($currentTool !== $lastToolState) {
-                    $lastEventId++;
-                    echo "id: {$lastEventId}\n";
-                    if ($currentTool) {
-                        echo "data: " . json_encode([
-                            'type' => 'tool_start',
-                            'tool_info' => $currentTool,
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
-                    } else if ($lastToolState) {
-                        echo "data: " . json_encode([
-                            'type' => 'tool_end',
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
+
+                    $last = end($events);
+                    if ($last && in_array($last['event'], ['stream_end', 'stream_error'], true)) {
+                        break;
                     }
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    $lastToolState = $currentTool;
-                    $lastHeartbeat = time();
+                } else {
+                    if (time() - $lastHeartbeat >= 15) {
+                        echo ": heartbeat\n\n";
+                        if (ob_get_level()) {
+                            ob_flush();
+                        }
+                        flush();
+                        $lastHeartbeat = time();
+                    }
                 }
-                
-                // Enviar heartbeat cada 15 segundos para mantener la conexión viva
-                if (time() - $lastHeartbeat >= 15) {
-                    echo ": heartbeat\n\n";
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    $lastHeartbeat = time();
-                }
-                
-                // Si el stream terminó, enviar evento final y salir
-                if ($state['status'] === 'completed') {
-                    $lastEventId++;
-                    echo "id: {$lastEventId}\n";
-                    echo "data: " . json_encode([
-                        'type' => 'stream_end',
-                        'tokens' => $state['tokens'],
-                        'timestamp' => now()->toISOString(),
-                    ]) . "\n\n";
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    break;
-                }
-                
-                if ($state['status'] === 'failed') {
-                    $lastEventId++;
-                    echo "id: {$lastEventId}\n";
-                    echo "data: " . json_encode([
-                        'type' => 'stream_error',
-                        'error' => $state['error'] ?? 'Error desconocido',
-                        'timestamp' => now()->toISOString(),
-                    ]) . "\n\n";
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    break;
-                }
-                
-                // Esperar antes de la próxima iteración
-                usleep(100000); // 100ms
             }
         }, 200, $this->getSseHeaders());
     }
 
     /**
      * Endpoint SSE para reconexión.
-     * Primero envía todo el contenido acumulado, luego continúa el stream si está activo.
+     * Lee desde Redis Stream desde Last-Event-ID (o desde el inicio); el cliente no pierde chunks.
      */
     public function resume(Request $request, string $threadId, StreamingService $streamingService): StreamedResponse
     {
         $user = $request->user();
-        
+
         Log::info('SSE resume requested', ['thread_id' => $threadId, 'user_id' => $user->id]);
-        
-        // Verificar que el thread pertenece al usuario
+
         $conversation = Conversation::where('thread_id', $threadId)
             ->where('user_id', $user->id)
             ->where('company_id', $user->company_id)
             ->first();
-        
+
         if (!$conversation) {
             Log::warning('SSE resume: conversation not found', ['thread_id' => $threadId]);
             return response()->stream(function () {
@@ -347,189 +297,31 @@ class CopilotController extends Controller
             }, 200, $this->getSseHeaders());
         }
 
-        return response()->stream(function () use ($threadId, $streamingService, $conversation) {
-            // Desactivar buffering para SSE
-            @ini_set('output_buffering', 'off');
-            @ini_set('zlib.output_compression', false);
-            while (ob_get_level()) ob_end_clean();
-            
-            Log::info('SSE resume stream started', ['thread_id' => $threadId]);
-            
-            $lastEventId = 0;
-            
-            // 1. Enviar estado inicial (contenido acumulado)
-            $state = $streamingService->getStreamState($threadId);
-            
-            Log::info('SSE resume: Redis state', [
-                'thread_id' => $threadId,
-                'has_state' => $state !== null,
-                'status' => $state['status'] ?? 'no-state',
-                'content_length' => strlen($state['content'] ?? ''),
-            ]);
-            
-            // Si hay estado en Redis, usarlo; si no, usar el de la BD
-            if ($state) {
-                $lastEventId++;
-                echo "id: {$lastEventId}\n";
-                echo "event: resume_state\n";
-                echo "data: " . json_encode([
-                    'type' => 'resume_state',
-                    'content' => $state['content'],
-                    'active_tool' => $state['active_tool'],
-                    'status' => $state['status'],
-                    'timestamp' => now()->toISOString(),
-                ]) . "\n\n";
-                if (ob_get_level()) ob_flush();
-                flush();
-                
-                // Si ya terminó, enviar evento de fin y salir
-                if ($state['status'] !== 'streaming') {
-                    $lastEventId++;
-                    echo "id: {$lastEventId}\n";
-                    
-                    if ($state['status'] === 'completed') {
-                        echo "data: " . json_encode([
-                            'type' => 'stream_end',
-                            'tokens' => $state['tokens'],
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
-                    } else {
-                        echo "data: " . json_encode([
-                            'type' => 'stream_error',
-                            'error' => $state['error'] ?? 'Error desconocido',
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
-                    }
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    return;
+        $state = $streamingService->getStreamState($threadId);
+        $lastEventId = $request->header('Last-Event-ID', '0');
+
+        if (!$state) {
+            $meta = $conversation->fresh()->meta ?? [];
+            if ($meta['streaming'] ?? false) {
+                unset($meta['streaming'], $meta['streaming_started_at'], $meta['streaming_content'], $meta['active_tool']);
+                $conversation->update(['meta' => $meta]);
+            }
+            return response()->stream(function () {
+                @ini_set('output_buffering', 'off');
+                while (ob_get_level()) {
+                    ob_end_clean();
                 }
-            } else {
-                // No hay estado en Redis - el stream probablemente ya terminó o falló
-                // Limpiar el flag de streaming en la BD si estaba activo
-                $meta = $conversation->fresh()->meta ?? [];
-                $isStreaming = $meta['streaming'] ?? false;
-                
-                if ($isStreaming) {
-                    Log::warning('SSE resume: BD says streaming but no Redis state', ['thread_id' => $threadId]);
-                    // Limpiar flag de streaming stale
-                    unset($meta['streaming'], $meta['streaming_started_at'], $meta['streaming_content'], $meta['active_tool']);
-                    $conversation->update(['meta' => $meta]);
-                }
-                
-                // No hay stream activo
-                $lastEventId++;
-                echo "id: {$lastEventId}\n";
+                echo "id: 0\n";
                 echo "data: " . json_encode([
                     'type' => 'no_active_stream',
                     'timestamp' => now()->toISOString(),
                 ]) . "\n\n";
                 if (ob_get_level()) ob_flush();
                 flush();
-                return;
-            }
-            
-            // 2. Continuar leyendo el estado de Redis para chunks futuros
-            $lastContent = $state['content'] ?? '';
-            $lastToolState = $state['active_tool'] ?? null;
-            $maxIterations = 3000; // 5 minutos máximo (3000 * 100ms = 300s)
-            $iteration = 0;
-            $lastHeartbeat = time();
-            
-            while ($iteration < $maxIterations) {
-                $iteration++;
-                
-                if (connection_aborted()) {
-                    break;
-                }
-                
-                $state = $streamingService->getStreamState($threadId);
-                
-                if (!$state) {
-                    usleep(100000);
-                    continue;
-                }
-                
-                // Enviar chunk si hay contenido nuevo
-                $currentContent = $state['content'] ?? '';
-                if ($currentContent !== $lastContent) {
-                    $newContent = substr($currentContent, strlen($lastContent));
-                    if ($newContent !== '') {
-                        $lastEventId++;
-                        echo "id: {$lastEventId}\n";
-                        echo "data: " . json_encode([
-                            'type' => 'chunk',
-                            'content' => $newContent,
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
-                        if (ob_get_level()) ob_flush();
-                        flush();
-                        $lastHeartbeat = time();
-                    }
-                    $lastContent = $currentContent;
-                }
-                
-                // Enviar cambio de tool
-                $currentTool = $state['active_tool'];
-                if ($currentTool !== $lastToolState) {
-                    $lastEventId++;
-                    echo "id: {$lastEventId}\n";
-                    if ($currentTool) {
-                        echo "data: " . json_encode([
-                            'type' => 'tool_start',
-                            'tool_info' => $currentTool,
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
-                    } else if ($lastToolState) {
-                        echo "data: " . json_encode([
-                            'type' => 'tool_end',
-                            'timestamp' => now()->toISOString(),
-                        ]) . "\n\n";
-                    }
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    $lastToolState = $currentTool;
-                    $lastHeartbeat = time();
-                }
-                
-                // Enviar heartbeat cada 15 segundos para mantener la conexión viva
-                if (time() - $lastHeartbeat >= 15) {
-                    echo ": heartbeat\n\n";
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    $lastHeartbeat = time();
-                }
-                
-                // Si el stream terminó
-                if ($state['status'] === 'completed') {
-                    $lastEventId++;
-                    echo "id: {$lastEventId}\n";
-                    echo "data: " . json_encode([
-                        'type' => 'stream_end',
-                        'tokens' => $state['tokens'],
-                        'timestamp' => now()->toISOString(),
-                    ]) . "\n\n";
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    break;
-                }
-                
-                if ($state['status'] === 'failed') {
-                    $lastEventId++;
-                    echo "id: {$lastEventId}\n";
-                    echo "data: " . json_encode([
-                        'type' => 'stream_error',
-                        'error' => $state['error'] ?? 'Error desconocido',
-                        'timestamp' => now()->toISOString(),
-                    ]) . "\n\n";
-                    if (ob_get_level()) ob_flush();
-                    flush();
-                    break;
-                }
-                
-                usleep(100000); // 100ms
-            }
-        }, 200, $this->getSseHeaders());
+            }, 200, $this->getSseHeaders());
+        }
+
+        return $this->stream($request, $threadId, $streamingService);
     }
 
     /**

@@ -23,7 +23,6 @@ import {
     AlertCircle,
     ArrowLeft,
     Car,
-    Globe,
     MessageSquare,
     Phone,
     Save,

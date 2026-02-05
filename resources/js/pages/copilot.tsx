@@ -213,7 +213,7 @@ export default function Copilot() {
                         router.reload({ only: ['messages', 'currentConversation'] });
                         break;
                 }
-            } catch (err) {
+            } catch {
                 // Error parsing SSE message
             }
         };

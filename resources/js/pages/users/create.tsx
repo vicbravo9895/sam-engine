@@ -13,7 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, Save, User, UserPlus } from 'lucide-react';
+import { ArrowLeft, Save, UserPlus } from 'lucide-react';
 
 interface Props {
     roles: Record<string, string>;

@@ -30,7 +30,7 @@ import {
     Zap,
 } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 // Types for AI Timeline
 interface ToolUsage {
@@ -168,7 +168,7 @@ export function ReviewPanel({
             const response = await fetch(`/api/events/${eventId}/comments`);
             const data = await response.json();
             setComments(data.data);
-        } catch (error) {
+        } catch {
             // Error fetching comments
         } finally {
             setIsLoadingComments(false);
@@ -182,7 +182,7 @@ export function ReviewPanel({
             const response = await fetch(`/api/events/${eventId}/activities`);
             const data = await response.json();
             setActivities(data.data);
-        } catch (error) {
+        } catch {
             // Error fetching activities
         } finally {
             setIsLoadingActivities(false);
@@ -222,7 +222,7 @@ export function ReviewPanel({
             fetchActivities();
             // Refresh page data
             router.reload({ only: ['events', 'stats'] });
-        } catch (error) {
+        } catch {
             // Error changing status
         } finally {
             setIsChangingStatus(false);
@@ -257,7 +257,7 @@ export function ReviewPanel({
             setComments([data.data, ...comments]);
             setNewComment('');
             fetchActivities();
-        } catch (error) {
+        } catch {
             // Error submitting comment
         } finally {
             setIsSubmitting(false);

@@ -25,7 +25,6 @@ import {
     ChevronLeft,
     ChevronRight,
     Edit,
-    Key,
     Plus,
     Search,
     Trash2,

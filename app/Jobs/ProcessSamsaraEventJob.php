@@ -113,8 +113,9 @@ class ProcessSamsaraEventJob implements ShouldQueue
         }
 
         try {
-            // Marcar como procesando
+            // Marcar como procesando y registrar tiempo de inicio AI (T1 instrumentation)
             $this->event->markAsProcessing();
+            $this->event->update(['pipeline_time_ai_started_at' => now()]);
 
             // Obtener la API key de la empresa del evento (multi-tenant)
             $company = $this->event->company;
@@ -254,6 +255,17 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 throw new \Exception("AI service returned invalid assessment: missing verdict");
             }
 
+            // Métricas de pipeline (T1 instrumentation): tiempo fin AI y latencia
+            $pipelineTimeAiFinished = now();
+            $pipelineLatencyMs = (int) $this->event->created_at->diffInMilliseconds($pipelineTimeAiFinished);
+            $execution = $result['execution'] ?? null;
+            $pipelineMetrics = [
+                'pipeline_time_ai_finished_at' => $pipelineTimeAiFinished,
+                'pipeline_latency_ms' => $pipelineLatencyMs,
+                'ai_tokens' => isset($execution['total_tokens']) ? (int) $execution['total_tokens'] : null,
+                'ai_cost_estimate' => isset($execution['cost_estimate']) ? (float) $execution['cost_estimate'] : null,
+            ];
+
             // Extraer datos del contrato del AI Service
             $alertContext = $result['alert_context'] ?? null;
             // $assessment ya fue validado arriba
@@ -261,7 +273,6 @@ class ProcessSamsaraEventJob implements ShouldQueue
             $notificationDecision = $result['notification_decision'] ?? null;
             // NOTA: notification_execution ya no viene del AI Service
             // Las notificaciones se ejecutan en Laravel via SendNotificationJob
-            $execution = $result['execution'] ?? null;
             $cameraAnalysis = $result['camera_analysis'] ?? null;
             
             // Persistir imágenes de evidencia si existen
@@ -289,6 +300,11 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
                     execution: $execution
                 );
+                $this->event->update($pipelineMetrics);
+
+                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
+                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
 
                 $this->event->addInvestigationRecord(
                     reason: $monitoringReason ?? 'Confianza insuficiente para veredicto final'
@@ -364,6 +380,11 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
                     execution: $execution
                 );
+                $this->event->update($pipelineMetrics);
+
+                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
+                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
 
                 // Despachar job de notificaciones si hay decisión de notificar
                 $notificationDispatched = false;
@@ -420,10 +441,14 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 'duration_ms' => $jobDuration,
             ]);
 
-            // Si es el último intento, marcar como fallido
+            // Si es el último intento, marcar como fallido y persistir métricas de pipeline (T1)
             if ($this->attempts() >= $this->tries) {
+                $this->event->update([
+                    'pipeline_time_ai_finished_at' => now(),
+                    'pipeline_latency_ms' => (int) $this->event->created_at->diffInMilliseconds(now()),
+                ]);
                 $this->event->markAsFailed($e->getMessage());
-                
+
                 // Registrar métricas de fallo en Pulse
                 AlertProcessingRecorder::recordAlertProcessing(
                     event: $this->event,

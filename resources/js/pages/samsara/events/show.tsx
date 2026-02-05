@@ -10,8 +10,6 @@ import {
 import {
     Dialog,
     DialogContent,
-    DialogHeader,
-    DialogTitle,
 } from '@/components/ui/dialog';
 import {
     Tooltip,
@@ -365,6 +363,9 @@ interface SamsaraEventPayload {
     dedupe_key?: string | null;
     risk_escalation?: string | null;
     proactive_flag?: boolean;
+    // T3: Fuente única desde tablas normalizadas (no leer de ai_assessment/alert_context para display)
+    recommended_actions?: string[];
+    investigation_steps?: string[];
     // Human review fields
     human_status?: HumanStatus;
     human_status_label?: string | null;
@@ -446,15 +447,6 @@ const riskEscalationConfig: Record<string, { label: string; color: string; icon:
     emergency: { label: 'Emergencia', color: 'bg-red-600/20 text-red-700 dark:text-red-300', icon: ShieldAlert },
 };
 
-const getEventIcon = (iconName?: string | null): LucideIcon => {
-    switch (iconName) {
-        case 'alert-circle': return AlertCircle;
-        case 'alert-triangle': return AlertTriangle;
-        case 'shield-alert': return ShieldAlert;
-        default: return Bell;
-    }
-};
-
 const getAgentIcon = (agentName: string): LucideIcon => {
     switch (agentName) {
         case 'ingestion_agent':
@@ -470,16 +462,6 @@ const getAgentIcon = (agentName: string): LucideIcon => {
         default:
             return Wrench;
     }
-};
-
-const formatFullDate = (value?: string | null, timezone?: string) => {
-    if (!value) return 'Sin registro';
-    // JavaScript handles ISO8601 with timezone offset correctly
-    return new Intl.DateTimeFormat('es-MX', {
-        dateStyle: 'full',
-        timeStyle: 'short',
-        timeZone: timezone,
-    }).format(new Date(value));
 };
 
 const formatShortDateTime = (value?: string | null, timezone?: string) => {
@@ -785,7 +767,7 @@ interface CallbackStatusCardProps {
 }
 
 function CallbackStatusCard({ event }: CallbackStatusCardProps) {
-    const { timezone, formatDate } = useTimezone();
+    const { formatDate } = useTimezone();
     
     // Only show for events with notification_status (panic callback flow)
     if (!event.notification_status) return null;
@@ -983,7 +965,7 @@ function CallbackStatusCard({ event }: CallbackStatusCardProps) {
 
 // ============================================================================
 // NEXT ACTIONS CARD COMPONENT
-// Shows: recommended_actions, notification message, missing contact warnings
+// Shows: recommended_actions (from normalized table), notification message, missing contact warnings
 // ============================================================================
 
 interface NextActionsCardProps {
@@ -991,7 +973,7 @@ interface NextActionsCardProps {
 }
 
 function NextActionsCard({ event }: NextActionsCardProps) {
-    const recommendedActions = event.ai_assessment?.recommended_actions ?? [];
+    const recommendedActions = event.recommended_actions ?? [];
     const notificationMessage = event.notification_decision?.message_text;
     const notificationContacts = event.alert_context?.notification_contacts;
     const monitoringReason = event.ai_assessment?.monitoring_reason;
@@ -2027,7 +2009,7 @@ function AITimeline({ event }: AITimelineProps) {
                     {/* Timeline line */}
                     <div className="absolute left-2 top-2 bottom-2 w-0.5 bg-border" />
 
-                    {agents.map((agent, idx) => {
+                    {agents.map((agent) => {
                         const AgentIcon = getAgentIcon(agent.name);
                         const isExpanded = expandedSteps.includes(agent.step);
                         const hasTools = agent.tools_used.length > 0;
@@ -2500,7 +2482,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
     const [simulatedTools, setSimulatedTools] = useState<string[]>([]);
     const [nextInvestigationEtaMs, setNextInvestigationEtaMs] = useState<number | null>(null);
     const [selectedImage, setSelectedImage] = useState<UnifiedMediaItem | null>(null);
-    const { timezone } = useTimezone();
+    useTimezone(); // hook for timezone context; format helpers used in child components
 
     const isProcessing = event.ai_status === 'processing';
     const isInvestigating = event.ai_status === 'investigating';

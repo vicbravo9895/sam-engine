@@ -30,9 +30,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import {
     AlertCircle,
     AlertTriangle,
-    AlertOctagon,
     ArrowDownNarrowWide,
-    ArrowUpNarrowWide,
     BarChart3,
     Bell,
     Calendar,
@@ -57,7 +55,6 @@ import {
     User,
     UserCheck,
     XCircle,
-    Zap,
 } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -352,13 +349,6 @@ const sortEventsByDate = (events: EventListItem[]): EventListItem[] => {
  * Precedence: ai_status (primary grouping), but we also consider human_status for special treatment.
  * - If ai_status is 'processing' or 'investigating', those take priority
  * - If ai_status is 'completed' or 'failed', use those
- * - If ai_status is 'pending', use that
- */
-const getColumnKey = (event: EventListItem): string => {
-    // AI status is the primary determinant
-    return event.ai_status || 'pending';
-};
-
 // ============================================================================
 // QUICK FILTER DEFINITIONS
 // ============================================================================

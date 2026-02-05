@@ -2,11 +2,15 @@
  * Types for Incidents and Safety Signals.
  */
 
+import type { Severity } from './severity';
+
+// Re-export for consumers that used SignalSeverity
+export type { Severity as SignalSeverity } from './severity';
+
 // ============================================================================
 // SAFETY SIGNALS
 // ============================================================================
 
-export type SignalSeverity = 'info' | 'warning' | 'critical';
 export type EventState = 'needsReview' | 'needsCoaching' | 'dismissed' | 'coached';
 
 export interface SafetySignalListItem {
@@ -19,7 +23,7 @@ export interface SafetySignalListItem {
     primary_behavior_label: string | null;
     primary_label_translated: string | null;
     behavior_labels: string[] | null;
-    severity: SignalSeverity;
+    severity: Severity;
     severity_label: string;
     event_state: EventState | null;
     event_state_translated: string | null;
@@ -57,7 +61,7 @@ export interface BehaviorLabelData {
     name: string;
     description: string;
     category: string;
-    severity: SignalSeverity;
+    severity: Severity;
 }
 
 export interface SpeedingMetadata {
@@ -98,7 +102,7 @@ export interface IncidentListItem {
     type_label: string;
     priority: IncidentPriority;
     priority_label: string;
-    severity: SignalSeverity;
+    severity: Severity;
     severity_label: string;
     status: IncidentStatus;
     status_label: string;
@@ -132,7 +136,7 @@ export interface LinkedSafetySignal {
     driver_name: string | null;
     primary_behavior_label: string | null;
     primary_label_translated: string | null;
-    severity: SignalSeverity;
+    severity: Severity;
     severity_label: string;
     address: string | null;
     occurred_at: string | null;
@@ -183,7 +187,7 @@ export const INCIDENT_TYPE_OPTIONS: { value: IncidentType; label: string; icon: 
     { value: 'unknown', label: 'Desconocido', icon: 'help-circle' },
 ];
 
-export const SEVERITY_OPTIONS: { value: SignalSeverity; label: string; color: string }[] = [
+export const SEVERITY_OPTIONS: { value: Severity; label: string; color: string }[] = [
     { value: 'critical', label: 'Crítico', color: 'red' },
     { value: 'warning', label: 'Advertencia', color: 'amber' },
     { value: 'info', label: 'Información', color: 'blue' },

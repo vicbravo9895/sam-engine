@@ -48,6 +48,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('copilot/{threadId}', [CopilotController::class, 'show'])->name('copilot.show');
     Route::delete('copilot/{threadId}', [CopilotController::class, 'destroy'])->name('copilot.destroy');
 
+    // Workbench — T4 Attention Center (lista única "Requieren atención")
+    Route::get('workbench/attention', [SamsaraEventController::class, 'workbenchAttention'])->name('workbench.attention');
+
     // Samsara alerts routes
     Route::prefix('samsara/alerts')->name('samsara.alerts.')->group(function () {
         Route::get('/', [SamsaraEventController::class, 'index'])->name('index');

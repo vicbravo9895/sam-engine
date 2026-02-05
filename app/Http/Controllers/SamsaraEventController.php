@@ -69,46 +69,7 @@ class SamsaraEventController extends Controller
         $events = $query
             ->paginate(12)
             ->withQueryString()
-            ->through(function (SamsaraEvent $event) {
-                $alertType = $event->raw_payload['alertType'] ?? $event->event_type;
-                $assessment = $this->formatAssessment($event->ai_assessment);
-
-                return [
-                    'id' => $event->id,
-                    'samsara_event_id' => $event->samsara_event_id,
-                    'event_type' => $event->event_type,
-                    'event_description' => $event->event_description,
-                    'event_title' => $this->alertTypeLabel($alertType),
-                    'event_icon' => $this->getEventIcon($alertType),
-                    'severity' => $event->severity,
-                    'severity_label' => $this->severityLabel($event->severity),
-                    'ai_status' => $event->ai_status,
-                    'ai_status_label' => $this->statusLabel($event->ai_status),
-                    'vehicle_name' => $event->vehicle_name,
-                    'driver_name' => $event->driver_name,
-                    'occurred_at' => optional($event->occurred_at)?->toIso8601String(),
-                    'occurred_at_human' => optional($event->occurred_at)?->diffForHumans(),
-                    'created_at' => $event->created_at->toIso8601String(),
-                    'ai_message_preview' => is_string($assessment['reasoning'] ?? null) 
-                        ? $assessment['reasoning'] 
-                        : Str::limit((string) $event->ai_message, 180),
-                    'ai_assessment_view' => $assessment,
-                    'verdict_summary' => $this->getVerdictSummary($assessment),
-                    'investigation_summary' => $this->getInvestigationSummary($event->ai_actions),
-                    'has_images' => $this->eventHasImages($event->ai_actions),
-                    'investigation_metadata' => $event->ai_status === SamsaraEvent::STATUS_INVESTIGATING
-                        ? [
-                            'count' => $event->investigation_count,
-                            'max_investigations' => SamsaraEvent::getMaxInvestigations(),
-                        ]
-                        : null,
-                    // Human review data
-                    'human_status' => $event->human_status,
-                    'human_status_label' => $this->humanStatusLabel($event->human_status),
-                    'needs_attention' => $event->needsHumanAttention(),
-                    'urgency_level' => $event->getHumanUrgencyLevel(),
-                ];
-            });
+            ->through(fn (SamsaraEvent $event) => $this->formatEventListItem($event));
 
         $stats = [
             'total' => SamsaraEvent::count(),
@@ -117,7 +78,7 @@ class SamsaraEventController extends Controller
             'completed' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_COMPLETED)->count(),
             'failed' => SamsaraEvent::where('ai_status', SamsaraEvent::STATUS_FAILED)->count(),
             // Human review stats
-            'needs_attention' => SamsaraEvent::query()->needsHumanAttention()->count(),
+            'needs_attention' => SamsaraEvent::query()->when($user->company_id, fn ($q) => $q->forCompany($user->company_id))->needsAttention()->count(),
             'human_pending' => SamsaraEvent::where('human_status', SamsaraEvent::HUMAN_STATUS_PENDING)->count(),
             'human_reviewed' => SamsaraEvent::whereIn('human_status', [
                 SamsaraEvent::HUMAN_STATUS_REVIEWED,
@@ -164,6 +125,96 @@ class SamsaraEventController extends Controller
             'filterOptions' => $filterOptions,
             'stats' => $stats,
         ]);
+    }
+
+    /**
+     * T4 — Attention Center: lista única "Requieren atención" ordenada por prioridad.
+     * GET /workbench/attention?company_id=... (company_id opcional si usuario tiene uno; super_admin puede pasarlo).
+     */
+    public function workbenchAttention(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $companyId = $request->input('company_id') ?? $user->company_id;
+        if (!$companyId) {
+            return response()->json(['error' => 'company_id required'], 400);
+        }
+        if ($user->company_id && (int) $user->company_id !== (int) $companyId) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        $perPage = max(1, min(50, (int) $request->input('per_page', 15)));
+        $query = SamsaraEvent::query()
+            ->forCompany((int) $companyId)
+            ->needsAttention()
+            ->orderByAttentionPriority();
+
+        $events = $query->paginate($perPage)->withQueryString()->through(fn (SamsaraEvent $event) => $this->formatEventListItem($event));
+
+        return response()->json([
+            'data' => $events->items(),
+            'meta' => [
+                'current_page' => $events->currentPage(),
+                'last_page' => $events->lastPage(),
+                'per_page' => $events->perPage(),
+                'total' => $events->total(),
+                'from' => $events->firstItem(),
+                'to' => $events->lastItem(),
+            ],
+            'links' => [
+                'first' => $events->url(1),
+                'last' => $events->url($events->lastPage()),
+                'prev' => $events->previousPageUrl(),
+                'next' => $events->nextPageUrl(),
+            ],
+        ]);
+    }
+
+    /**
+     * Formato unificado de evento para listas (index y workbench/attention).
+     */
+    protected function formatEventListItem(SamsaraEvent $event): array
+    {
+        $alertType = $event->raw_payload['alertType'] ?? $event->event_type ?? null;
+        $assessment = $this->formatAssessment($event->ai_assessment);
+
+        return [
+            'id' => $event->id,
+            'samsara_event_id' => $event->samsara_event_id,
+            'event_type' => $event->event_type,
+            'event_description' => $event->event_description,
+            'event_title' => $this->alertTypeLabel($alertType),
+            'event_icon' => $this->getEventIcon($alertType),
+            'severity' => $event->severity,
+            'severity_label' => $this->severityLabel($event->severity),
+            'ai_status' => $event->ai_status,
+            'ai_status_label' => $this->statusLabel($event->ai_status),
+            'vehicle_name' => $event->vehicle_name,
+            'driver_name' => $event->driver_name,
+            'occurred_at' => optional($event->occurred_at)?->toIso8601String(),
+            'occurred_at_human' => optional($event->occurred_at)?->diffForHumans(),
+            'created_at' => $event->created_at->toIso8601String(),
+            'ai_message_preview' => is_string($assessment['reasoning'] ?? null)
+                ? $assessment['reasoning']
+                : Str::limit((string) $event->ai_message, 180),
+            'ai_assessment_view' => $assessment,
+            'verdict_summary' => $this->getVerdictSummary($assessment),
+            'investigation_summary' => $this->getInvestigationSummary($event->ai_actions),
+            'has_images' => $this->eventHasImages($event->ai_actions),
+            'investigation_metadata' => $event->ai_status === SamsaraEvent::STATUS_INVESTIGATING
+                ? [
+                    'count' => $event->investigation_count,
+                    'max_investigations' => SamsaraEvent::getMaxInvestigations(),
+                ]
+                : null,
+            'human_status' => $event->human_status,
+            'human_status_label' => $this->humanStatusLabel($event->human_status),
+            'needs_attention' => $event->needs_attention,
+            'urgency_level' => $event->getHumanUrgencyLevel(),
+        ];
     }
 
     public function show(Request $request, SamsaraEvent $samsaraEvent): Response
@@ -348,6 +399,9 @@ class SamsaraEventController extends Controller
                 'risk_escalation' => $samsaraEvent->risk_escalation ?? ($samsaraEvent->ai_assessment['risk_escalation'] ?? null),
                 'proactive_flag' => $samsaraEvent->proactive_flag ?? ($alertContext['proactive_flag'] ?? null),
                 'dedupe_key' => $samsaraEvent->dedupe_key ?? ($samsaraEvent->ai_assessment['dedupe_key'] ?? null),
+                // T3: Fuente única desde tablas normalizadas (UI lee solo esto para acciones/pasos)
+                'recommended_actions' => $samsaraEvent->getRecommendedActionsArray(),
+                'investigation_steps' => $samsaraEvent->getInvestigationStepsArray(),
                 // Callback status (panic button flow)
                 'notification_status' => $samsaraEvent->notification_status,
                 'notification_status_label' => $this->notificationStatusLabel($samsaraEvent->notification_status),

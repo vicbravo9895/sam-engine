@@ -1,6 +1,5 @@
 import { cn } from '@/lib/utils';
 import {
-    ArrowRight,
     Calendar,
     CheckCircle2,
     Clock,

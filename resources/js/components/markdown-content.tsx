@@ -23,9 +23,6 @@ interface MarkdownContentProps {
 // Uses a balanced brace matcher approach by finding the first { and matching until the closing } at the same level
 const RICH_BLOCK_REGEX = /:::(location|vehicleStats|dashcamMedia|dashamMedia|safetyEvents|trips|fleetReport|fleetStatus)[\s\n]*(\{[\s\S]*?\})[\s\n]*:::/g;
 
-// Regex to detect the START of an incomplete rich block (opened but not closed)
-const INCOMPLETE_BLOCK_START_REGEX = /:::(location|vehicleStats|dashcamMedia|dashamMedia|safetyEvents|trips|fleetReport|fleetStatus)[\s\n]*\{/;
-
 // Map typos to correct types
 const TYPE_CORRECTIONS: Record<string, string> = {
     dashamMedia: 'dashcamMedia',

@@ -26,7 +26,6 @@ import {
     Save,
     Shield,
     Trash2,
-    Upload,
 } from 'lucide-react';
 import { useState } from 'react';
 

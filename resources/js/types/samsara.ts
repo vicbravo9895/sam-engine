@@ -2,9 +2,11 @@
  * Tipos para eventos de Samsara y revisión humana.
  */
 
+import type { Severity } from './severity';
+
+export type { Severity } from './severity';
 export type HumanStatus = 'pending' | 'reviewed' | 'flagged' | 'resolved' | 'false_positive';
 export type AiStatus = 'pending' | 'processing' | 'investigating' | 'completed' | 'failed';
-export type Severity = 'info' | 'warning' | 'critical';
 export type UrgencyLevel = 'high' | 'medium' | 'low';
 
 export interface EventUser {
