@@ -30,6 +30,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
 
+# Copy PHP configuration for CLI (memory limits, etc.)
+COPY docker/php.ini /usr/local/etc/php/conf.d/app.ini
+
 # Copy composer files first for better caching
 COPY composer.json composer.lock ./
 

@@ -183,7 +183,7 @@ return [
     |
     */
 
-    'memory_limit' => 64,
+    'memory_limit' => 256,
 
     /*
     |--------------------------------------------------------------------------
@@ -225,7 +225,7 @@ return [
             'minProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 256,
+            'memory' => 512,
             'tries' => 3,
             'timeout' => 300,  // 5 minutos - el pipeline AI puede tardar
             'nice' => 0,
@@ -241,7 +241,7 @@ return [
             'minProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 256,
+            'memory' => 512,
             'tries' => 3,
             'timeout' => 300,
             'nice' => 0,
