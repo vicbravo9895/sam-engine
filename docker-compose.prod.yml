@@ -42,7 +42,7 @@ services:
       DB_PASSWORD: "${DB_PASSWORD}"
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      CACHE_DRIVER: redis
+      CACHE_STORE: redis
       QUEUE_CONNECTION: redis
       SESSION_DRIVER: redis
       AI_SERVICE_BASE_URL: http://ai-service:8000
@@ -99,7 +99,7 @@ services:
       DB_PASSWORD: "${DB_PASSWORD}"
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      CACHE_DRIVER: redis
+      CACHE_STORE: redis
       QUEUE_CONNECTION: redis
       AI_SERVICE_BASE_URL: http://ai-service:8000
       SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
@@ -151,7 +151,7 @@ services:
       DB_PASSWORD: "${DB_PASSWORD}"
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      CACHE_DRIVER: redis
+      CACHE_STORE: redis
       SAMSARA_API_TOKEN: "${SAMSARA_API_TOKEN}"
     volumes:
       # Share storage volume with app (daemon saves media files)
