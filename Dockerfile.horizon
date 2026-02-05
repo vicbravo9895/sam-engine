@@ -55,9 +55,16 @@ RUN mkdir -p storage/logs storage/framework/cache storage/framework/sessions sto
     storage/app/public/evidence storage/app/public/dashcam-media \
     && chmod -R 775 storage bootstrap/cache
 
+# Copy and make entrypoint executable
+COPY docker/entrypoint-horizon.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Health check - Horizon has a built-in status command
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD php artisan horizon:status || exit 1
+
+# Use entrypoint to fix permissions on startup (handles mounted volumes)
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Run Horizon
 CMD ["php", "artisan", "horizon"]

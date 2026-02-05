@@ -114,17 +114,12 @@ RUN mkdir -p /var/www/html/storage/app/public/evidence \
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/app.ini
+COPY docker/entrypoint.sh /entrypoint.sh
 
-# =============================================================================
-# TEMPORARY DEBUG MODE - REMOVE AFTER DEBUGGING
-# =============================================================================
-# Force debug mode to see errors - this .env file takes precedence
-RUN echo "APP_ENV=local" > /var/www/html/.env \
-    && echo "APP_DEBUG=true" >> /var/www/html/.env \
-    && echo "TELESCOPE_ENABLED=false" >> /var/www/html/.env
-# =============================================================================
+# Make entrypoint executable
+RUN chmod +x /entrypoint.sh
 
-# Set proper permissions
+# Set initial permissions (will be fixed again by entrypoint for mounted volumes)
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
@@ -137,6 +132,9 @@ EXPOSE 80
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost/up || exit 1
+
+# Use entrypoint to fix permissions on startup (handles mounted volumes)
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Start supervisor (manages nginx + php-fpm)
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
