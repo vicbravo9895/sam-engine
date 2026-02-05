@@ -34,7 +34,7 @@ class AppServiceProvider extends ServiceProvider
         // Autorización para el dashboard de Pulse
         // Solo super admins pueden ver el dashboard
         Gate::define('viewPulse', function (User $user) {
-            return $user->is_super_admin;
+            return $user->isSuperAdmin();
         });
 
         // Configurar resolución de usuarios para Pulse
