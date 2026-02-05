@@ -179,13 +179,24 @@ function HorizontalBarChart({
 }
 
 function HourlyChart({ data }: { data: Array<{ hour: number; count: number }> }) {
-    const maxCount = getMaxValue(data);
-    
     // Fill in missing hours with 0
     const hourlyData = Array.from({ length: 24 }, (_, i) => {
         const found = data.find((d) => d.hour === i);
         return { hour: i, count: found?.count ?? 0 };
     });
+
+    const counts = hourlyData.map((d) => d.count);
+    const minCount = Math.min(...counts);
+    const maxCount = Math.max(...counts);
+    const range = maxCount - minCount;
+
+    // Calcular altura: si hay rango, usar escala relativa (20%-100%)
+    // Si todos son iguales, mostrar 50% para valores > 0
+    const getBarHeight = (count: number): number => {
+        if (maxCount === 0) return 0;
+        if (range === 0) return count > 0 ? 50 : 0;
+        return ((count - minCount) / range) * 80 + 20;
+    };
 
     return (
         <div className="flex items-end gap-1 h-24">
@@ -196,7 +207,7 @@ function HourlyChart({ data }: { data: Array<{ hour: number; count: number }> })
                             <div
                                 className="w-full bg-primary/80 hover:bg-primary rounded-t transition-all"
                                 style={{
-                                    height: `${maxCount > 0 ? (item.count / maxCount) * 100 : 0}%`,
+                                    height: `${getBarHeight(item.count)}%`,
                                     minHeight: item.count > 0 ? '4px' : '0',
                                 }}
                             />
@@ -221,7 +232,18 @@ function DailyTrendChart({ data }: { data: Array<{ date: string; count: number }
         );
     }
 
-    const maxCount = getMaxValue(data);
+    const counts = data.map((d) => d.count);
+    const minCount = Math.min(...counts);
+    const maxCount = Math.max(...counts);
+    const range = maxCount - minCount;
+
+    // Calcular altura: si hay rango, usar escala relativa (20%-100%)
+    // Si todos son iguales, mostrar 50% para valores > 0
+    const getBarHeight = (count: number): number => {
+        if (maxCount === 0) return 0;
+        if (range === 0) return count > 0 ? 50 : 0;
+        return ((count - minCount) / range) * 80 + 20;
+    };
 
     return (
         <div className="flex items-end gap-0.5 h-24">
@@ -232,7 +254,7 @@ function DailyTrendChart({ data }: { data: Array<{ date: string; count: number }
                             <div
                                 className="w-full bg-primary/80 hover:bg-primary rounded-t transition-all"
                                 style={{
-                                    height: `${maxCount > 0 ? (item.count / maxCount) * 100 : 0}%`,
+                                    height: `${getBarHeight(item.count)}%`,
                                     minHeight: item.count > 0 ? '4px' : '0',
                                 }}
                             />
