@@ -91,7 +91,9 @@
         @if($slowRequests->isNotEmpty() && $slowRequests->sum('count') > 0)
             <div class="p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
                 <div class="flex items-center gap-2">
-                    <x-pulse::icons.exclamation-triangle class="w-4 h-4 text-orange-500" />
+                    <svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
                     <span class="text-xs font-medium text-orange-800 dark:text-orange-200">
                         {{ $slowRequests->sum('count') }} requests lentos (>5s)
                     </span>

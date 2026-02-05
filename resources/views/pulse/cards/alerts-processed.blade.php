@@ -1,7 +1,9 @@
 <x-pulse::card :cols="$cols" :rows="$rows" :class="$class" wire:poll.5s="">
     <x-pulse::card-header name="Alertas Procesadas">
         <x-slot:icon>
-            <x-pulse::icons.bolt class="w-6 h-6" />
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
         </x-slot:icon>
         <x-slot:actions>
             <span class="text-xs text-gray-500 dark:text-gray-400">
@@ -106,7 +108,9 @@
 
         @if($totalProcessed === 0)
             <div class="text-center py-8 text-gray-500 dark:text-gray-400">
-                <x-pulse::icons.bolt class="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <svg class="w-8 h-8 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
                 <p class="text-sm">No hay alertas procesadas en este período</p>
             </div>
         @endif
