@@ -21,6 +21,8 @@ samsara-api = "^4.1.0"
 twilio = "^9.0.0"
 redis = "^5.0.0"
 structlog = "^24.0.0"
+pandas = "^2.2.0"
+numpy = "^2.0.0"
 
 
 [tool.poetry.group.dev.dependencies]

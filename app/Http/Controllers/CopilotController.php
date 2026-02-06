@@ -6,6 +6,9 @@ use App\Jobs\ProcessCopilotMessageJob;
 use App\Models\ChatMessage;
 use App\Models\Conversation;
 use App\Models\SamsaraEvent;
+use App\Models\Driver;
+use App\Models\Tag;
+use App\Models\Vehicle;
 use App\Services\StreamingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -39,6 +42,9 @@ class CopilotController extends Controller
             'conversations' => $conversations,
             'currentConversation' => null,
             'messages' => [],
+            'vehicles' => $this->getVehiclesForPicker($user->company_id),
+            'drivers' => $this->getDriversForPicker($user->company_id),
+            'tags' => $this->getTagsForPicker($user->company_id),
         ]);
     }
 
@@ -97,6 +103,9 @@ class CopilotController extends Controller
                 'context_payload' => $currentConversation->context_payload,
             ],
             'messages' => $messages,
+            'vehicles' => $this->getVehiclesForPicker($user->company_id),
+            'drivers' => $this->getDriversForPicker($user->company_id),
+            'tags' => $this->getTagsForPicker($user->company_id),
         ]);
     }
 
@@ -374,6 +383,66 @@ class CopilotController extends Controller
             'label' => 'Procesando...',
             'icon' => 'loader',
         ];
+    }
+
+    /**
+     * Get a lightweight list of vehicles for the copilot vehicle picker.
+     * 
+     * Returns only the fields needed for search/display, ordered by name.
+     */
+    private function getVehiclesForPicker(int $companyId): array
+    {
+        return Vehicle::forCompany($companyId)
+            ->orderBy('name')
+            ->get(['id', 'name', 'license_plate', 'make', 'model', 'year'])
+            ->map(fn (Vehicle $v) => [
+                'id' => $v->id,
+                'name' => $v->name,
+                'license_plate' => $v->license_plate,
+                'make' => $v->make,
+                'model' => $v->model,
+                'year' => $v->year,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Get a lightweight list of active drivers for the copilot driver picker.
+     */
+    private function getDriversForPicker(int $companyId): array
+    {
+        return Driver::forCompany($companyId)
+            ->active()
+            ->orderBy('name')
+            ->get(['id', 'name', 'phone', 'license_number', 'driver_activation_status', 'static_assigned_vehicle'])
+            ->map(fn (Driver $d) => [
+                'id' => $d->id,
+                'name' => $d->name,
+                'phone' => $d->phone,
+                'license_number' => $d->license_number,
+                'status' => $d->driver_activation_status,
+                'assigned_vehicle_name' => $d->assigned_vehicle_name,
+            ])
+            ->toArray();
+    }
+
+    /**
+     * Get a lightweight list of tags for the copilot tag picker.
+     */
+    private function getTagsForPicker(int $companyId): array
+    {
+        return Tag::forCompany($companyId)
+            ->orderBy('name')
+            ->get(['id', 'samsara_id', 'name', 'parent_tag_id', 'vehicles', 'drivers'])
+            ->map(fn (Tag $t) => [
+                'id' => $t->id,
+                'samsara_id' => $t->samsara_id,
+                'name' => $t->name,
+                'parent_tag_id' => $t->parent_tag_id,
+                'vehicle_count' => $t->vehicle_count,
+                'driver_count' => $t->driver_count,
+            ])
+            ->toArray();
     }
 
     /**

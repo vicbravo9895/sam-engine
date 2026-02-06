@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DashcamMediaCard } from './rich-cards/dashcam-media-card';
+import { FleetAnalysisCard } from './rich-cards/fleet-analysis-card';
 import { FleetReportCard } from './rich-cards/fleet-report-card';
 import { FleetStatusCard } from './rich-cards/fleet-status-card';
 import { LocationCard } from './rich-cards/location-card';
@@ -21,7 +22,7 @@ interface MarkdownContentProps {
 // Flexible format: allows spaces, newlines, and common typos
 // Updated to be more robust: matches :::type followed by whitespace/newlines, then JSON object, then closing :::
 // Uses a balanced brace matcher approach by finding the first { and matching until the closing } at the same level
-const RICH_BLOCK_REGEX = /:::(location|vehicleStats|dashcamMedia|dashamMedia|safetyEvents|trips|fleetReport|fleetStatus)[\s\n]*(\{[\s\S]*?\})[\s\n]*:::/g;
+const RICH_BLOCK_REGEX = /:::(location|vehicleStats|dashcamMedia|dashamMedia|safetyEvents|trips|fleetReport|fleetStatus|fleetAnalysis)[\s\n]*(\{[\s\S]*?\})[\s\n]*:::/g;
 
 // Map typos to correct types
 const TYPE_CORRECTIONS: Record<string, string> = {
@@ -52,7 +53,7 @@ interface ParseResult {
  */
 function detectIncompleteBlock(content: string): { type: RichBlockType | null; startIndex: number } {
     // Find all positions where a block starts with :::type {
-    const blockTypes = ['location', 'vehicleStats', 'dashcamMedia', 'dashamMedia', 'safetyEvents', 'trips', 'fleetReport', 'fleetStatus'];
+    const blockTypes = ['location', 'vehicleStats', 'dashcamMedia', 'dashamMedia', 'safetyEvents', 'trips', 'fleetReport', 'fleetStatus', 'fleetAnalysis'];
     
     let lastIncompleteStart = -1;
     let lastIncompleteType: RichBlockType | null = null;
@@ -304,6 +305,8 @@ function RichBlockRenderer({ block }: { block: RichBlock }) {
             return <FleetReportCard data={block.data} />;
         case 'fleetStatus':
             return <FleetStatusCard data={block.data} />;
+        case 'fleetAnalysis':
+            return <FleetAnalysisCard data={block.data} />;
         default:
             return null;
     }

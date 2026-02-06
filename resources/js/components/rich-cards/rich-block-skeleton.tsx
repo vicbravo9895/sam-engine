@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import {
     Activity,
+    BarChart3,
     Gauge,
     Loader2,
     MapPin,
@@ -10,7 +11,7 @@ import {
     Video,
 } from 'lucide-react';
 
-export type RichBlockType = 'location' | 'vehicleStats' | 'dashcamMedia' | 'safetyEvents' | 'trips' | 'fleetReport' | 'fleetStatus';
+export type RichBlockType = 'location' | 'vehicleStats' | 'dashcamMedia' | 'safetyEvents' | 'trips' | 'fleetReport' | 'fleetStatus' | 'fleetAnalysis';
 
 interface RichBlockSkeletonProps {
     type: RichBlockType;
@@ -72,6 +73,13 @@ const blockConfig: Record<RichBlockType, {
         description: 'Consultando estado de los vehículos...',
         gradient: 'from-cyan-50/50 to-blue-50/50 dark:from-cyan-950/20 dark:to-blue-950/20',
         iconBg: 'bg-gradient-to-r from-cyan-600 to-blue-500',
+    },
+    fleetAnalysis: {
+        icon: BarChart3,
+        label: 'Análisis de Flota',
+        description: 'Ejecutando análisis avanzado con AI...',
+        gradient: 'from-violet-50/50 to-fuchsia-50/50 dark:from-violet-950/20 dark:to-fuchsia-950/20',
+        iconBg: 'bg-gradient-to-r from-violet-600 to-fuchsia-500',
     },
 };
 
@@ -255,9 +263,79 @@ function FleetStatusSkeleton() {
     );
 }
 
+// Skeleton for Fleet Analysis Card
+function FleetAnalysisSkeleton() {
+    return (
+        <div className="p-4 space-y-4">
+            {/* Metrics grid */}
+            <div>
+                <SkeletonLine className="h-3 w-24 mb-3" />
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="rounded-lg border bg-white p-3 dark:bg-gray-900 space-y-2">
+                            <SkeletonLine className="h-3 w-20" />
+                            <SkeletonLine className="h-6 w-16" />
+                            <SkeletonLine className="h-3 w-12" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+            {/* Findings */}
+            <div>
+                <SkeletonLine className="h-3 w-20 mb-3" />
+                <div className="space-y-2">
+                    {[1, 2].map((i) => (
+                        <div key={i} className="flex items-start gap-3 rounded-lg border p-3">
+                            <SkeletonLine className="size-3 rounded-full shrink-0" />
+                            <div className="flex-1 space-y-2">
+                                <SkeletonLine className="h-4 w-48" />
+                                <SkeletonLine className="h-3 w-full" />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            {/* Insights */}
+            <div className="rounded-lg border border-violet-200 bg-violet-50/50 dark:border-violet-800 dark:bg-violet-950/20 p-4 space-y-2">
+                <SkeletonLine className="h-4 w-full" />
+                <SkeletonLine className="h-4 w-3/4" />
+                <SkeletonLine className="h-4 w-5/6" />
+            </div>
+        </div>
+    );
+}
+
 export function RichBlockSkeleton({ type }: RichBlockSkeletonProps) {
     const config = blockConfig[type];
     const Icon = config.icon;
+
+    // Special handling for fleet analysis - styled header with gradient
+    if (type === 'fleetAnalysis') {
+        return (
+            <div className="my-3 overflow-hidden rounded-xl border bg-gradient-to-br from-slate-50 to-gray-50 dark:from-slate-950/50 dark:to-gray-950/50 shadow-lg animate-in fade-in duration-300">
+                <div className="border-b bg-gradient-to-r from-violet-600 to-fuchsia-500 px-6 py-4 text-white">
+                    <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="flex size-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+                                <Loader2 className="size-7 animate-spin" />
+                            </div>
+                            <div>
+                                <SkeletonLine className="h-3 w-24 bg-white/20 mb-2" />
+                                <SkeletonLine className="h-6 w-56 bg-white/30" />
+                                <SkeletonLine className="h-3 w-32 bg-white/20 mt-2" />
+                            </div>
+                        </div>
+                        <SkeletonLine className="h-10 w-24 rounded-lg bg-white/20" />
+                    </div>
+                    <div className="mt-4 rounded-lg bg-white/10 backdrop-blur-sm p-3">
+                        <SkeletonLine className="h-4 w-full bg-white/20" />
+                        <SkeletonLine className="h-4 w-3/4 bg-white/20 mt-2" />
+                    </div>
+                </div>
+                <FleetAnalysisSkeleton />
+            </div>
+        );
+    }
 
     // Special handling for fleet report - it has a different header style
     if (type === 'fleetReport') {
@@ -353,6 +431,7 @@ export function RichBlockSkeleton({ type }: RichBlockSkeletonProps) {
             {type === 'trips' && <TripsSkeleton />}
             {type === 'dashcamMedia' && <DashcamMediaSkeleton />}
             {type === 'fleetStatus' && <FleetStatusSkeleton />}
+            {type === 'fleetAnalysis' && <FleetAnalysisSkeleton />}
         </div>
     );
 }

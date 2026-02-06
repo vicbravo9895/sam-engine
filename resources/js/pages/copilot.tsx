@@ -2,6 +2,9 @@ import {
     send,
     show,
 } from '@/actions/App/Http/Controllers/CopilotController';
+import { DriverQuickSearch, type DriverOption } from '@/components/copilot/driver-quick-search';
+import { TagQuickSearch, type TagOption } from '@/components/copilot/tag-quick-search';
+import { VehicleQuickSearch, type VehicleOption } from '@/components/copilot/vehicle-quick-search';
 import { MarkdownContent } from '@/components/markdown-content';
 import { Button } from '@/components/ui/button';
 import { useCopilotStream } from '@/hooks/use-echo';
@@ -12,14 +15,13 @@ import {
     Activity,
     AlertTriangle,
     ArrowRight,
+    BarChart3,
     Bot,
-    Camera,
     Coins,
     Database,
     ExternalLink,
     Lightbulb,
     Loader2,
-    Route,
     Search,
     Send,
     ShieldAlert,
@@ -78,7 +80,33 @@ interface CopilotPageProps {
     conversations: Conversation[];
     currentConversation: Conversation | null;
     messages: Message[];
+    vehicles: VehicleOption[];
+    drivers: DriverOption[];
+    tags: TagOption[];
 }
+
+// ============================================================================
+// Vehicle Picker Integration
+// Maps suggestion queries to vehicle picker actions so clicking them opens
+// the picker instead of sending a generic message to the LLM.
+// ============================================================================
+
+/** Follow-up suggestion queries that should open the vehicle picker */
+const VEHICLE_PICKER_QUERIES: Record<string, string | null> = {
+    'Ver detalles de un vehículo de esta lista': null,
+    'Más detalle de un vehículo específico': null,
+    'Imágenes de cámaras de algún vehículo': 'cameras',
+    'Cámaras de algún vehículo': 'cameras',
+    'Imágenes de dashcam': 'cameras',
+};
+
+/** Follow-up suggestion queries that should open the tag picker */
+const TAG_PICKER_QUERIES: Record<string, string | null> = {
+    'Filtrar por grupo': 'fleet',
+};
+
+/** Follow-up suggestion queries that should open the driver picker */
+const DRIVER_PICKER_QUERIES: Record<string, string | null> = {};
 
 // ============================================================================
 // T5: Event Context Banner
@@ -161,74 +189,56 @@ interface CopilotCategory {
 const COPILOT_CATEGORIES: CopilotCategory[] = [
     {
         icon: Activity,
-        title: 'Vista General',
-        description: 'Estado en tiempo real de toda tu flota',
+        title: 'Mi Flota',
+        description: 'Estado en tiempo real de todos tus vehículos',
         gradient: 'from-blue-500/10 to-cyan-500/10',
         iconColor: 'text-blue-500',
         suggestions: [
             { label: 'Estado actual de mi flota', query: '¿Cuál es el estado actual de mi flota?' },
-            { label: 'Vehículos activos ahora', query: '¿Cuántos vehículos están activos en este momento?' },
-            { label: 'Flota filtrada por grupo', query: 'Quiero ver el estado de mi flota filtrada por grupo. ¿Qué grupos tengo disponibles?' },
         ],
     },
     {
         icon: Truck,
-        title: 'Vehículos',
-        description: 'Ubicación, estadísticas y búsqueda',
+        title: 'Vehículo',
+        description: 'Ubicación, stats, viajes, cámaras y seguridad',
         gradient: 'from-indigo-500/10 to-purple-500/10',
         iconColor: 'text-indigo-500',
         suggestions: [
-            { label: 'Ubicar un vehículo', query: 'Necesito ubicar un vehículo. ¿Cuáles tengo disponibles?' },
-            { label: 'Estadísticas en vivo', query: 'Quiero ver estadísticas en tiempo real de un vehículo. Ayúdame a elegir cuál.' },
-            { label: 'Combustible y kilometraje', query: '¿Cuál es el nivel de combustible y kilometraje de mis vehículos activos?' },
+            { label: 'Buscar un vehículo', query: '__VEHICLE_PICKER__' },
         ],
     },
     {
-        icon: ShieldAlert,
-        title: 'Seguridad',
-        description: 'Eventos, alertas e incidentes',
-        gradient: 'from-red-500/10 to-orange-500/10',
-        iconColor: 'text-red-500',
+        icon: Tag,
+        title: 'Grupo',
+        description: 'Flota, vehículos y conductores por grupo',
+        gradient: 'from-teal-500/10 to-emerald-500/10',
+        iconColor: 'text-teal-500',
         suggestions: [
-            { label: 'Eventos de seguridad de hoy', query: '¿Qué eventos de seguridad han ocurrido hoy?' },
-            { label: 'Frenadas bruscas recientes', query: '¿Hubo frenadas o aceleraciones bruscas en las últimas horas?' },
-            { label: 'Distracción al volante', query: '¿Algún conductor fue detectado con distracción o usando celular recientemente?' },
-        ],
-    },
-    {
-        icon: Route,
-        title: 'Viajes y Rutas',
-        description: 'Historial de viajes y recorridos',
-        gradient: 'from-green-500/10 to-emerald-500/10',
-        iconColor: 'text-green-500',
-        suggestions: [
-            { label: 'Viajes recientes', query: '¿Cuáles fueron los viajes más recientes de mi flota?' },
-            { label: 'Viajes de un vehículo', query: 'Quiero ver los viajes de un vehículo específico. Ayúdame a elegir cuál.' },
-            { label: 'Viajes en progreso', query: '¿Hay algún viaje en progreso en este momento?' },
-        ],
-    },
-    {
-        icon: Camera,
-        title: 'Cámaras',
-        description: 'Imágenes y video de dashcam',
-        gradient: 'from-purple-500/10 to-pink-500/10',
-        iconColor: 'text-purple-500',
-        suggestions: [
-            { label: 'Imágenes recientes', query: 'Muéstrame las imágenes de dashcam más recientes de mi flota' },
-            { label: 'Cámara de un vehículo', query: 'Quiero ver las imágenes de cámara de un vehículo. Ayúdame a elegir cuál.' },
-            { label: 'Cámara del conductor', query: 'Muéstrame imágenes de la cámara interior de un vehículo. ¿Cuáles tengo disponibles?' },
+            { label: 'Seleccionar un grupo', query: '__TAG_PICKER__' },
         ],
     },
     {
         icon: Users,
-        title: 'Conductores',
-        description: 'Información y asignaciones',
+        title: 'Conductor',
+        description: 'Info, vehículo asignado y seguridad',
         gradient: 'from-amber-500/10 to-yellow-500/10',
         iconColor: 'text-amber-500',
         suggestions: [
-            { label: 'Conductores activos', query: '¿Quiénes son mis conductores activos en este momento?' },
-            { label: 'Asignaciones actuales', query: '¿Qué conductor está asignado a cada vehículo?' },
-            { label: 'Buscar un conductor', query: 'Necesito buscar información de un conductor. ¿Cuáles tengo registrados?' },
+            { label: 'Buscar un conductor', query: '__DRIVER_PICKER__' },
+        ],
+    },
+    {
+        icon: BarChart3,
+        title: 'Análisis AI',
+        description: 'Análisis avanzados con inteligencia artificial',
+        gradient: 'from-violet-500/10 to-fuchsia-500/10',
+        iconColor: 'text-violet-500',
+        suggestions: [
+            { label: 'Seguridad de mi flota', query: 'Análisis de seguridad de toda mi flota' },
+            { label: 'Riesgo de un conductor', query: '__DRIVER_PICKER_riskAnalysis__' },
+            { label: 'Salud de un vehículo', query: '__VEHICLE_PICKER_healthAnalysis__' },
+            { label: 'Eficiencia operativa', query: '__VEHICLE_PICKER_efficiencyAnalysis__' },
+            { label: 'Detectar anomalías', query: 'Detecta anomalías en mi flota de los últimos 7 días' },
         ],
     },
 ];
@@ -242,12 +252,10 @@ interface QuickAction {
 
 const QUICK_ACTIONS: QuickAction[] = [
     { icon: Activity, label: 'Flota', query: '¿Cuál es el estado actual de mi flota?', color: 'text-blue-500' },
-    { icon: Truck, label: 'Vehículo', query: 'Necesito ubicar un vehículo. ¿Cuáles tengo disponibles?', color: 'text-indigo-500' },
-    { icon: ShieldAlert, label: 'Seguridad', query: '¿Qué eventos de seguridad ocurrieron recientemente?', color: 'text-red-500' },
-    { icon: Route, label: 'Viajes', query: '¿Cuáles fueron los viajes más recientes?', color: 'text-green-500' },
-    { icon: Camera, label: 'Cámaras', query: 'Muéstrame imágenes de dashcam recientes. Ayúdame a elegir el vehículo.', color: 'text-purple-500' },
-    { icon: Users, label: 'Conductores', query: '¿Quiénes son mis conductores activos?', color: 'text-amber-500' },
-    { icon: Tag, label: 'Grupos', query: '¿Qué grupos o tags tengo configurados en mi flota?', color: 'text-teal-500' },
+    { icon: Truck, label: 'Vehículo', query: '__VEHICLE_PICKER__', color: 'text-indigo-500' },
+    { icon: Tag, label: 'Grupo', query: '__TAG_PICKER__', color: 'text-teal-500' },
+    { icon: Users, label: 'Conductor', query: '__DRIVER_PICKER__', color: 'text-amber-500' },
+    { icon: BarChart3, label: 'Análisis', query: 'Análisis de seguridad de toda mi flota', color: 'text-violet-500' },
 ];
 
 /**
@@ -261,7 +269,7 @@ function getFollowUpSuggestions(lastMessageContent: string): string[] {
     if (content.includes(':::fleetStatus')) {
         return [
             'Ver detalles de un vehículo de esta lista',
-            '¿Qué eventos de seguridad hubo hoy?',
+            'Filtrar por grupo',
             'Imágenes de cámaras de algún vehículo',
         ];
     }
@@ -306,6 +314,14 @@ function getFollowUpSuggestions(lastMessageContent: string): string[] {
         ];
     }
 
+    if (content.includes(':::fleetAnalysis')) {
+        return [
+            'Análisis de seguridad de toda mi flota',
+            'Detecta anomalías en mi flota',
+            '¿Cuál es el estado actual de mi flota?',
+        ];
+    }
+
     // Default follow-ups
     return [
         '¿Cuál es el estado de mi flota?',
@@ -315,7 +331,7 @@ function getFollowUpSuggestions(lastMessageContent: string): string[] {
 }
 
 export default function Copilot() {
-    const { conversations: serverConversations, currentConversation, messages } =
+    const { conversations: serverConversations, currentConversation, messages, vehicles, drivers, tags } =
         usePage<{ props: CopilotPageProps }>().props as unknown as CopilotPageProps;
 
     const [input, setInput] = useState('');
@@ -336,6 +352,18 @@ export default function Copilot() {
     );
     // Estado para indicar que el componente está listo (hidratado)
     const [isHydrated, setIsHydrated] = useState(false);
+
+    // Vehicle picker state
+    const [vehiclePickerOpen, setVehiclePickerOpen] = useState(false);
+    const [vehiclePickerAction, setVehiclePickerAction] = useState<string | null>(null);
+
+    // Tag picker state
+    const [tagPickerOpen, setTagPickerOpen] = useState(false);
+    const [tagPickerAction, setTagPickerAction] = useState<string | null>(null);
+
+    // Driver picker state
+    const [driverPickerOpen, setDriverPickerOpen] = useState(false);
+    const [driverPickerAction, setDriverPickerAction] = useState<string | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -653,6 +681,7 @@ export default function Copilot() {
             database: <Database className="size-4" />,
             search: <Search className="size-4" />,
             loader: <Loader2 className="size-4 animate-spin" />,
+            'bar-chart': <BarChart3 className="size-4" />,
         };
         return icons[iconName] || <Loader2 className="size-4 animate-spin" />;
     };
@@ -690,6 +719,11 @@ export default function Copilot() {
             return { description: 'Consultando historial de viajes...', colorClass: 'from-green-500/20 to-teal-500/20' };
         }
         
+        // Analysis related
+        if (labelLower.includes('analizando datos') || labelLower.includes('análisis') || labelLower.includes('analysis')) {
+            return { description: 'Ejecutando análisis avanzado con AI...', colorClass: 'from-violet-500/20 to-fuchsia-500/20' };
+        }
+
         // Notifications
         if (labelLower.includes('notificación') || labelLower.includes('sms') || labelLower.includes('whatsapp') || labelLower.includes('llamada')) {
             return { description: 'Enviando notificación...', colorClass: 'from-amber-500/20 to-yellow-500/20' };
@@ -707,7 +741,81 @@ export default function Copilot() {
     };
 
     const handleSuggestionClick = (suggestion: string) => {
+        // Check for special vehicle picker tokens
+        if (suggestion === '__VEHICLE_PICKER__') {
+            setVehiclePickerAction(null);
+            setVehiclePickerOpen(true);
+            return;
+        }
+        const vehiclePickerMatch = suggestion.match(/^__VEHICLE_PICKER_(\w+)__$/);
+        if (vehiclePickerMatch) {
+            setVehiclePickerAction(vehiclePickerMatch[1]);
+            setVehiclePickerOpen(true);
+            return;
+        }
+
+        // Check for special tag picker tokens
+        if (suggestion === '__TAG_PICKER__') {
+            setTagPickerAction(null);
+            setTagPickerOpen(true);
+            return;
+        }
+        const tagPickerMatch = suggestion.match(/^__TAG_PICKER_(\w+)__$/);
+        if (tagPickerMatch) {
+            setTagPickerAction(tagPickerMatch[1]);
+            setTagPickerOpen(true);
+            return;
+        }
+
+        // Check for special driver picker tokens
+        if (suggestion === '__DRIVER_PICKER__') {
+            setDriverPickerAction(null);
+            setDriverPickerOpen(true);
+            return;
+        }
+        const driverPickerMatch = suggestion.match(/^__DRIVER_PICKER_(\w+)__$/);
+        if (driverPickerMatch) {
+            setDriverPickerAction(driverPickerMatch[1]);
+            setDriverPickerOpen(true);
+            return;
+        }
+
+        // Check if this follow-up should open a picker
+        if (suggestion in VEHICLE_PICKER_QUERIES) {
+            setVehiclePickerAction(VEHICLE_PICKER_QUERIES[suggestion]);
+            setVehiclePickerOpen(true);
+            return;
+        }
+        if (suggestion in TAG_PICKER_QUERIES) {
+            setTagPickerAction(TAG_PICKER_QUERIES[suggestion]);
+            setTagPickerOpen(true);
+            return;
+        }
+        if (suggestion in DRIVER_PICKER_QUERIES) {
+            setDriverPickerAction(DRIVER_PICKER_QUERIES[suggestion]);
+            setDriverPickerOpen(true);
+            return;
+        }
+
         submitMessage(suggestion);
+    };
+
+    const handleVehicleSelect = (query: string) => {
+        setVehiclePickerOpen(false);
+        setVehiclePickerAction(null);
+        submitMessage(query);
+    };
+
+    const handleTagSelect = (query: string) => {
+        setTagPickerOpen(false);
+        setTagPickerAction(null);
+        submitMessage(query);
+    };
+
+    const handleDriverSelect = (query: string) => {
+        setDriverPickerOpen(false);
+        setDriverPickerAction(null);
+        submitMessage(query);
     };
 
     return (
@@ -745,23 +853,33 @@ export default function Copilot() {
 
                                 {/* Category cards */}
                                 <div
-                                    className="animate-in fade-in slide-in-from-bottom-4 grid gap-3 duration-500 sm:grid-cols-2 lg:grid-cols-3"
+                                    className="animate-in fade-in slide-in-from-bottom-4 flex flex-wrap justify-center gap-3 duration-500"
                                     style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
                                 >
-                                    {COPILOT_CATEGORIES.map((category) => {
+                                    {COPILOT_CATEGORIES.map((category, idx) => {
                                         const Icon = category.icon;
+                                        const isLast = idx === COPILOT_CATEGORIES.length - 1;
                                         return (
                                             <div
                                                 key={category.title}
-                                                className="bg-card group rounded-2xl border p-4 transition-all duration-200 hover:shadow-md"
+                                                className={cn(
+                                                    'bg-card group rounded-2xl border p-4 transition-all duration-200 hover:shadow-md',
+                                                    isLast
+                                                        ? 'w-full'
+                                                        : 'w-[calc(50%-0.375rem)] lg:w-[calc(25%-0.5625rem)]',
+                                                )}
                                             >
-                                                <div className="mb-3 flex items-center gap-2.5">
+                                                <div className={cn(
+                                                    'flex items-center gap-2.5',
+                                                    !isLast && 'mb-3',
+                                                    isLast && 'mb-3 lg:mb-0',
+                                                )}>
                                                     <div
                                                         className={`flex size-8 items-center justify-center rounded-xl bg-gradient-to-br ${category.gradient}`}
                                                     >
                                                         <Icon className={`size-4 ${category.iconColor}`} />
                                                     </div>
-                                                    <div>
+                                                    <div className={isLast ? 'flex-1' : ''}>
                                                         <h3 className="text-sm font-semibold leading-tight">
                                                             {category.title}
                                                         </h3>
@@ -770,7 +888,10 @@ export default function Copilot() {
                                                         </p>
                                                     </div>
                                                 </div>
-                                                <div className="space-y-0.5">
+                                                <div className={cn(
+                                                    'space-y-0.5',
+                                                    isLast && 'lg:flex lg:flex-wrap lg:gap-1 lg:space-y-0',
+                                                )}>
                                                     {category.suggestions.map((suggestion) => (
                                                         <button
                                                             key={suggestion.label}
@@ -778,7 +899,10 @@ export default function Copilot() {
                                                             onClick={() =>
                                                                 handleSuggestionClick(suggestion.query)
                                                             }
-                                                            className="group/item hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors"
+                                                            className={cn(
+                                                                'group/item hover:bg-muted flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors',
+                                                                isLast ? 'w-full lg:w-auto' : 'w-full',
+                                                            )}
                                                         >
                                                             <ArrowRight className="text-muted-foreground/40 group-hover/item:text-primary size-3 flex-shrink-0 transition-colors" />
                                                             <span className="text-muted-foreground group-hover/item:text-foreground transition-colors">
@@ -948,7 +1072,38 @@ export default function Copilot() {
                 </div>
 
                 {/* Quick actions + Input area */}
-                <div className="bg-background flex-shrink-0 border-t pb-safe">
+                <div className="bg-background relative flex-shrink-0 border-t pb-safe">
+                    {/* Quick Search pickers — float above the input area */}
+                    <VehicleQuickSearch
+                        vehicles={vehicles ?? []}
+                        open={vehiclePickerOpen}
+                        onClose={() => {
+                            setVehiclePickerOpen(false);
+                            setVehiclePickerAction(null);
+                        }}
+                        onSelect={handleVehicleSelect}
+                        preSelectedAction={vehiclePickerAction}
+                    />
+                    <TagQuickSearch
+                        tags={tags ?? []}
+                        open={tagPickerOpen}
+                        onClose={() => {
+                            setTagPickerOpen(false);
+                            setTagPickerAction(null);
+                        }}
+                        onSelect={handleTagSelect}
+                        preSelectedAction={tagPickerAction}
+                    />
+                    <DriverQuickSearch
+                        drivers={drivers ?? []}
+                        open={driverPickerOpen}
+                        onClose={() => {
+                            setDriverPickerOpen(false);
+                            setDriverPickerAction(null);
+                        }}
+                        onSelect={handleDriverSelect}
+                        preSelectedAction={driverPickerAction}
+                    />
                     {/* Quick actions bar — only in active conversations, hidden while streaming */}
                     {localMessages.length > 0 && !isStreaming && (
                         <div className="mx-auto max-w-4xl overflow-x-auto px-3 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

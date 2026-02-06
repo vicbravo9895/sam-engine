@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from config import ServiceConfig
-from api import router, analytics_router
+from api import router, analytics_router, analysis_router
 from core.structured_logging import (
     setup_logging,
     get_logger,
@@ -154,6 +154,7 @@ async def trace_and_logging_middleware(request: Request, call_next):
 # ============================================================================
 app.include_router(router)
 app.include_router(analytics_router)
+app.include_router(analysis_router)
 
 
 # ============================================================================

@@ -377,6 +377,21 @@ class ProcessCopilotMessageJob implements ShouldQueue
             'todos los vehículos',
             'comparar',
             'comparativo',
+            // Análisis AI — requiere gpt-4o para correcta selección de tool
+            'análisis',
+            'analisis',
+            'analiza',
+            'evalúa',
+            'evalua',
+            'perfil de riesgo',
+            'riesgo del conductor',
+            'salud del vehículo',
+            'salud del vehiculo',
+            'eficiencia operativa',
+            'anomalías',
+            'anomalias',
+            'detección de anomalías',
+            'tendencias',
         ];
         
         foreach ($complexPatterns as $pattern) {
@@ -433,6 +448,10 @@ class ProcessCopilotMessageJob implements ShouldQueue
             'PGSQLSelectTool' => [
                 'label' => 'Buscando información...',
                 'icon' => 'search',
+            ],
+            'RunFleetAnalysis' => [
+                'label' => 'Analizando datos de flota con AI...',
+                'icon' => 'bar-chart',
             ],
         ];
 

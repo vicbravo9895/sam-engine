@@ -1,4 +1,5 @@
 export { DashcamMediaCard } from './dashcam-media-card';
+export { FleetAnalysisCard } from './fleet-analysis-card';
 export { FleetReportCard } from './fleet-report-card';
 export { FleetStatusCard } from './fleet-status-card';
 export { LocationCard } from './location-card';

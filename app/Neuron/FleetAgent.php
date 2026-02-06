@@ -14,6 +14,7 @@ use App\Neuron\Tools\GetTags;
 use App\Neuron\Tools\GetTrips;
 use App\Neuron\Tools\GetVehicles;
 use App\Neuron\Tools\GetVehicleStats;
+use App\Neuron\Tools\RunFleetAnalysis;
 use NeuronAI\Agent;
 use NeuronAI\Chat\History\ChatHistoryInterface;
 use NeuronAI\Chat\History\EloquentChatHistory;
@@ -138,6 +139,7 @@ class FleetAgent extends Agent
                 '- Imágenes dashcam → :::dashcamMedia',
                 '- Reporte completo → :::fleetReport',
                 '- Estado de flota (tabla de vehículos) → :::fleetStatus',
+                '- Análisis AI (riesgo, seguridad, salud, eficiencia, anomalías) → :::fleetAnalysis',
                 '',
                 '### Qué va en TEXTO (mínimo):',
                 '- Saludo inicial (1 línea): "Aquí tienes el estado de T-012021:"',
@@ -162,10 +164,27 @@ class FleetAgent extends Agent
                 '- ❌ Modificar el JSON de _cardData',
                 '',
                 // ═══════════════════════════════════════════════════════════════
+                // ANÁLISIS AI vs REPORTE (DISTINCIÓN OBLIGATORIA)
+                // ═══════════════════════════════════════════════════════════════
+                '## ANÁLISIS AI (RunFleetAnalysis) — PRIORIDAD ALTA',
+                'Trigger: "análisis", "analiza", "evalúa", "perfil de riesgo", "salud del vehículo", "eficiencia operativa", "anomalías", "tendencias", "predicciones".',
+                'SIEMPRE usa RunFleetAnalysis cuando el usuario pida análisis. NUNCA uses tools individuales para análisis.',
+                '',
+                'Tipos de análisis y cuándo usarlos:',
+                '- "análisis de riesgo del conductor X" → RunFleetAnalysis(analysis_type="driver_risk_profile", driver_name="X")',
+                '- "análisis de seguridad de la flota" → RunFleetAnalysis(analysis_type="fleet_safety_overview")',
+                '- "análisis de salud del vehículo X" / "evalúa el vehículo X" → RunFleetAnalysis(analysis_type="vehicle_health", vehicle_names="X")',
+                '- "eficiencia operativa" / "qué tan eficiente" → RunFleetAnalysis(analysis_type="operational_efficiency")',
+                '- "anomalías" / "algo sospechoso" / "tampering" → RunFleetAnalysis(analysis_type="anomaly_detection")',
+                '',
+                'RunFleetAnalysis devuelve _cardData.fleetAnalysis → USA: :::fleetAnalysis. NO uses :::fleetReport para análisis.',
+                '',
+                // ═══════════════════════════════════════════════════════════════
                 // REPORTE COMPLETO (SIMPLIFICADO)
                 // ═══════════════════════════════════════════════════════════════
-                '## REPORTE COMPLETO',
-                'Trigger: "reporte", "estado completo", "resumen" de UN vehículo.',
+                '## REPORTE COMPLETO (tools individuales)',
+                'Trigger: "reporte", "estado completo", "resumen", "cómo está" de UN vehículo.',
+                'NO usar para "análisis" — eso va con RunFleetAnalysis.',
                 '',
                 'Pasos:',
                 '1. Resolver vehicleId (GetVehicles si ambiguo)',
@@ -227,6 +246,7 @@ class FleetAgent extends Agent
                 'GetDashcamMedia' => 'Imágenes dashcam de UN vehículo específico. REQUIERE vehicleId — si el usuario no lo especifica, pregunta cuál. Devuelve _cardData.dashcamMedia. USA: :::dashcamMedia. NO uses ![img](url). NO describas imágenes.',
                 'GetTags' => 'Tags y jerarquía de vehículos. Úsalo cuando el usuario quiera filtrar por grupo pero no sepa el nombre exacto del tag.',
                 'GetDrivers' => 'Información de conductores. Buscar por nombre o listar conductores de la empresa. Si no se especifica filtro, lista todos los activos.',
+                'RunFleetAnalysis' => 'Ejecuta análisis avanzados de flota con AI. Usa cuando el usuario pida: análisis de riesgo, evaluación de seguridad, predicciones, tendencias, detección de anomalías, eficiencia operativa o salud del vehículo. Tipos: driver_risk_profile (riesgo de conductor), fleet_safety_overview (seguridad de la flota), vehicle_health (salud del vehículo), operational_efficiency (eficiencia operativa), anomaly_detection (anomalías y tampering). Devuelve _cardData.fleetAnalysis. USA: :::fleetAnalysis. NO describas los resultados en texto, la card ya muestra todo.',
                 'PGSQLSchemaTool' => 'INTERNO. Nunca mencionar.',
                 'PGSQLSelectTool' => 'INTERNO. Nunca mencionar.',
             ]
@@ -244,6 +264,7 @@ class FleetAgent extends Agent
             GetTags::make(),
             GetTrips::make(),
             GetDrivers::make(),
+            RunFleetAnalysis::make(),
             ...PGSQLToolkit::make(
                 new PDO(
                     "pgsql:host=" . env('DB_HOST') . ";port=" . env('DB_PORT', '5432') . ";dbname=" . env('DB_DATABASE'),
