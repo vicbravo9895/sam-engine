@@ -14,7 +14,7 @@ ENV PYTHONUNBUFFERED=1 \
     POETRY_REQUESTS_TIMEOUT=300 \
     POETRY_INSTALLER_PARALLEL=false \
     POETRY_INSTALLER_MAX_WORKERS=1 \
-    POETRY_VERSION=1.8.0
+    POETRY_VERSION=2.2.1
 
 # Instalar dependencias del sistema y Poetry
 # Keep curl for health checks
@@ -33,7 +33,7 @@ RUN poetry config virtualenvs.create false
 COPY pyproject.toml poetry.lock* ./
 
 # Instalar dependencias (esta capa se cachea si no cambian pyproject.toml o poetry.lock)
-RUN poetry install --no-dev --no-interaction --no-ansi && \
+RUN poetry install --only main --no-interaction --no-ansi && \
     rm -rf $POETRY_CACHE_DIR
 
 # Copiar el código de la aplicación (último paso para mejor cacheo)
