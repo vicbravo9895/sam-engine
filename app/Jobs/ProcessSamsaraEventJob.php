@@ -16,6 +16,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -291,20 +292,23 @@ class ProcessSamsaraEventJob implements ShouldQueue
 
             // Verificar si la AI requiere monitoreo continuo
             if ($requiresMonitoring) {
-                $this->event->markAsInvestigating(
-                    assessment: $assessment,
-                    humanMessage: $humanMessage,
-                    nextCheckMinutes: $nextCheckMinutes,
-                    alertContext: $alertContext,
-                    notificationDecision: $notificationDecision,
-                    notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
-                    execution: $execution
-                );
-                $this->event->update($pipelineMetrics);
+                // T3: Transacción para garantizar consistencia entre evento y tablas normalizadas
+                DB::transaction(function () use ($assessment, $humanMessage, $nextCheckMinutes, $alertContext, $notificationDecision, $execution, $pipelineMetrics) {
+                    $this->event->markAsInvestigating(
+                        assessment: $assessment,
+                        humanMessage: $humanMessage,
+                        nextCheckMinutes: $nextCheckMinutes,
+                        alertContext: $alertContext,
+                        notificationDecision: $notificationDecision,
+                        notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
+                        execution: $execution
+                    );
+                    $this->event->update($pipelineMetrics);
 
-                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
-                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
-                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                    // T3: Tablas normalizadas como fuente de verdad única
+                    $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                    $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                });
 
                 $this->event->addInvestigationRecord(
                     reason: $monitoringReason ?? 'Confianza insuficiente para veredicto final'
@@ -372,19 +376,22 @@ class ProcessSamsaraEventJob implements ShouldQueue
                 $this->createIncidentIfNeeded($assessment);
             } else {
                 // Flujo normal - completar
-                $this->event->markAsCompleted(
-                    assessment: $assessment,
-                    humanMessage: $humanMessage,
-                    alertContext: $alertContext,
-                    notificationDecision: $notificationDecision,
-                    notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
-                    execution: $execution
-                );
-                $this->event->update($pipelineMetrics);
+                // T3: Transacción para garantizar consistencia entre evento y tablas normalizadas
+                DB::transaction(function () use ($assessment, $humanMessage, $alertContext, $notificationDecision, $execution, $pipelineMetrics) {
+                    $this->event->markAsCompleted(
+                        assessment: $assessment,
+                        humanMessage: $humanMessage,
+                        alertContext: $alertContext,
+                        notificationDecision: $notificationDecision,
+                        notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
+                        execution: $execution
+                    );
+                    $this->event->update($pipelineMetrics);
 
-                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
-                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
-                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                    // T3: Tablas normalizadas como fuente de verdad única
+                    $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                    $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                });
 
                 // Despachar job de notificaciones si hay decisión de notificar
                 $notificationDispatched = false;
@@ -832,8 +839,8 @@ class ProcessSamsaraEventJob implements ShouldQueue
                     'name' => $signal->driver_name,
                 ] : null,
                 'location' => [
-                    'latitude' => $signal->latitude,
-                    'longitude' => $signal->longitude,
+                    'latitude' => $signal->latitude ? (float) $signal->latitude : null,
+                    'longitude' => $signal->longitude ? (float) $signal->longitude : null,
                     'address' => $signal->address ? ['formattedAddress' => $signal->address] : [],
                 ],
                 'behaviorLabels' => $signal->behavior_labels ?? [],

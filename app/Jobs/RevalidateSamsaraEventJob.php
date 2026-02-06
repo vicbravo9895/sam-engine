@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -104,8 +105,8 @@ class RevalidateSamsaraEventJob implements ShouldQueue
 
         $this->log('debug', 'Status check passed - event is still INVESTIGATING');
 
-        // Verificar límite de investigaciones
-        $maxInvestigations = SamsaraEvent::getMaxInvestigations();
+        // Verificar límite de investigaciones (configurable por empresa)
+        $maxInvestigations = SamsaraEvent::getMaxInvestigations($this->event->company);
         if ($this->event->investigation_count >= $maxInvestigations) {
             $this->log('warning', 'Max investigations limit reached - marking as needs_review', [
                 'investigation_count' => $this->event->investigation_count,
@@ -358,19 +359,22 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'next_check_minutes' => $nextCheckMinutes,
                 ]);
 
-                $this->event->markAsInvestigating(
-                    assessment: $assessment,
-                    humanMessage: $humanMessage,
-                    nextCheckMinutes: $nextCheckMinutes,
-                    alertContext: $alertContext,
-                    notificationDecision: $notificationDecision,
-                    notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
-                    execution: $execution
-                );
+                // T3: Transacción para garantizar consistencia entre evento y tablas normalizadas
+                DB::transaction(function () use ($assessment, $humanMessage, $nextCheckMinutes, $alertContext, $notificationDecision, $execution) {
+                    $this->event->markAsInvestigating(
+                        assessment: $assessment,
+                        humanMessage: $humanMessage,
+                        nextCheckMinutes: $nextCheckMinutes,
+                        alertContext: $alertContext,
+                        notificationDecision: $notificationDecision,
+                        notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
+                        execution: $execution
+                    );
 
-                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
-                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
-                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                    // T3: Tablas normalizadas como fuente de verdad única
+                    $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                    $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                });
 
                 $this->event->addInvestigationRecord(
                     reason: $monitoringReason ?? 'Requiere más tiempo para contexto'
@@ -425,18 +429,21 @@ class RevalidateSamsaraEventJob implements ShouldQueue
                     'final_verdict' => $assessment['verdict'] ?? 'unknown',
                 ]);
 
-                $this->event->markAsCompleted(
-                    assessment: $assessment,
-                    humanMessage: $humanMessage,
-                    alertContext: $alertContext,
-                    notificationDecision: $notificationDecision,
-                    notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
-                    execution: $execution
-                );
+                // T3: Transacción para garantizar consistencia entre evento y tablas normalizadas
+                DB::transaction(function () use ($assessment, $humanMessage, $alertContext, $notificationDecision, $execution) {
+                    $this->event->markAsCompleted(
+                        assessment: $assessment,
+                        humanMessage: $humanMessage,
+                        alertContext: $alertContext,
+                        notificationDecision: $notificationDecision,
+                        notificationExecution: null, // Notificaciones se ejecutan via SendNotificationJob
+                        execution: $execution
+                    );
 
-                // T3: Tablas normalizadas como fuente de verdad (evitar duplicación JSON/tablas)
-                $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
-                $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                    // T3: Tablas normalizadas como fuente de verdad única
+                    $this->event->saveRecommendedActions($assessment['recommended_actions'] ?? []);
+                    $this->event->saveInvestigationSteps($alertContext['investigation_plan'] ?? []);
+                });
 
                 // Despachar job de notificaciones si hay decisión de notificar
                 $notificationDispatched = false;

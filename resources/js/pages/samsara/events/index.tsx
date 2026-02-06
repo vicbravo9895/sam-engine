@@ -151,6 +151,7 @@ interface Filters {
     event_type: string;
     date_from: string;
     date_to: string;
+    attention: string;
 }
 
 interface IndexProps {
@@ -549,10 +550,22 @@ export default function SamsaraAlertsIndex({
             event_type: '',
             date_from: '',
             date_to: '',
+            attention: '',
         });
         setActiveQuickFilters([]);
         router.get(ALERTS_INDEX_URL, {}, { replace: true });
     };
+
+    const handleAttentionToggle = useCallback(() => {
+        const newAttention = localFilters.attention === 'actionable' ? '' : 'actionable';
+        const newFilters = { ...localFilters, attention: newAttention };
+        setLocalFilters(newFilters);
+        router.get(ALERTS_INDEX_URL, sanitizedFilters(newFilters), {
+            preserveScroll: true,
+            preserveState: true,
+            replace: true,
+        });
+    }, [localFilters]);
 
     const handleQuickFilterToggle = useCallback((filterId: string) => {
         const filter = QUICK_FILTERS.find((f) => f.id === filterId);
@@ -685,6 +698,19 @@ export default function SamsaraAlertsIndex({
                                 </Button>
                             </div>
                         )}
+
+                        {/* Attention Filter Toggle */}
+                        <Button
+                            variant={localFilters.attention === 'actionable' ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={handleAttentionToggle}
+                            className="gap-2"
+                        >
+                            <Eye className="size-4" />
+                            <span className="hidden sm:inline">
+                                {localFilters.attention === 'actionable' ? 'Mostrando accionables' : 'Solo accionables'}
+                            </span>
+                        </Button>
 
                         {/* View Toggle */}
                         <div className="flex items-center rounded-lg border bg-background p-1">

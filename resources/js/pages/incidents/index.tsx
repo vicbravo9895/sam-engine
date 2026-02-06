@@ -77,7 +77,7 @@ interface IndexProps {
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Centro de Control', href: '/dashboard' },
-    { title: 'Incidentes', href: '/incidents' },
+    { title: 'Casos de Seguimiento', href: '/incidents' },
 ];
 
 const priorityColors: Record<string, string> = {
@@ -129,7 +129,7 @@ export default function IncidentsIndex({ incidents, stats, priorityCounts, filte
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Incidentes" />
+            <Head title="Casos de Seguimiento" />
             <div className="flex flex-1 flex-col gap-6 p-4">
                 <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
                     <div>
@@ -137,10 +137,10 @@ export default function IncidentsIndex({ incidents, stats, priorityCounts, filte
                             Centro de Control • Operaciones
                         </p>
                         <h1 className="text-2xl font-semibold tracking-tight">
-                            Incidentes
+                            Casos de Seguimiento
                         </h1>
                         <p className="text-sm text-muted-foreground">
-                            Tickets operativos clasificados por prioridad con evidencia de señales.
+                            Alertas que requieren seguimiento o fueron escaladas, clasificadas por prioridad.
                         </p>
                     </div>
                 </header>

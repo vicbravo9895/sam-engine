@@ -38,17 +38,17 @@ const controlCenterNavItems: NavItem[] = [
         icon: AlertTriangle,
     },
     {
-        title: 'Incidentes',
+        title: 'Casos de Seguimiento',
         href: '/incidents',
         icon: Activity,
     },
     {
-        title: 'Señales',
+        title: 'Eventos de Seguridad',
         href: '/safety-signals',
         icon: Radio,
     },
     {
-        title: 'Analytics',
+        title: 'Análisis',
         href: '/analytics',
         icon: BarChart3,
     },

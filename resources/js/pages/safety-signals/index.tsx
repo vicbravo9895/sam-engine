@@ -74,7 +74,7 @@ interface IndexProps {
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Centro de Control', href: '/dashboard' },
-    { title: 'Señales de Seguridad', href: '/safety-signals' },
+    { title: 'Eventos de Seguridad', href: '/safety-signals' },
 ];
 
 const severityColors: Record<string, string> = {
@@ -115,7 +115,7 @@ export default function SafetySignalsIndex({ signals, stats, filters }: IndexPro
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Señales de Seguridad" />
+            <Head title="Eventos de Seguridad" />
             <div className="flex flex-1 flex-col gap-6 p-4">
                 <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
                     <div>
@@ -123,7 +123,7 @@ export default function SafetySignalsIndex({ signals, stats, filters }: IndexPro
                             Centro de Control • Stream
                         </p>
                         <h1 className="text-2xl font-semibold tracking-tight">
-                            Señales de Seguridad
+                            Eventos de Seguridad
                         </h1>
                         <p className="text-sm text-muted-foreground">
                             Eventos de seguridad capturados del stream de Samsara en tiempo real.

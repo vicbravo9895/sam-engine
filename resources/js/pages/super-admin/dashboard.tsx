@@ -12,6 +12,11 @@ import {
     Key,
     UserCheck,
     Activity,
+    Gauge,
+    Bot,
+    Eye,
+    AlertTriangle,
+    Clock,
 } from 'lucide-react';
 
 interface Stats {
@@ -56,10 +61,38 @@ interface UserData {
     };
 }
 
+interface AdoptionMetrics {
+    pipeline: {
+        p50_latency_ms: number | null;
+        p95_latency_ms: number | null;
+        events_today: number;
+        failed_last_7_days: number;
+        pending_webhooks: number;
+    };
+    human_review: {
+        total_completed_30d: number;
+        human_reviewed_30d: number;
+        review_rate_pct: number | null;
+        human_override_30d: number;
+        override_rate_pct: number | null;
+    };
+    copilot: {
+        sessions_this_month: number;
+        messages_this_month: number;
+        active_users_this_month: number;
+        avg_messages_per_session: number | null;
+    };
+    onboarding: {
+        avg_days_to_first_alert: number | null;
+        companies_with_alerts: number;
+    };
+}
+
 interface Props {
     stats: Stats;
     recentCompanies: CompanyData[];
     recentUsers: UserData[];
+    adoptionMetrics: AdoptionMetrics;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -73,7 +106,7 @@ const roleLabels: Record<string, string> = {
 };
 
 export default function SuperAdminDashboard() {
-    const { stats, recentCompanies, recentUsers } = usePage<{ props: Props }>().props as unknown as Props;
+    const { stats, recentCompanies, recentUsers, adoptionMetrics } = usePage<{ props: Props }>().props as unknown as Props;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -292,6 +325,147 @@ export default function SuperAdminDashboard() {
                             </div>
                         </CardContent>
                     </Card>
+                </div>
+                {/* Adoption Metrics */}
+                <div>
+                    <h2 className="mb-4 text-lg font-semibold">Métricas de Adopción</h2>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                        {/* Pipeline Performance */}
+                        <Card>
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium">Pipeline AI</CardTitle>
+                                <Gauge className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-1.5 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">P50 latencia</span>
+                                        <span className="font-medium">
+                                            {adoptionMetrics.pipeline.p50_latency_ms != null
+                                                ? `${(adoptionMetrics.pipeline.p50_latency_ms / 1000).toFixed(1)}s`
+                                                : '—'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">P95 latencia</span>
+                                        <span className="font-medium">
+                                            {adoptionMetrics.pipeline.p95_latency_ms != null
+                                                ? `${(adoptionMetrics.pipeline.p95_latency_ms / 1000).toFixed(1)}s`
+                                                : '—'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Eventos hoy</span>
+                                        <span className="font-medium">{adoptionMetrics.pipeline.events_today}</span>
+                                    </div>
+                                    {adoptionMetrics.pipeline.failed_last_7_days > 0 && (
+                                        <div className="flex justify-between text-red-600">
+                                            <span>Fallidos (7d)</span>
+                                            <span className="font-medium">{adoptionMetrics.pipeline.failed_last_7_days}</span>
+                                        </div>
+                                    )}
+                                    {adoptionMetrics.pipeline.pending_webhooks > 0 && (
+                                        <div className="flex justify-between text-amber-600">
+                                            <span>Webhooks pendientes</span>
+                                            <span className="font-medium">{adoptionMetrics.pipeline.pending_webhooks}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Human Review */}
+                        <Card>
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium">Revisión Humana</CardTitle>
+                                <Eye className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-1.5 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Tasa de revisión</span>
+                                        <span className="font-medium">
+                                            {adoptionMetrics.human_review.review_rate_pct != null
+                                                ? `${adoptionMetrics.human_review.review_rate_pct}%`
+                                                : '—'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Revisadas (30d)</span>
+                                        <span className="font-medium">
+                                            {adoptionMetrics.human_review.human_reviewed_30d}/{adoptionMetrics.human_review.total_completed_30d}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Override rate</span>
+                                        <span className="font-medium">
+                                            {adoptionMetrics.human_review.override_rate_pct != null
+                                                ? `${adoptionMetrics.human_review.override_rate_pct}%`
+                                                : '—'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Falsos positivos</span>
+                                        <span className="font-medium">{adoptionMetrics.human_review.human_override_30d}</span>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Copilot Usage */}
+                        <Card>
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium">Copilot</CardTitle>
+                                <Bot className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-1.5 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Sesiones (mes)</span>
+                                        <span className="font-medium">{adoptionMetrics.copilot.sessions_this_month}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Mensajes (mes)</span>
+                                        <span className="font-medium">{adoptionMetrics.copilot.messages_this_month}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Usuarios activos</span>
+                                        <span className="font-medium">{adoptionMetrics.copilot.active_users_this_month}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Msgs/sesión</span>
+                                        <span className="font-medium">
+                                            {adoptionMetrics.copilot.avg_messages_per_session ?? '—'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Onboarding */}
+                        <Card>
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-sm font-medium">Onboarding</CardTitle>
+                                <Clock className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-1.5 text-sm">
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Días a 1ra alerta</span>
+                                        <span className="font-medium">
+                                            {adoptionMetrics.onboarding.avg_days_to_first_alert != null
+                                                ? `${adoptionMetrics.onboarding.avg_days_to_first_alert}d`
+                                                : '—'}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Empresas con alertas</span>
+                                        <span className="font-medium">{adoptionMetrics.onboarding.companies_with_alerts}</span>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
                 </div>
             </div>
         </AppLayout>

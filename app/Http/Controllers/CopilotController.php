@@ -336,6 +336,30 @@ class CopilotController extends Controller
                 'label' => 'Obteniendo estadísticas en tiempo real...',
                 'icon' => 'activity',
             ],
+            'GetFleetStatus' => [
+                'label' => 'Consultando estado de la flota...',
+                'icon' => 'layout-grid',
+            ],
+            'GetDashcamMedia' => [
+                'label' => 'Obteniendo imágenes de dashcam...',
+                'icon' => 'camera',
+            ],
+            'GetSafetyEvents' => [
+                'label' => 'Buscando eventos de seguridad...',
+                'icon' => 'shield-alert',
+            ],
+            'GetTags' => [
+                'label' => 'Consultando grupos y etiquetas...',
+                'icon' => 'tags',
+            ],
+            'GetTrips' => [
+                'label' => 'Obteniendo viajes recientes...',
+                'icon' => 'route',
+            ],
+            'GetDrivers' => [
+                'label' => 'Buscando información de conductores...',
+                'icon' => 'users',
+            ],
             'PGSQLSchemaTool' => [
                 'label' => 'Explorando estructura de datos...',
                 'icon' => 'database',

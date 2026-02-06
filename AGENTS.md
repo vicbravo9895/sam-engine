@@ -148,7 +148,7 @@ app/
 └── Services/
     ├── SamsaraClient.php              # Pre-carga para pipeline de alertas (Jobs)
     ├── ContactResolver.php            # Resuelve contactos para notificaciones
-    └── StreamingService.php           # SSE para copilot
+    └── StreamingService.php           # WebSocket streaming para copilot (Reverb)
 
 routes/
 ├── api.php               # Endpoints API (webhooks, eventos, revisión)
@@ -156,7 +156,7 @@ routes/
 └── settings.php          # Rutas de configuración usuario
 ```
 
-**Dos clientes Samsara:** `App\Services\SamsaraClient` = preload/revalidación (Jobs). `App\Samsara\Client\SamsaraClient` = API general (Neuron Tools, sync, daemon). Ver `docs/AUDITORIA_CODIGO_MUERTO.md`.
+**Dos clientes Samsara:** `App\Services\SamsaraClient` = preload/revalidación (Jobs). `App\Samsara\Client\SamsaraClient` = API general (Neuron Tools, sync, daemon). Ambos son intencionales y activos con responsabilidades separadas.
 
 ### AI Service (`/ai-service`)
 
@@ -368,12 +368,11 @@ Aquí tienes el estado de T-012021:
 4. **SSE Streaming** → Respuesta en tiempo real al frontend
 5. **Rich Cards** → Frontend renderiza cards interactivas
 
-#### SSE real con Redis Streams (Camino A)
-- **Canal por conversación**: `copilot:stream:{threadId}:events` (Redis Stream).
-- **Job** escribe cada chunk/evento con `XADD` (chunk, tool_start, tool_end, stream_end, stream_error).
-- **Endpoint SSE** (`stream`, `resume`) usa `XREAD BLOCK 5000`: bloquea en Redis hasta que haya datos, sin polling → bajo CPU, escalable (gate: 200 usuarios concurrentes sin saturar CPU).
-- **Reconexión**: cada evento SSE lleva `id` = ID del stream en Redis; el cliente envía `Last-Event-ID` y el servidor lee desde ese ID → el cliente no pierde chunks.
-- **Hash** `copilot:stream:{threadId}` se mantiene para estado (status, content) y `streamProgress` (fallback).
+#### Streaming con WebSockets (Laravel Reverb)
+- **Canal por conversación**: `copilot.{threadId}` (canal privado de Reverb/WebSockets).
+- **Job** publica cada chunk/evento via `broadcast(CopilotStreamEvent)` (chunk, tool_start, tool_end, stream_end, stream_error).
+- **Frontend** escucha el canal WebSocket en tiempo real → baja latencia, sin polling.
+- **Hash Redis** `copilot:stream:{threadId}` se mantiene como fallback para estado (status, content) y endpoint `streamProgress` para reconexión/polling HTTP.
 
 ---
 

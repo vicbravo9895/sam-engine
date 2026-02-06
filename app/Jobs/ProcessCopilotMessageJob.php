@@ -78,6 +78,34 @@ class ProcessCopilotMessageJob implements ShouldQueue
         // Initialize company context
         CompanyContext::fromUser($user);
 
+        // Check copilot usage limits per company
+        $company = $user->company;
+        if ($company) {
+            $maxMessages = (int) $company->getAiConfig('usage_limits.max_copilot_messages_per_month', 500);
+            $warnPct = (int) $company->getAiConfig('usage_limits.warn_at_percentage', 80);
+            
+            // Count messages this month for this company
+            $messagesThisMonth = ChatMessage::whereHas('conversation', function ($q) use ($company) {
+                $q->where('company_id', $company->id);
+            })->where('role', 'user')
+              ->where('created_at', '>=', now()->startOfMonth())
+              ->count();
+            
+            if ($messagesThisMonth >= $maxMessages) {
+                Log::warning('Copilot message limit reached', [
+                    'company_id' => $company->id,
+                    'messages_this_month' => $messagesThisMonth,
+                    'max_messages' => $maxMessages,
+                ]);
+                $streamingService->failStream(
+                    $this->threadId,
+                    "Se ha alcanzado el límite de {$maxMessages} mensajes del Copilot este mes. Contacta al administrador para aumentar el límite."
+                );
+                $this->markConversationError('Límite de mensajes del Copilot alcanzado');
+                return;
+            }
+        }
+
         // Obtener conversación
         $conversation = Conversation::where('thread_id', $this->threadId)
             ->where('user_id', $this->userId)
@@ -373,6 +401,30 @@ class ProcessCopilotMessageJob implements ShouldQueue
             'GetVehicleStats' => [
                 'label' => 'Obteniendo estadísticas en tiempo real...',
                 'icon' => 'activity',
+            ],
+            'GetFleetStatus' => [
+                'label' => 'Consultando estado de la flota...',
+                'icon' => 'layout-grid',
+            ],
+            'GetDashcamMedia' => [
+                'label' => 'Obteniendo imágenes de dashcam...',
+                'icon' => 'camera',
+            ],
+            'GetSafetyEvents' => [
+                'label' => 'Buscando eventos de seguridad...',
+                'icon' => 'shield-alert',
+            ],
+            'GetTags' => [
+                'label' => 'Consultando grupos y etiquetas...',
+                'icon' => 'tags',
+            ],
+            'GetTrips' => [
+                'label' => 'Obteniendo viajes recientes...',
+                'icon' => 'route',
+            ],
+            'GetDrivers' => [
+                'label' => 'Buscando información de conductores...',
+                'icon' => 'users',
             ],
             'PGSQLSchemaTool' => [
                 'label' => 'Explorando estructura de datos...',

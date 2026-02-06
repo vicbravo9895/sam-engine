@@ -571,9 +571,8 @@ class SamsaraEvent extends Model
             $data['data_consistency'] = $assessment['supporting_evidence']['data_consistency'];
         }
         
-        if (isset($assessment['recommended_actions'])) {
-            $data['recommended_actions'] = $assessment['recommended_actions'];
-        }
+        // T3: recommended_actions ya no se escribe en JSON column.
+        // Se persiste exclusivamente via saveRecommendedActions() (tabla normalizada).
         
         $this->update($data);
     }
@@ -639,9 +638,8 @@ class SamsaraEvent extends Model
             $data['data_consistency'] = $assessment['supporting_evidence']['data_consistency'];
         }
         
-        if (isset($assessment['recommended_actions'])) {
-            $data['recommended_actions'] = $assessment['recommended_actions'];
-        }
+        // T3: recommended_actions ya no se escribe en JSON column.
+        // Se persiste exclusivamente via saveRecommendedActions() (tabla normalizada).
         
         $this->update($data);
     }
@@ -745,10 +743,16 @@ class SamsaraEvent extends Model
     }
 
     /**
-     * Máximo de investigaciones permitidas
+     * Máximo de investigaciones permitidas.
+     * Configurable por empresa via ai_config.usage_limits.max_revalidations_per_event.
+     * Fallback a 3 si no se pasa empresa.
      */
-    public static function getMaxInvestigations(): int
+    public static function getMaxInvestigations(?Company $company = null): int
     {
+        if ($company) {
+            return (int) $company->getAiConfig('usage_limits.max_revalidations_per_event', 3);
+        }
+
         return 3;
     }
 

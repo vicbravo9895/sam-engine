@@ -205,9 +205,37 @@ class DashboardController extends Controller
                 ];
             });
 
+        // Onboarding status (only for non-super-admin users with a company)
+        $onboardingStatus = null;
+        if (!$isSuperAdmin && $user->company) {
+            $onboardingStatus = $user->company->getOnboardingStatus();
+        }
+
+        // Pipeline health: last processed alert and avg latency today
+        $pipelineHealth = null;
+        if ($companyIdFilter !== null) {
+            $lastProcessed = (clone $samsaraEventsQuery)
+                ->whereIn('ai_status', ['completed', 'investigating', 'failed'])
+                ->whereNotNull('ai_processed_at')
+                ->orderByDesc('ai_processed_at')
+                ->value('ai_processed_at');
+
+            $avgLatencyMs = (clone $samsaraEventsQuery)
+                ->whereDate('pipeline_time_ai_finished_at', $today)
+                ->whereNotNull('pipeline_latency_ms')
+                ->avg('pipeline_latency_ms');
+
+            $pipelineHealth = [
+                'last_processed_at' => $lastProcessed,
+                'avg_latency_ms_today' => $avgLatencyMs ? (int) round($avgLatencyMs) : null,
+            ];
+        }
+
         return Inertia::render('dashboard', [
             'isSuperAdmin' => $isSuperAdmin,
             'companyName' => $user->company?->name ?? null,
+            'onboardingStatus' => $onboardingStatus,
+            'pipelineHealth' => $pipelineHealth,
             'samsaraStats' => $samsaraStats,
             'vehiclesStats' => $vehiclesStats,
             'contactsStats' => $contactsStats,

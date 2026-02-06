@@ -7,6 +7,7 @@ namespace App\Neuron;
 use App\Models\ChatMessage;
 use App\Models\User;
 use App\Neuron\Tools\GetDashcamMedia;
+use App\Neuron\Tools\GetDrivers;
 use App\Neuron\Tools\GetFleetStatus;
 use App\Neuron\Tools\GetSafetyEvents;
 use App\Neuron\Tools\GetTags;
@@ -103,6 +104,27 @@ class FleetAgent extends Agent
             ]),
             steps: [
                 // ═══════════════════════════════════════════════════════════════
+                // MANEJO DE CONTEXTO (ANTI-CONTEXT BLEED)
+                // ═══════════════════════════════════════════════════════════════
+                '## MANEJO DE CONTEXTO EN CONVERSACIONES',
+                'Cada nueva pregunta del usuario se trata como INDEPENDIENTE a menos que haga referencia explícita al contexto anterior.',
+                '',
+                '### Cuándo NO reutilizar filtros anteriores:',
+                '- "eventos de seguridad recientes" → consultar TODA la flota (NO pasar vehicle_ids)',
+                '- "viajes recientes" → TODA la flota',
+                '- "¿cómo está mi flota?" → TODA la flota',
+                '- "imágenes de dashcam" → preguntar qué vehículo',
+                '- Cualquier pregunta genérica SIN mención de vehículo/grupo/conductor',
+                '',
+                '### Cuándo SÍ reutilizar contexto anterior:',
+                '- "del mismo vehículo", "de ese grupo", "de esos", "del anterior"',
+                '- "y sus viajes?", "y la cámara?" (continuación directa sobre mismo vehículo)',
+                '- "muéstrame más", "amplía", "con más detalle"',
+                '',
+                '### Regla de oro:',
+                'Si la pregunta NO menciona vehículo/grupo/conductor Y NO usa pronombres de referencia (ese, esos, el mismo), NO pases vehicle_ids ni vehicle_names a los tools. Déjalos vacíos para consultar toda la flota.',
+                '',
+                // ═══════════════════════════════════════════════════════════════
                 // REGLA PRINCIPAL (ANTI-REDUNDANCIA)
                 // ═══════════════════════════════════════════════════════════════
                 '## REGLA PRINCIPAL',
@@ -191,18 +213,20 @@ class FleetAgent extends Agent
                 // ═══════════════════════════════════════════════════════════════
                 '## REGLAS DE SEGURIDAD',
                 '- Solo datos de la empresa actual. Si no existe: "No encontré eso en tu flota"',
-                '- Filtrar siempre por vehicleId solicitado. NO mezclar datos de otros vehículos.',
+                '- Cuando el usuario especifica un vehículo, filtra por ese vehicleId. NO mezclar datos de otros vehículos.',
+                '- Cuando el usuario NO especifica vehículo, consulta toda la flota (no arrastres filtros de preguntas anteriores).',
                 '- NO inventar datos. Si falla un tool, indicarlo y ofrecer alternativa.',
                 '- NO mencionar SQL, tablas, herramientas internas al usuario.',
             ],
             toolsUsage: [
                 'GetVehicles' => 'Buscar/listar vehículos. Usar para resolver vehicleId cuando el usuario da nombre/placa/tag.',
-                'GetVehicleStats' => 'Stats en tiempo real. Devuelve _cardData.location y _cardData.vehicleStats. USA: :::location o :::vehicleStats. NO repitas datos en texto.',
-                'GetFleetStatus' => 'Estado de TODA la flota o filtrada por tag. Devuelve tabla con: vehículo, ubicación, estado motor, velocidad. USA: :::fleetStatus. Ideal para: "¿cómo está mi flota?", "vehículos del tag X", "¿cuántos activos?".',
-                'GetSafetyEvents' => 'Eventos de seguridad. Devuelve _cardData.safetyEvents. USA: :::safetyEvents. NO describas eventos en texto.',
-                'GetTrips' => 'Viajes recientes. Devuelve _cardData.trips. USA: :::trips. NO listes viajes en texto.',
-                'GetDashcamMedia' => 'Imágenes dashcam. Devuelve _cardData.dashcamMedia. USA: :::dashcamMedia. NO uses ![img](url). NO describas imágenes.',
-                'GetTags' => 'Tags y jerarquía de vehículos.',
+                'GetVehicleStats' => 'Stats en tiempo real de UN vehículo específico. Devuelve _cardData.location y _cardData.vehicleStats. USA: :::location o :::vehicleStats. NO repitas datos en texto. REQUIERE vehicleId — si el usuario no lo especifica, pregunta cuál.',
+                'GetFleetStatus' => 'Estado de TODA la flota o filtrada por tag. Devuelve tabla con: vehículo, ubicación, estado motor, velocidad. USA: :::fleetStatus. Si el usuario NO especifica tag, NO pases tag_name (muestra toda la flota). Ideal para: "¿cómo está mi flota?", "vehículos del tag X", "¿cuántos activos?".',
+                'GetSafetyEvents' => 'Eventos de seguridad de la flota. IMPORTANTE: Si el usuario NO especifica vehículo, NO pases vehicle_ids ni vehicle_names — así obtienes eventos de TODA la flota. Solo filtra si el usuario lo pide explícitamente. Default: últimas 4 horas. Para "de hoy" usa hours_back=12. Devuelve _cardData.safetyEvents. USA: :::safetyEvents. NO describas eventos en texto.',
+                'GetTrips' => 'Viajes recientes. IMPORTANTE: Si el usuario NO especifica vehículo, NO pases vehicle_ids ni vehicle_names — así obtienes viajes de TODA la flota. Solo filtra si el usuario lo pide explícitamente. Devuelve _cardData.trips. USA: :::trips. NO listes viajes en texto.',
+                'GetDashcamMedia' => 'Imágenes dashcam de UN vehículo específico. REQUIERE vehicleId — si el usuario no lo especifica, pregunta cuál. Devuelve _cardData.dashcamMedia. USA: :::dashcamMedia. NO uses ![img](url). NO describas imágenes.',
+                'GetTags' => 'Tags y jerarquía de vehículos. Úsalo cuando el usuario quiera filtrar por grupo pero no sepa el nombre exacto del tag.',
+                'GetDrivers' => 'Información de conductores. Buscar por nombre o listar conductores de la empresa. Si no se especifica filtro, lista todos los activos.',
                 'PGSQLSchemaTool' => 'INTERNO. Nunca mencionar.',
                 'PGSQLSelectTool' => 'INTERNO. Nunca mencionar.',
             ]
@@ -219,6 +243,7 @@ class FleetAgent extends Agent
             GetSafetyEvents::make(),
             GetTags::make(),
             GetTrips::make(),
+            GetDrivers::make(),
             ...PGSQLToolkit::make(
                 new PDO(
                     "pgsql:host=" . env('DB_HOST') . ";port=" . env('DB_PORT', '5432') . ";dbname=" . env('DB_DATABASE'),

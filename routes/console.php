@@ -1,6 +1,9 @@
 <?php
 
 use App\Jobs\CalculateEventMetricsJob;
+use App\Jobs\GenerateShiftSummaryJob;
+use App\Jobs\ProcessPendingWebhooksJob;
+use App\Models\Company;
 use Illuminate\Support\Facades\Schedule;
 
 
@@ -44,8 +47,42 @@ Schedule::command('samsara:sync-vehicle-stats')
 
 // Calculate daily event metrics at 1:00 AM
 Schedule::job(new CalculateEventMetricsJob())
+    ->name('calculate-event-metrics')
     ->dailyAt('01:00')
     ->withoutOverlapping();
+
+// Process pending webhooks (orphan webhooks without matching vehicle) every 5 minutes
+Schedule::job(new ProcessPendingWebhooksJob())
+    ->name('process-pending-webhooks')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
+
+// Generate shift summaries for companies that have it enabled (run hourly, check if it's a shift boundary)
+Schedule::call(function () {
+    $currentHour = (int) now()->format('G');
+    
+    Company::active()
+        ->whereNotNull('samsara_api_key')
+        ->where('samsara_api_key', '!=', '')
+        ->each(function (Company $company) use ($currentHour) {
+            $shiftConfig = $company->getAiConfig('shift_summary');
+            
+            if (!($shiftConfig['enabled'] ?? false)) {
+                return;
+            }
+            
+            $hours = $shiftConfig['hours'] ?? [7, 15, 23];
+            
+            if (in_array($currentHour, $hours)) {
+                $duration = $shiftConfig['shift_duration_hours'] ?? 8;
+                GenerateShiftSummaryJob::dispatch(
+                    companyId: $company->id,
+                    periodStart: now()->subHours($duration),
+                    periodEnd: now(),
+                );
+            }
+        });
+})->name('generate-shift-summaries')->hourly()->withoutOverlapping();
 
 // Detect safety patterns and create aggregated incidents every 15 minutes
 // Analyzes the last 4 hours with a threshold of 3 occurrences

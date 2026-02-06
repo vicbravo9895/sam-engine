@@ -111,6 +111,15 @@ class SyncVehicles extends Command
         }
         $this->info('═══════════════════════════════════════');
 
+        // After sync, process any pending webhooks that may now match
+        if ($totalCreated > 0 || $totalUpdated > 0) {
+            $pendingCount = \App\Models\PendingWebhook::unresolved()->count();
+            if ($pendingCount > 0) {
+                $this->info("  Dispatching ProcessPendingWebhooksJob ({$pendingCount} pending)...");
+                \App\Jobs\ProcessPendingWebhooksJob::dispatch();
+            }
+        }
+
         return $totalFailed > 0 ? self::FAILURE : self::SUCCESS;
     }
 

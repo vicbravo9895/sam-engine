@@ -16,6 +16,11 @@ import {
     MessageSquare,
     Eye,
     AlertCircle,
+    Settings,
+    RefreshCw,
+    UserPlus,
+    Zap,
+    CircleDot,
 } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -37,9 +42,26 @@ interface SamsaraEvent {
     risk_escalation?: string | null;
 }
 
+interface OnboardingStatus {
+    has_api_key: boolean;
+    has_vehicles: boolean;
+    has_contacts: boolean;
+    has_drivers: boolean;
+    is_complete: boolean;
+    completed_steps: number;
+    total_steps: number;
+}
+
+interface PipelineHealth {
+    last_processed_at: string | null;
+    avg_latency_ms_today: number | null;
+}
+
 interface Props {
     isSuperAdmin: boolean;
     companyName: string | null;
+    onboardingStatus: OnboardingStatus | null;
+    pipelineHealth: PipelineHealth | null;
     samsaraStats: {
         total: number;
         today: number;
@@ -148,6 +170,8 @@ export default function Dashboard() {
     const {
         isSuperAdmin,
         companyName,
+        onboardingStatus,
+        pipelineHealth,
         samsaraStats,
         vehiclesStats,
         contactsStats,
@@ -180,6 +204,166 @@ export default function Dashboard() {
                               : 'Vista general de tu flota'}
                     </p>
                 </div>
+
+                {/* Onboarding Checklist */}
+                {onboardingStatus && !onboardingStatus.is_complete && (
+                    <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+                        <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-lg">Configura SAM</CardTitle>
+                                    <CardDescription>
+                                        Completa estos pasos para comenzar a recibir y procesar alertas
+                                    </CardDescription>
+                                </div>
+                                <Badge variant="outline" className="text-sm">
+                                    {onboardingStatus.completed_steps}/{onboardingStatus.total_steps}
+                                </Badge>
+                            </div>
+                            {/* Progress bar */}
+                            <div className="bg-muted mt-2 h-2 w-full overflow-hidden rounded-full">
+                                <div
+                                    className="h-full bg-blue-500 transition-all"
+                                    style={{
+                                        width: `${(onboardingStatus.completed_steps / onboardingStatus.total_steps) * 100}%`,
+                                    }}
+                                />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                <Link
+                                    href="/company"
+                                    className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
+                                        onboardingStatus.has_api_key
+                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
+                                            : 'hover:bg-muted/50 border-dashed'
+                                    }`}
+                                >
+                                    {onboardingStatus.has_api_key ? (
+                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
+                                    ) : (
+                                        <Settings className="text-muted-foreground size-5 shrink-0" />
+                                    )}
+                                    <div>
+                                        <p className="text-sm font-medium">Conecta Samsara</p>
+                                        <p className="text-muted-foreground text-xs">
+                                            {onboardingStatus.has_api_key
+                                                ? 'API key configurada'
+                                                : 'Agrega tu API key'}
+                                        </p>
+                                    </div>
+                                </Link>
+
+                                <div
+                                    className={`flex items-center gap-3 rounded-lg border p-3 ${
+                                        onboardingStatus.has_vehicles
+                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
+                                            : 'border-dashed'
+                                    }`}
+                                >
+                                    {onboardingStatus.has_vehicles ? (
+                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
+                                    ) : (
+                                        <RefreshCw className="text-muted-foreground size-5 shrink-0" />
+                                    )}
+                                    <div>
+                                        <p className="text-sm font-medium">Sincroniza tu flota</p>
+                                        <p className="text-muted-foreground text-xs">
+                                            {onboardingStatus.has_vehicles
+                                                ? 'Vehículos sincronizados'
+                                                : 'Se sincroniza automáticamente'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <Link
+                                    href="/contacts/create"
+                                    className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
+                                        onboardingStatus.has_contacts
+                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
+                                            : 'hover:bg-muted/50 border-dashed'
+                                    }`}
+                                >
+                                    {onboardingStatus.has_contacts ? (
+                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
+                                    ) : (
+                                        <UserPlus className="text-muted-foreground size-5 shrink-0" />
+                                    )}
+                                    <div>
+                                        <p className="text-sm font-medium">Configura contactos</p>
+                                        <p className="text-muted-foreground text-xs">
+                                            {onboardingStatus.has_contacts
+                                                ? 'Contactos configurados'
+                                                : 'Para recibir notificaciones'}
+                                        </p>
+                                    </div>
+                                </Link>
+
+                                <div
+                                    className={`flex items-center gap-3 rounded-lg border p-3 ${
+                                        onboardingStatus.has_drivers
+                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
+                                            : 'border-dashed'
+                                    }`}
+                                >
+                                    {onboardingStatus.has_drivers ? (
+                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
+                                    ) : (
+                                        <Users className="text-muted-foreground size-5 shrink-0" />
+                                    )}
+                                    <div>
+                                        <p className="text-sm font-medium">Conductores</p>
+                                        <p className="text-muted-foreground text-xs">
+                                            {onboardingStatus.has_drivers
+                                                ? 'Conductores sincronizados'
+                                                : 'Se sincroniza automáticamente'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {/* Pipeline Health Indicator */}
+                {pipelineHealth && samsaraStats.total > 0 && (
+                    <div className="flex flex-wrap items-center gap-4 text-sm">
+                        <div className="flex items-center gap-2">
+                            {(() => {
+                                if (!pipelineHealth.last_processed_at) return null;
+                                const diffMs = Date.now() - new Date(pipelineHealth.last_processed_at).getTime();
+                                const diffMin = Math.floor(diffMs / 60000);
+                                const color = diffMin < 15 ? 'text-green-500' : diffMin < 60 ? 'text-yellow-500' : 'text-red-500';
+                                const bgColor = diffMin < 15 ? 'bg-green-500' : diffMin < 60 ? 'bg-yellow-500' : 'bg-red-500';
+                                return (
+                                    <>
+                                        <CircleDot className={`size-3 ${color}`} />
+                                        <span className="text-muted-foreground">
+                                            Última alerta procesada{' '}
+                                            <span className="font-medium text-foreground">
+                                                {formatEventTime(pipelineHealth.last_processed_at)}
+                                            </span>
+                                        </span>
+                                    </>
+                                );
+                            })()}
+                        </div>
+                        {pipelineHealth.avg_latency_ms_today !== null && (
+                            <div className="flex items-center gap-2">
+                                <Zap className="text-muted-foreground size-3" />
+                                <span className="text-muted-foreground">
+                                    Latencia promedio hoy:{' '}
+                                    <span className="font-medium text-foreground">
+                                        {pipelineHealth.avg_latency_ms_today < 1000
+                                            ? `${pipelineHealth.avg_latency_ms_today}ms`
+                                            : `${(pipelineHealth.avg_latency_ms_today / 1000).toFixed(1)}s`}
+                                    </span>
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Stats Grid - Samsara Events */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

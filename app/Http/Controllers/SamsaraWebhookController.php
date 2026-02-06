@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessSamsaraEventJob;
+use App\Models\PendingWebhook;
 use App\Models\SamsaraEvent;
 use App\Models\Vehicle;
 use Illuminate\Http\Request;
@@ -37,17 +38,28 @@ class SamsaraWebhookController extends Controller
             $companyId = $this->determineCompanyId($eventData['vehicle_id'] ?? null);
             
             if (!$companyId) {
-                Log::warning('Webhook rejected: Unknown vehicle', [
+                $vehicleId = $eventData['vehicle_id'] ?? null;
+                
+                Log::info('Webhook queued: Unknown vehicle, storing for later processing', [
                     'trace_id' => $traceId,
-                    'vehicle_id' => $eventData['vehicle_id'] ?? null,
+                    'vehicle_id' => $vehicleId,
                     'event_type' => $eventData['event_type'] ?? null,
                     'reason' => 'vehicle_not_registered',
                 ]);
+
+                // Store in pending_webhooks for later processing
+                if ($vehicleId) {
+                    PendingWebhook::create([
+                        'vehicle_samsara_id' => $vehicleId,
+                        'event_type' => $eventData['event_type'] ?? null,
+                        'raw_payload' => $payload,
+                    ]);
+                }
                 
                 return response()->json([
-                    'status' => 'error',
-                    'message' => 'Could not determine company for this vehicle. Vehicle may not be registered in the system.',
-                ], 400);
+                    'status' => 'accepted',
+                    'message' => 'Vehicle not yet registered. Webhook queued for processing after vehicle sync.',
+                ], 202);
             }
 
             $eventData['company_id'] = $companyId;

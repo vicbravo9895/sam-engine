@@ -22,6 +22,7 @@ class SamsaraEventController extends Controller
             'event_type' => (string) $request->input('event_type', ''),
             'date_from' => (string) $request->input('date_from', ''),
             'date_to' => (string) $request->input('date_to', ''),
+            'attention' => (string) $request->input('attention', ''),
         ];
 
         $query = SamsaraEvent::query();
@@ -64,6 +65,20 @@ class SamsaraEventController extends Controller
 
         if ($filters['date_to'] !== '') {
             $this->applyDateFilter($query, '<=', $filters['date_to']);
+        }
+
+        // Attention filter: show only actionable events
+        if ($filters['attention'] === 'actionable') {
+            $query->where(function ($q) {
+                $q->where('human_status', SamsaraEvent::HUMAN_STATUS_PENDING)
+                    ->where(function ($inner) {
+                        $inner->whereIn('ai_status', [SamsaraEvent::STATUS_FAILED, SamsaraEvent::STATUS_INVESTIGATING])
+                              ->orWhere('severity', SamsaraEvent::SEVERITY_CRITICAL)
+                              ->orWhereIn('risk_escalation', [SamsaraEvent::RISK_CALL, SamsaraEvent::RISK_EMERGENCY]);
+                    });
+            });
+        } elseif ($filters['attention'] === 'pending') {
+            $query->where('human_status', SamsaraEvent::HUMAN_STATUS_PENDING);
         }
 
         $events = $query

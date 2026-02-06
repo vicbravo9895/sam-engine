@@ -11,17 +11,23 @@ import { Head, router, usePage } from '@inertiajs/react';
 import {
     Activity,
     AlertTriangle,
+    ArrowRight,
     Bot,
+    Camera,
     Coins,
     Database,
     ExternalLink,
+    Lightbulb,
     Loader2,
+    Route,
     Search,
     Send,
     ShieldAlert,
     Sparkles,
+    Tag,
     Truck,
     User,
+    Users,
 } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -129,6 +135,183 @@ function EventContextBanner({ context }: { context: EventContextPayload }) {
             </div>
         </div>
     );
+}
+
+// ============================================================================
+// Copilot Capabilities — Smart Suggestions & Guided Flows
+// Organized by tool capabilities so the UI reflects what the copilot can do.
+// Queries are crafted to trigger guided flows (e.g., "¿Cuáles tengo?" so
+// the copilot helps the user pick vehicles/tags instead of requiring exact names).
+// ============================================================================
+
+interface CopilotSuggestion {
+    label: string;
+    query: string;
+}
+
+interface CopilotCategory {
+    icon: React.ComponentType<{ className?: string }>;
+    title: string;
+    description: string;
+    gradient: string;
+    iconColor: string;
+    suggestions: CopilotSuggestion[];
+}
+
+const COPILOT_CATEGORIES: CopilotCategory[] = [
+    {
+        icon: Activity,
+        title: 'Vista General',
+        description: 'Estado en tiempo real de toda tu flota',
+        gradient: 'from-blue-500/10 to-cyan-500/10',
+        iconColor: 'text-blue-500',
+        suggestions: [
+            { label: 'Estado actual de mi flota', query: '¿Cuál es el estado actual de mi flota?' },
+            { label: 'Vehículos activos ahora', query: '¿Cuántos vehículos están activos en este momento?' },
+            { label: 'Flota filtrada por grupo', query: 'Quiero ver el estado de mi flota filtrada por grupo. ¿Qué grupos tengo disponibles?' },
+        ],
+    },
+    {
+        icon: Truck,
+        title: 'Vehículos',
+        description: 'Ubicación, estadísticas y búsqueda',
+        gradient: 'from-indigo-500/10 to-purple-500/10',
+        iconColor: 'text-indigo-500',
+        suggestions: [
+            { label: 'Ubicar un vehículo', query: 'Necesito ubicar un vehículo. ¿Cuáles tengo disponibles?' },
+            { label: 'Estadísticas en vivo', query: 'Quiero ver estadísticas en tiempo real de un vehículo. Ayúdame a elegir cuál.' },
+            { label: 'Combustible y kilometraje', query: '¿Cuál es el nivel de combustible y kilometraje de mis vehículos activos?' },
+        ],
+    },
+    {
+        icon: ShieldAlert,
+        title: 'Seguridad',
+        description: 'Eventos, alertas e incidentes',
+        gradient: 'from-red-500/10 to-orange-500/10',
+        iconColor: 'text-red-500',
+        suggestions: [
+            { label: 'Eventos de seguridad de hoy', query: '¿Qué eventos de seguridad han ocurrido hoy?' },
+            { label: 'Frenadas bruscas recientes', query: '¿Hubo frenadas o aceleraciones bruscas en las últimas horas?' },
+            { label: 'Distracción al volante', query: '¿Algún conductor fue detectado con distracción o usando celular recientemente?' },
+        ],
+    },
+    {
+        icon: Route,
+        title: 'Viajes y Rutas',
+        description: 'Historial de viajes y recorridos',
+        gradient: 'from-green-500/10 to-emerald-500/10',
+        iconColor: 'text-green-500',
+        suggestions: [
+            { label: 'Viajes recientes', query: '¿Cuáles fueron los viajes más recientes de mi flota?' },
+            { label: 'Viajes de un vehículo', query: 'Quiero ver los viajes de un vehículo específico. Ayúdame a elegir cuál.' },
+            { label: 'Viajes en progreso', query: '¿Hay algún viaje en progreso en este momento?' },
+        ],
+    },
+    {
+        icon: Camera,
+        title: 'Cámaras',
+        description: 'Imágenes y video de dashcam',
+        gradient: 'from-purple-500/10 to-pink-500/10',
+        iconColor: 'text-purple-500',
+        suggestions: [
+            { label: 'Imágenes recientes', query: 'Muéstrame las imágenes de dashcam más recientes de mi flota' },
+            { label: 'Cámara de un vehículo', query: 'Quiero ver las imágenes de cámara de un vehículo. Ayúdame a elegir cuál.' },
+            { label: 'Cámara del conductor', query: 'Muéstrame imágenes de la cámara interior de un vehículo. ¿Cuáles tengo disponibles?' },
+        ],
+    },
+    {
+        icon: Users,
+        title: 'Conductores',
+        description: 'Información y asignaciones',
+        gradient: 'from-amber-500/10 to-yellow-500/10',
+        iconColor: 'text-amber-500',
+        suggestions: [
+            { label: 'Conductores activos', query: '¿Quiénes son mis conductores activos en este momento?' },
+            { label: 'Asignaciones actuales', query: '¿Qué conductor está asignado a cada vehículo?' },
+            { label: 'Buscar un conductor', query: 'Necesito buscar información de un conductor. ¿Cuáles tengo registrados?' },
+        ],
+    },
+];
+
+interface QuickAction {
+    icon: React.ComponentType<{ className?: string }>;
+    label: string;
+    query: string;
+    color: string;
+}
+
+const QUICK_ACTIONS: QuickAction[] = [
+    { icon: Activity, label: 'Flota', query: '¿Cuál es el estado actual de mi flota?', color: 'text-blue-500' },
+    { icon: Truck, label: 'Vehículo', query: 'Necesito ubicar un vehículo. ¿Cuáles tengo disponibles?', color: 'text-indigo-500' },
+    { icon: ShieldAlert, label: 'Seguridad', query: '¿Qué eventos de seguridad ocurrieron recientemente?', color: 'text-red-500' },
+    { icon: Route, label: 'Viajes', query: '¿Cuáles fueron los viajes más recientes?', color: 'text-green-500' },
+    { icon: Camera, label: 'Cámaras', query: 'Muéstrame imágenes de dashcam recientes. Ayúdame a elegir el vehículo.', color: 'text-purple-500' },
+    { icon: Users, label: 'Conductores', query: '¿Quiénes son mis conductores activos?', color: 'text-amber-500' },
+    { icon: Tag, label: 'Grupos', query: '¿Qué grupos o tags tengo configurados en mi flota?', color: 'text-teal-500' },
+];
+
+/**
+ * Returns contextual follow-up suggestions based on the content of the last
+ * assistant message. Detects which rich cards were rendered and suggests
+ * natural next actions so the user doesn't have to think about what to ask.
+ */
+function getFollowUpSuggestions(lastMessageContent: string): string[] {
+    const content = lastMessageContent;
+
+    if (content.includes(':::fleetStatus')) {
+        return [
+            'Ver detalles de un vehículo de esta lista',
+            '¿Qué eventos de seguridad hubo hoy?',
+            'Imágenes de cámaras de algún vehículo',
+        ];
+    }
+
+    if (content.includes(':::vehicleStats') || content.includes(':::location')) {
+        return [
+            'Ver viajes recientes de este vehículo',
+            'Imágenes de dashcam de este vehículo',
+            '¿Tiene eventos de seguridad recientes?',
+        ];
+    }
+
+    if (content.includes(':::safetyEvents')) {
+        return [
+            'Mostrar cámaras del vehículo involucrado',
+            '¿Dónde se encuentra el vehículo ahora?',
+            'Viajes recientes del vehículo',
+        ];
+    }
+
+    if (content.includes(':::trips')) {
+        return [
+            '¿Dónde está el vehículo ahora?',
+            'Estadísticas en tiempo real del vehículo',
+            'Eventos de seguridad durante estos viajes',
+        ];
+    }
+
+    if (content.includes(':::dashcamMedia')) {
+        return [
+            '¿Cuál es el estado actual de este vehículo?',
+            '¿Tiene eventos de seguridad recientes?',
+            '¿Cuáles son sus viajes de hoy?',
+        ];
+    }
+
+    if (content.includes(':::fleetReport')) {
+        return [
+            'Más detalle de un vehículo específico',
+            '¿Qué eventos de seguridad hubo?',
+            'Cámaras de algún vehículo',
+        ];
+    }
+
+    // Default follow-ups
+    return [
+        '¿Cuál es el estado de mi flota?',
+        'Eventos de seguridad recientes',
+        'Imágenes de dashcam',
+    ];
 }
 
 export default function Copilot() {
@@ -352,18 +535,13 @@ export default function Copilot() {
         return null;
     };
 
-    const handleSubmit = async (e: FormEvent) => {
-        e.preventDefault();
-        
-        // Verificar que el componente está hidratado y listo
-        if (!isHydrated) {
-            console.warn('[Copilot] Component not hydrated yet, ignoring submit');
-            return;
-        }
-        
-        if (!input.trim() || isStreaming) return;
+    // Core message submission logic — extracted so both form submit and
+    // suggestion clicks can trigger it without duplicating code.
+    const submitMessage = useCallback(async (messageText: string) => {
+        if (!isHydrated) return;
+        if (!messageText.trim() || isStreaming) return;
 
-        const userMessage = input.trim();
+        const userMessage = messageText.trim();
         setInput('');
         setIsStreaming(true);
         setStreamingContent('');
@@ -420,7 +598,6 @@ export default function Copilot() {
             const data = await response.json();
 
             // Actualizar thread_id si es nueva conversación
-            const newThreadId = data.thread_id || currentThreadId;
             if (data.thread_id) {
                 setCurrentThreadId(data.thread_id);
                 // Actualizar ref para evitar que useEffect resetee
@@ -438,7 +615,7 @@ export default function Copilot() {
                     updated_at: new Date().toISOString(),
                 };
                 setLocalConversations((prev) => [newConversation, ...prev]);
-                
+
                 // NO actualizamos la URL aquí, esperamos a que termine el stream
             }
 
@@ -461,6 +638,11 @@ export default function Copilot() {
             };
             setLocalMessages((prev) => [...prev, errorMessage]);
         }
+    }, [isHydrated, isStreaming, currentThreadId]);
+
+    const handleSubmit = (e: FormEvent) => {
+        e.preventDefault();
+        submitMessage(input);
     };
 
     // Helper para obtener el icono de la herramienta
@@ -525,8 +707,7 @@ export default function Copilot() {
     };
 
     const handleSuggestionClick = (suggestion: string) => {
-        setInput(suggestion);
-        textareaRef.current?.focus();
+        submitMessage(suggestion);
     };
 
     return (
@@ -545,34 +726,71 @@ export default function Copilot() {
                 {/* Mensajes - área scrollable */}
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {localMessages.length === 0 && !streamingContent ? (
-                        <div className="flex h-full flex-col items-center justify-center px-4 py-8">
-                            <div className="from-primary/20 to-primary/5 animate-in fade-in zoom-in mb-4 rounded-full bg-gradient-to-br p-4 duration-500 md:mb-6 md:p-6">
-                                <Sparkles className="text-primary size-8 md:size-12" />
-                            </div>
-                            <h2 className="animate-in fade-in slide-in-from-bottom-4 mb-2 text-xl font-semibold duration-500 md:text-2xl" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
-                                ¡Hola! Soy tu Copilot
-                            </h2>
-                            <p className="text-muted-foreground animate-in fade-in slide-in-from-bottom-4 mb-6 max-w-md px-4 text-center text-sm duration-500 md:mb-8 md:text-base" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
-                                Estoy aquí para ayudarte. Pregúntame cualquier cosa
-                                sobre tu flota, operaciones o lo que necesites.
-                            </p>
-                            <div className="grid w-full max-w-2xl gap-2 px-2 md:gap-3 md:px-0 sm:grid-cols-2">
-                                {[
-                                    '¿Cuál es el estado de mi flota?',
-                                    '¿Cómo puedo optimizar mis rutas?',
-                                    'Dame un resumen de las operaciones',
-                                    '¿Qué vehículos necesitan mantenimiento?',
-                                ].map((suggestion, index) => (
-                                    <button
-                                        type="button"
-                                        key={suggestion}
-                                        onClick={() => handleSuggestionClick(suggestion)}
-                                        className="bg-muted/50 hover:bg-muted animate-in fade-in slide-in-from-bottom-4 active:scale-[0.98] md:hover:scale-[1.02] rounded-xl border px-3 py-2.5 text-left text-sm transition-all duration-200 md:px-4 md:py-3"
-                                        style={{ animationDelay: `${300 + index * 75}ms`, animationFillMode: 'backwards' }}
-                                    >
-                                        {suggestion}
-                                    </button>
-                                ))}
+                        <div className="flex h-full flex-col items-center px-4 py-6 overflow-y-auto md:justify-center md:py-8">
+                            <div className="w-full max-w-3xl">
+                                {/* Hero */}
+                                <div className="mb-6 text-center md:mb-8">
+                                    <div className="from-primary/20 to-primary/5 animate-in fade-in zoom-in mx-auto mb-4 inline-flex rounded-full bg-gradient-to-br p-4 duration-500 md:p-5">
+                                        <Sparkles className="text-primary size-7 md:size-9" />
+                                    </div>
+                                    <h2 className="animate-in fade-in slide-in-from-bottom-4 mb-2 text-xl font-bold tracking-tight duration-500 md:text-2xl" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
+                                        Tu Copilot de Flota
+                                    </h2>
+                                    <p className="text-muted-foreground animate-in fade-in slide-in-from-bottom-4 mx-auto max-w-lg text-sm duration-500 md:text-base" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
+                                        Pregúntame lo que necesites. Te ayudo a explorar tu flota,
+                                        revisar seguridad, ubicar vehículos y mucho más — sin
+                                        necesidad de saber nombres exactos.
+                                    </p>
+                                </div>
+
+                                {/* Category cards */}
+                                <div
+                                    className="animate-in fade-in slide-in-from-bottom-4 grid gap-3 duration-500 sm:grid-cols-2 lg:grid-cols-3"
+                                    style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
+                                >
+                                    {COPILOT_CATEGORIES.map((category) => {
+                                        const Icon = category.icon;
+                                        return (
+                                            <div
+                                                key={category.title}
+                                                className="bg-card group rounded-2xl border p-4 transition-all duration-200 hover:shadow-md"
+                                            >
+                                                <div className="mb-3 flex items-center gap-2.5">
+                                                    <div
+                                                        className={`flex size-8 items-center justify-center rounded-xl bg-gradient-to-br ${category.gradient}`}
+                                                    >
+                                                        <Icon className={`size-4 ${category.iconColor}`} />
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="text-sm font-semibold leading-tight">
+                                                            {category.title}
+                                                        </h3>
+                                                        <p className="text-muted-foreground text-[10px] leading-tight">
+                                                            {category.description}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-0.5">
+                                                    {category.suggestions.map((suggestion) => (
+                                                        <button
+                                                            key={suggestion.label}
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleSuggestionClick(suggestion.query)
+                                                            }
+                                                            className="group/item hover:bg-muted flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors"
+                                                        >
+                                                            <ArrowRight className="text-muted-foreground/40 group-hover/item:text-primary size-3 flex-shrink-0 transition-colors" />
+                                                            <span className="text-muted-foreground group-hover/item:text-foreground transition-colors">
+                                                                {suggestion.label}
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         </div>
                     ) : (
@@ -697,46 +915,98 @@ export default function Copilot() {
                                 </div>
                             )}
 
+                            {/* Follow-up suggestions — contextual chips after the last assistant message */}
+                            {!isStreaming && !streamingContent && localMessages.length > 0 &&
+                                localMessages[localMessages.length - 1]?.role === 'assistant' && (
+                                    <div
+                                        className="animate-in fade-in slide-in-from-bottom-2 mb-4 ml-9 duration-500 md:ml-12"
+                                        style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <Lightbulb className="mt-1 size-3.5 flex-shrink-0 text-amber-500" />
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {getFollowUpSuggestions(
+                                                    localMessages[localMessages.length - 1].content,
+                                                ).map((suggestion) => (
+                                                    <button
+                                                        key={suggestion}
+                                                        type="button"
+                                                        onClick={() => handleSuggestionClick(suggestion)}
+                                                        className="border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-full border px-3 py-1 text-xs transition-colors"
+                                                    >
+                                                        {suggestion}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                             <div ref={messagesEndRef} />
                         </div>
                     )}
                 </div>
 
-                {/* Input - fijo en la parte inferior con safe area para home indicator */}
-                <div className="bg-background flex-shrink-0 border-t p-3 pb-safe md:p-4">
-                    <form
-                        onSubmit={handleSubmit}
-                        className="bg-muted/50 mx-auto flex max-w-4xl items-end gap-2 rounded-2xl border p-1.5 md:p-2"
-                    >
-                        <textarea
-                            ref={textareaRef}
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder={isHydrated ? "Escribe tu mensaje..." : "Cargando..."}
-                            className="placeholder:text-muted-foreground max-h-[120px] min-h-[40px] flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none md:max-h-[200px] md:min-h-[44px] md:px-3 md:py-2.5"
-                            rows={1}
-                            disabled={isStreaming || !isHydrated}
-                        />
-                        <Button
-                            type="submit"
-                            size="icon"
-                            disabled={!input.trim() || isStreaming || !isHydrated}
-                            className="size-9 flex-shrink-0 rounded-xl md:size-10"
-                        >
-                            <Send className="size-4" />
-                        </Button>
-                    </form>
-                    <div className="mt-2 flex flex-col items-center justify-center gap-1 md:flex-row md:gap-4">
-                        <p className="text-muted-foreground text-center text-[10px] md:text-xs">
-                            Copilot puede cometer errores. Verifica la información importante.
-                        </p>
-                        {conversationTokens > 0 && (
-                            <div className="text-muted-foreground flex items-center gap-1.5 text-[10px] md:text-xs" title={`Sesión: ${sessionTokens.toLocaleString()} tokens`}>
-                                <Coins className="size-3" />
-                                <span>{conversationTokens.toLocaleString()} tokens</span>
+                {/* Quick actions + Input area */}
+                <div className="bg-background flex-shrink-0 border-t pb-safe">
+                    {/* Quick actions bar — only in active conversations, hidden while streaming */}
+                    {localMessages.length > 0 && !isStreaming && (
+                        <div className="mx-auto max-w-4xl overflow-x-auto px-3 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <div className="flex gap-1.5">
+                                {QUICK_ACTIONS.map((action) => {
+                                    const ActionIcon = action.icon;
+                                    return (
+                                        <button
+                                            key={action.label}
+                                            type="button"
+                                            onClick={() => handleSuggestionClick(action.query)}
+                                            className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1.5 whitespace-nowrap rounded-full border bg-transparent px-2.5 py-1 text-[11px] font-medium transition-colors"
+                                        >
+                                            <ActionIcon className={`size-3 ${action.color}`} />
+                                            {action.label}
+                                        </button>
+                                    );
+                                })}
                             </div>
-                        )}
+                        </div>
+                    )}
+
+                    {/* Input form */}
+                    <div className="p-3 md:p-4">
+                        <form
+                            onSubmit={handleSubmit}
+                            className="bg-muted/50 mx-auto flex max-w-4xl items-end gap-2 rounded-2xl border p-1.5 md:p-2"
+                        >
+                            <textarea
+                                ref={textareaRef}
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder={isHydrated ? "Pregúntame sobre tu flota, vehículos, seguridad..." : "Cargando..."}
+                                className="placeholder:text-muted-foreground max-h-[120px] min-h-[40px] flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none md:max-h-[200px] md:min-h-[44px] md:px-3 md:py-2.5"
+                                rows={1}
+                                disabled={isStreaming || !isHydrated}
+                            />
+                            <Button
+                                type="submit"
+                                size="icon"
+                                disabled={!input.trim() || isStreaming || !isHydrated}
+                                className="size-9 flex-shrink-0 rounded-xl md:size-10"
+                            >
+                                <Send className="size-4" />
+                            </Button>
+                        </form>
+                        <div className="mt-2 flex flex-col items-center justify-center gap-1 md:flex-row md:gap-4">
+                            <p className="text-muted-foreground text-center text-[10px] md:text-xs">
+                                Copilot puede cometer errores. Verifica la información importante.
+                            </p>
+                            {conversationTokens > 0 && (
+                                <div className="text-muted-foreground flex items-center gap-1.5 text-[10px] md:text-xs" title={`Sesión: ${sessionTokens.toLocaleString()} tokens`}>
+                                    <Coins className="size-3" />
+                                    <span>{conversationTokens.toLocaleString()} tokens</span>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

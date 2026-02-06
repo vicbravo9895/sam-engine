@@ -82,7 +82,7 @@ class GetSafetyEvents extends Tool
     {
         parent::__construct(
             'GetSafetyEvents',
-            'Obtener los últimos eventos de seguridad de la flota con toda la información asociada. Incluye eventos como: frenado brusco, aceleración brusca, exceso de velocidad, distracción del conductor, colisiones, uso de celular, etc. Devuelve información detallada del vehículo, conductor, ubicación con dirección, videos de cámara, y estado del evento.'
+            'Obtener los últimos eventos de seguridad de la flota. Incluye: frenado brusco, aceleración brusca, exceso de velocidad, distracción, colisiones, uso de celular, etc. Devuelve información detallada del vehículo, conductor, ubicación, videos y estado. IMPORTANTE: Si NO se pasan vehicle_ids ni vehicle_names, retorna eventos de TODA la flota. Solo filtrar por vehículo cuando el usuario lo pida explícitamente.'
         );
     }
 
@@ -104,7 +104,7 @@ class GetSafetyEvents extends Tool
             new ToolProperty(
                 name: 'hours_back',
                 type: PropertyType::INTEGER,
-                description: 'Horas hacia atrás desde ahora para buscar eventos. Por defecto es 1 hora. Máximo: 12 horas.',
+                description: 'Horas hacia atrás desde ahora para buscar eventos. Por defecto es 4 horas. Máximo: 12 horas. Para "eventos de hoy" usa 12, para "eventos recientes" usa 4.',
                 required: false,
             ),
             new ToolProperty(
@@ -125,7 +125,7 @@ class GetSafetyEvents extends Tool
     public function __invoke(
         ?string $vehicle_ids = null,
         ?string $vehicle_names = null,
-        int $hours_back = 1,
+        int $hours_back = 4,
         int $limit = 5,
         ?string $event_state = null
     ): string {

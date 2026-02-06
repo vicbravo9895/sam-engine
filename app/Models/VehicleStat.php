@@ -34,8 +34,8 @@ class VehicleStat extends Model
     protected function casts(): array
     {
         return [
-            'latitude' => 'decimal:7',
-            'longitude' => 'decimal:7',
+            'latitude' => 'float',
+            'longitude' => 'float',
             'speed_kmh' => 'decimal:2',
             'is_geofence' => 'boolean',
             'odometer_meters' => 'integer',

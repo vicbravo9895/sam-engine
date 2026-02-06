@@ -90,7 +90,7 @@ interface TabConfig {
 // ============================================================================
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Centro de Analytics', href: '/analytics' },
+    { title: 'Análisis', href: '/analytics' },
 ];
 
 const TABS: TabConfig[] = [
@@ -209,7 +209,7 @@ export default function AnalyticsIndex() {
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Centro de Analytics" />
+            <Head title="Análisis" />
             <div className="flex flex-1 flex-col gap-6 p-4 lg:p-6">
                 {/* ============================================================
                     HEADER
@@ -222,7 +222,7 @@ export default function AnalyticsIndex() {
                             </div>
                             <div>
                                 <h1 className="text-2xl font-bold tracking-tight">
-                                    Centro de Analytics
+                                    Análisis
                                 </h1>
                                 <p className="text-sm text-muted-foreground">
                                     Inteligencia operativa para tu flota

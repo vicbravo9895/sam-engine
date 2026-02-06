@@ -31,6 +31,16 @@ class Company extends Model
             'check_intervals' => [5, 15, 30, 60],
             'max_revalidations' => 5,
         ],
+        'usage_limits' => [
+            'max_copilot_messages_per_month' => 500,
+            'max_revalidations_per_event' => 3,
+            'warn_at_percentage' => 80,
+        ],
+        'shift_summary' => [
+            'enabled' => false,
+            'hours' => [7, 15, 23], // Hours to generate summaries (shift boundaries)
+            'shift_duration_hours' => 8,
+        ],
         'escalation_matrix' => [
             'emergency' => [
                 'channels' => ['call', 'whatsapp', 'sms'],
@@ -313,6 +323,41 @@ class Company extends Model
         }
 
         return $merged;
+    }
+
+    /**
+     * Get the onboarding status for this company.
+     * Computed from existing relationships - no migration needed.
+     *
+     * @return array{has_api_key: bool, has_vehicles: bool, has_contacts: bool, has_drivers: bool, is_complete: bool, completed_steps: int, total_steps: int}
+     */
+    public function getOnboardingStatus(): array
+    {
+        $hasApiKey = $this->hasSamsaraApiKey();
+        $hasVehicles = $this->vehicles()->exists();
+        $hasContacts = $this->contacts()->exists();
+        $hasDrivers = $this->drivers()->exists();
+
+        $steps = [$hasApiKey, $hasVehicles, $hasContacts, $hasDrivers];
+        $completedSteps = count(array_filter($steps));
+
+        return [
+            'has_api_key' => $hasApiKey,
+            'has_vehicles' => $hasVehicles,
+            'has_contacts' => $hasContacts,
+            'has_drivers' => $hasDrivers,
+            'is_complete' => $completedSteps === count($steps),
+            'completed_steps' => $completedSteps,
+            'total_steps' => count($steps),
+        ];
+    }
+
+    /**
+     * Get the drivers for this company.
+     */
+    public function drivers(): HasMany
+    {
+        return $this->hasMany(Driver::class);
     }
 
     /**

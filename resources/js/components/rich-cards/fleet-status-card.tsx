@@ -21,7 +21,7 @@ interface FleetVehicle {
     licensePlate?: string | null;
     make?: string | null;
     model?: string | null;
-    location: string;
+    location: string | { latitude: number; longitude: number } | Record<string, unknown>;
     isGeofence: boolean;
     lat?: number | null;
     lng?: number | null;
@@ -32,6 +32,24 @@ interface FleetVehicle {
     speedKmh: number;
     odometerKm?: number | null;
     lastUpdate?: string | null;
+}
+
+/**
+ * Safely converts a location value to a displayable string.
+ * Handles cases where location might be an object {latitude, longitude}
+ * from historical data with Decimal casts.
+ */
+function formatLocation(location: FleetVehicle['location']): string {
+    if (typeof location === 'string') return location;
+    if (location && typeof location === 'object') {
+        const lat = (location as Record<string, unknown>).latitude ?? (location as Record<string, unknown>).lat;
+        const lng = (location as Record<string, unknown>).longitude ?? (location as Record<string, unknown>).lng;
+        if (lat != null && lng != null) {
+            return `${lat}, ${lng}`;
+        }
+        return 'Ubicación desconocida';
+    }
+    return 'Ubicación desconocida';
 }
 
 interface FleetStatusCardProps {
@@ -135,7 +153,7 @@ export function FleetStatusCard({ data }: FleetStatusCardProps) {
                 (v) =>
                     v.name.toLowerCase().includes(term) ||
                     v.licensePlate?.toLowerCase().includes(term) ||
-                    v.location.toLowerCase().includes(term)
+                    formatLocation(v.location).toLowerCase().includes(term)
             );
         }
 
@@ -162,7 +180,7 @@ export function FleetStatusCard({ data }: FleetStatusCardProps) {
                     comparison = (b.speedKmh || 0) - (a.speedKmh || 0);
                     break;
                 case 'location':
-                    comparison = a.location.localeCompare(b.location);
+                    comparison = formatLocation(a.location).localeCompare(formatLocation(b.location));
                     break;
                 case 'lastUpdate':
                     const aTime = a.lastUpdate ? new Date(a.lastUpdate).getTime() : 0;
@@ -384,7 +402,7 @@ export function FleetStatusCard({ data }: FleetStatusCardProps) {
                                         <div className="flex items-start gap-1.5">
                                             <MapPin className="mt-0.5 size-3 shrink-0 text-gray-400" />
                                             <span className="truncate text-sm text-gray-700 dark:text-gray-300">
-                                                {vehicle.location}
+                                                {formatLocation(vehicle.location)}
                                             </span>
                                         </div>
                                         {vehicle.isGeofence && (

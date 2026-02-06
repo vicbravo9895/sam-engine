@@ -37,7 +37,7 @@ class GetTrips extends Tool
     {
         parent::__construct(
             'GetTrips',
-            'Obtener los viajes (trips) recientes de los vehículos de la flota. Incluye información del vehículo, ubicación de inicio y fin, tiempos del viaje, y estado de completado. Útil para reportes de actividad vehicular, rutas realizadas, y análisis de trayectos.'
+            'Obtener los viajes (trips) recientes de los vehículos de la flota. Incluye información del vehículo, ubicación de inicio y fin, tiempos del viaje, y estado de completado. IMPORTANTE: Si NO se pasan vehicle_ids ni vehicle_names, retorna viajes de los primeros vehículos de la flota. Solo filtrar por vehículo cuando el usuario lo pida explícitamente.'
         );
     }
 
