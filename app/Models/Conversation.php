@@ -10,11 +10,13 @@ class Conversation extends Model
 {
     protected $fillable = [
         'thread_id', 'user_id', 'company_id', 'title', 'meta',
+        'context_event_id', 'context_payload',
         'total_input_tokens', 'total_output_tokens', 'total_tokens'
     ];
     
     protected $casts = [
         'meta' => 'array',
+        'context_payload' => 'array',
         'total_input_tokens' => 'integer',
         'total_output_tokens' => 'integer',
         'total_tokens' => 'integer',
@@ -33,6 +35,19 @@ class Conversation extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function contextEvent(): BelongsTo
+    {
+        return $this->belongsTo(SamsaraEvent::class, 'context_event_id');
+    }
+
+    /**
+     * Check if this conversation has event context (T5 contextual copilot).
+     */
+    public function hasEventContext(): bool
+    {
+        return $this->context_event_id !== null;
     }
 
     /**

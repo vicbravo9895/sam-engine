@@ -1,22 +1,24 @@
 import {
-    resume,
     send,
     show,
-    stream,
 } from '@/actions/App/Http/Controllers/CopilotController';
 import { MarkdownContent } from '@/components/markdown-content';
 import { Button } from '@/components/ui/button';
+import { useCopilotStream } from '@/hooks/use-echo';
 import CopilotLayout from '@/layouts/copilot-layout';
 import { cn } from '@/lib/utils';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     Activity,
+    AlertTriangle,
     Bot,
     Coins,
     Database,
+    ExternalLink,
     Loader2,
     Search,
     Send,
+    ShieldAlert,
     Sparkles,
     Truck,
     User,
@@ -29,6 +31,24 @@ interface Message {
     content: string;
     status?: 'pending' | 'streaming' | 'completed' | 'failed';
     created_at: string;
+}
+
+interface EventContextPayload {
+    event_id: number;
+    samsara_event_id?: string | null;
+    event_type?: string | null;
+    event_description?: string | null;
+    severity?: string | null;
+    vehicle_id?: string | null;
+    vehicle_name?: string | null;
+    driver_id?: string | null;
+    driver_name?: string | null;
+    occurred_at?: string | null;
+    location_description?: string | null;
+    alert_kind?: string | null;
+    ai_status?: string | null;
+    verdict?: string | null;
+    likelihood?: string | null;
 }
 
 interface Conversation {
@@ -44,12 +64,71 @@ interface Conversation {
         label: string;
         icon: string;
     } | null;
+    context_event_id?: number | null;
+    context_payload?: EventContextPayload | null;
 }
 
 interface CopilotPageProps {
     conversations: Conversation[];
     currentConversation: Conversation | null;
     messages: Message[];
+}
+
+// ============================================================================
+// T5: Event Context Banner
+// Shows a compact banner when the copilot session is linked to a specific alert.
+// ============================================================================
+
+function EventContextBanner({ context }: { context: EventContextPayload }) {
+    const severityColors: Record<string, string> = {
+        critical: 'border-red-500/40 bg-red-500/5',
+        warning: 'border-amber-500/40 bg-amber-500/5',
+        info: 'border-blue-500/40 bg-blue-500/5',
+    };
+
+    const severityIcons: Record<string, React.ReactNode> = {
+        critical: <ShieldAlert className="size-4 text-red-500" />,
+        warning: <AlertTriangle className="size-4 text-amber-500" />,
+        info: <AlertTriangle className="size-4 text-blue-500" />,
+    };
+
+    const severity = context.severity ?? 'info';
+    const colorClass = severityColors[severity] ?? severityColors.info;
+    const icon = severityIcons[severity] ?? severityIcons.info;
+
+    return (
+        <div className={`flex-shrink-0 border-b px-3 py-2 md:px-6 md:py-2.5 ${colorClass}`}>
+            <div className="mx-auto flex max-w-4xl items-center gap-2 md:gap-3">
+                <div className="flex-shrink-0">{icon}</div>
+                <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="text-xs font-medium truncate">
+                            {context.event_description ?? context.event_type ?? 'Alerta'}
+                        </span>
+                        {context.vehicle_name && (
+                            <span className="text-muted-foreground text-xs">
+                                <Truck className="mr-0.5 inline size-3" />
+                                {context.vehicle_name}
+                            </span>
+                        )}
+                        {context.driver_name && (
+                            <span className="text-muted-foreground text-xs">
+                                <User className="mr-0.5 inline size-3" />
+                                {context.driver_name}
+                            </span>
+                        )}
+                    </div>
+                </div>
+                <a
+                    href={`/samsara/alerts/${context.event_id}`}
+                    className="text-muted-foreground hover:text-foreground flex-shrink-0 transition-colors"
+                    title="Ver detalle de alerta"
+                >
+                    <ExternalLink className="size-3.5" />
+                </a>
+            </div>
+        </div>
+    );
 }
 
 export default function Copilot() {
@@ -77,7 +156,6 @@ export default function Copilot() {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const eventSourceRef = useRef<EventSource | null>(null);
     // Trackear IDs de mensajes que ya fueron animados
     const animatedMessagesRef = useRef<Set<number>>(new Set());
     // Trackear el conteo inicial de mensajes para no animar mensajes existentes al cargar
@@ -86,149 +164,70 @@ export default function Copilot() {
     const streamingContentRef = useRef<string>('');
     // Trackear el thread actual para detectar cambios de conversación
     const lastServerThreadIdRef = useRef<string | null>(currentConversation?.thread_id || null);
-    // Ref para el thread actual del stream (para usar en callbacks)
-    const currentStreamThreadIdRef = useRef<string | null>(null);
 
-    // Función para cerrar EventSource
-    const closeEventSource = useCallback(() => {
-        if (eventSourceRef.current) {
-            eventSourceRef.current.close();
-            eventSourceRef.current = null;
-        }
+    // WebSocket stream handlers using the useCopilotStream hook
+    const handleStreamChunk = useCallback((content: string) => {
+        streamingContentRef.current += content;
+        setStreamingContent(streamingContentRef.current);
+        setActiveTool(null);
     }, []);
 
-    // Función para conectar al stream SSE (sin dependencias que cambien frecuentemente)
-    const connectToStream = useCallback((threadId: string, isResume: boolean = false) => {
-        // Cerrar conexión existente
-        if (eventSourceRef.current) {
-            eventSourceRef.current.close();
-            eventSourceRef.current = null;
+    const handleStreamToolStart = useCallback((toolInfo: { label: string; icon: string }) => {
+        setActiveTool(toolInfo);
+    }, []);
+
+    const handleStreamToolEnd = useCallback(() => {
+        setActiveTool(null);
+    }, []);
+
+    const handleStreamEnd = useCallback((tokens?: { total_tokens?: number }) => {
+        setIsStreaming(false);
+        setStreamingContent('');
+        setActiveTool(null);
+        
+        // Actualizar tokens si los recibimos
+        const totalTokens = tokens?.total_tokens;
+        if (totalTokens) {
+            setConversationTokens(prev => prev + totalTokens);
         }
         
-        // Guardar threadId en ref para usarlo en callbacks
-        currentStreamThreadIdRef.current = threadId;
-        
-        // Resetear contenido si no es reconexión
-        if (!isResume) {
-            streamingContentRef.current = '';
-            setStreamingContent('');
+        // Navegar a la conversación (esto recargará los mensajes correctamente)
+        if (currentThreadId) {
+            router.visit(show.url(currentThreadId), {
+                preserveScroll: true,
+            });
+        } else {
+            router.reload({ only: ['messages', 'currentConversation', 'conversations'] });
         }
+    }, [currentThreadId]);
+
+    const handleStreamError = useCallback((error: string) => {
+        setIsStreaming(false);
+        setStreamingContent('');
+        setActiveTool(null);
         
-        // Construir URL del endpoint SSE usando Wayfinder actions
-        const endpoint = isResume 
-            ? resume.url(threadId)
-            : stream.url(threadId);
-        
-        const eventSource = new EventSource(endpoint, { withCredentials: true });
-        eventSourceRef.current = eventSource;
-        
-        eventSource.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                switch (data.type) {
-                    case 'resume_state':
-                        // Reconexión: recibimos el contenido acumulado
-                        streamingContentRef.current = data.content || '';
-                        setStreamingContent(streamingContentRef.current);
-                        if (data.active_tool) {
-                            setActiveTool(data.active_tool);
-                        }
-                        break;
-                        
-                    case 'chunk':
-                        // Chunk de texto nuevo
-                        streamingContentRef.current += data.content || '';
-                        setStreamingContent(streamingContentRef.current);
-                        setActiveTool(null);
-                        break;
-                        
-                    case 'tool_start':
-                        // Inicio de tool call
-                        setActiveTool(data.tool_info || null);
-                        break;
-                        
-                    case 'tool_end':
-                        // Fin de tool call
-                        setActiveTool(null);
-                        break;
-                        
-                    case 'stream_end':
-                        // Stream completado
-                        if (eventSourceRef.current) {
-                            eventSourceRef.current.close();
-                            eventSourceRef.current = null;
-                        }
-                        setIsStreaming(false);
-                        setStreamingContent('');
-                        setActiveTool(null);
-                        
-                        // Actualizar tokens si los recibimos
-                        if (data.tokens?.total_tokens) {
-                            setConversationTokens(prev => prev + data.tokens.total_tokens);
-                        }
-                        
-                        // Navegar a la conversación (esto recargará los mensajes correctamente)
-                        // Usamos el ref que contiene el threadId del stream actual
-                        const threadIdToNavigate = currentStreamThreadIdRef.current;
-                        if (threadIdToNavigate) {
-                            router.visit(show.url(threadIdToNavigate), {
-                                preserveScroll: true,
-                            });
-                        } else {
-                            router.reload({ only: ['messages', 'currentConversation', 'conversations'] });
-                        }
-                        break;
-                        
-                    case 'stream_error':
-                        // Error en el stream
-                        if (eventSourceRef.current) {
-                            eventSourceRef.current.close();
-                            eventSourceRef.current = null;
-                        }
-                        setIsStreaming(false);
-                        setStreamingContent('');
-                        setActiveTool(null);
-                        
-                        // Mostrar mensaje de error
-                        const errorMessage: Message = {
-                            id: Date.now() + 1,
-                            role: 'assistant',
-                            content: `Lo siento, hubo un error: ${data.error}`,
-                            created_at: new Date().toISOString(),
-                        };
-                        setLocalMessages((prev) => [...prev, errorMessage]);
-                        break;
-                        
-                    case 'no_active_stream':
-                        // No hay stream activo, cerrar conexión y recargar mensajes
-                        if (eventSourceRef.current) {
-                            eventSourceRef.current.close();
-                            eventSourceRef.current = null;
-                        }
-                        setIsStreaming(false);
-                        setStreamingContent('');
-                        setActiveTool(null);
-                        // Recargar mensajes por si el stream ya terminó
-                        router.reload({ only: ['messages', 'currentConversation'] });
-                        break;
-                }
-            } catch {
-                // Error parsing SSE message
-            }
+        // Mostrar mensaje de error
+        const errorMessage: Message = {
+            id: Date.now() + 1,
+            role: 'assistant',
+            content: `Lo siento, hubo un error: ${error}`,
+            created_at: new Date().toISOString(),
         };
-        
-        eventSource.onerror = () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-                eventSourceRef.current = null;
-            }
-            // No intentamos reconectar automáticamente - el usuario puede refrescar
-        };
-        
-        // NOTA: resume_state ya se procesa en onmessage (switch case)
-        // No agregar listener duplicado que cause doble procesamiento
-    }, []); // Sin dependencias para evitar recreación
+        setLocalMessages((prev) => [...prev, errorMessage]);
+    }, []);
+
+    // Subscribe to WebSocket channel for streaming (replaces SSE/EventSource)
+    useCopilotStream(
+        currentThreadId,
+        {
+            onChunk: handleStreamChunk,
+            onToolStart: handleStreamToolStart,
+            onToolEnd: handleStreamToolEnd,
+            onStreamEnd: handleStreamEnd,
+            onError: handleStreamError,
+        },
+        isStreaming,
+    );
 
     // Sincronizar mensajes y conversaciones cuando hay navegación o carga inicial
     useEffect(() => {
@@ -251,32 +250,29 @@ export default function Copilot() {
             setSessionTokens(0);
         }
         
-        // Verificar si hay streaming activo y reconectarse (también aplica en refresh de página)
-        // Se ejecuta si: 1) hay cambio de conversación, O 2) hay streaming activo sin EventSource conectado
-        const needsStreamReconnect = currentConversation?.is_streaming && 
-                                     currentConversation?.thread_id && 
-                                     !eventSourceRef.current;
-        
-        if (isConversationChange || needsStreamReconnect) {
+        // Handle streaming state on conversation change or page refresh
+        // useCopilotStream hook handles the actual WebSocket subscription automatically
+        if (isConversationChange) {
             if (currentConversation?.is_streaming && currentConversation?.thread_id) {
+                // Resume streaming state from server
                 setIsStreaming(true);
                 streamingContentRef.current = currentConversation.streaming_content || '';
                 setStreamingContent(streamingContentRef.current);
                 setActiveTool(currentConversation.active_tool || null);
-                // Usar endpoint resume para reconexión
-                connectToStream(currentConversation.thread_id, true);
-            } else if (isConversationChange) {
-                // Solo limpiar si hubo cambio de conversación (no en refresh)
+            } else {
+                // Clear streaming state on conversation change
                 setIsStreaming(false);
                 setStreamingContent('');
                 setActiveTool(null);
-                if (eventSourceRef.current) {
-                    eventSourceRef.current.close();
-                    eventSourceRef.current = null;
-                }
             }
+        } else if (currentConversation?.is_streaming && !isStreaming) {
+            // Handle page refresh with active stream
+            setIsStreaming(true);
+            streamingContentRef.current = currentConversation.streaming_content || '';
+            setStreamingContent(streamingContentRef.current);
+            setActiveTool(currentConversation.active_tool || null);
         }
-    }, [serverConversations, currentConversation, connectToStream]);
+    }, [serverConversations, currentConversation, messages, isStreaming]);
     
     // Sincronizar mensajes del servidor cuando cambian (solo después de navegación via Inertia)
     // Este useEffect NO debe interferir con operaciones locales (envío de mensaje, streaming)
@@ -306,13 +302,6 @@ export default function Copilot() {
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [messages]);
-
-    // Limpiar EventSource al desmontar
-    useEffect(() => {
-        return () => {
-            closeEventSource();
-        };
-    }, [closeEventSource]);
 
     // Marcar el componente como hidratado después de montar
     // Esto es importante para PWA donde la primera carga puede tener problemas
@@ -453,11 +442,8 @@ export default function Copilot() {
                 // NO actualizamos la URL aquí, esperamos a que termine el stream
             }
 
-            // Conectar al stream SSE para recibir chunks en tiempo real
-            // Redis ya fue inicializado en el backend antes de despachar el Job
-            if (newThreadId) {
-                connectToStream(newThreadId, false);
-            }
+            // WebSocket subscription is handled automatically by useCopilotStream hook
+            // when isStreaming is true and currentThreadId is set
         } catch (error) {
             console.error('[Copilot] Error sending message:', error);
             setIsStreaming(false);
@@ -551,6 +537,11 @@ export default function Copilot() {
             <Head title="Copilot" />
 
             <div className="flex h-full max-h-full min-h-0 flex-1 flex-col overflow-hidden">
+                {/* T5: Event context banner */}
+                {currentConversation?.context_payload && (
+                    <EventContextBanner context={currentConversation.context_payload} />
+                )}
+
                 {/* Mensajes - área scrollable */}
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {localMessages.length === 0 && !streamingContent ? (

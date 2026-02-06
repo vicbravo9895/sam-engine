@@ -124,8 +124,18 @@ class ProcessCopilotMessageJob implements ShouldQueue
             $agent = (new FleetAgent())
                 ->forUser($user)
                 ->withThread($this->threadId)
-                ->withAdvancedModel($useAdvancedModel)
-                ->observe(new LogObserver($logger))
+                ->withAdvancedModel($useAdvancedModel);
+
+            // T5: Inject event context if conversation is linked to an alert
+            if ($conversation && $conversation->hasEventContext() && $conversation->context_payload) {
+                $agent->withEventContext($conversation->context_payload);
+                Log::info('Copilot with event context', [
+                    'thread_id' => $this->threadId,
+                    'context_event_id' => $conversation->context_event_id,
+                ]);
+            }
+
+            $agent->observe(new LogObserver($logger))
                 ->observe($tokenObserver);
 
             // Usar streaming para obtener la respuesta chunk por chunk

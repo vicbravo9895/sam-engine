@@ -22,6 +22,7 @@ import { useTimezone } from '@/hooks/use-timezone';
 import { type HumanStatus } from '@/types/samsara';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem, type SharedData } from '@/types';
+import { send as copilotSend } from '@/actions/App/Http/Controllers/CopilotController';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     AlertCircle,
@@ -548,6 +549,84 @@ function CopyButton({ value, label }: { value: string; label?: string }) {
 // Shows: Severity, AI status, Human status, Risk escalation, Review requirement
 // ============================================================================
 
+// ============================================================================
+// ASK COPILOT BUTTON (T5: Contextual Copilot)
+// Creates a copilot session pre-loaded with event context.
+// ============================================================================
+
+function AskCopilotButton({ event }: { event: SamsaraEventPayload }) {
+    const [isCreating, setIsCreating] = useState(false);
+
+    const handleClick = async () => {
+        setIsCreating(true);
+        try {
+            const csrfToken =
+                document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ??
+                decodeURIComponent(
+                    document.cookie
+                        .split('; ')
+                        .find((row) => row.startsWith('XSRF-TOKEN='))
+                        ?.split('=')[1] ?? ''
+                );
+
+            const response = await fetch(copilotSend.url(), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'X-XSRF-TOKEN': csrfToken,
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: JSON.stringify({
+                    message: `Estoy revisando la alerta de "${event.event_description ?? event.display_event_type ?? 'evento desconocido'}" del vehículo ${event.vehicle_name ?? 'desconocido'}${event.driver_name ? ` (conductor: ${event.driver_name})` : ''}. ¿Qué puedes decirme sobre lo que pasó antes y después del evento?`,
+                    context_event_id: event.id,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Error al crear sesión de copilot');
+            }
+
+            const data = await response.json();
+
+            if (data.thread_id) {
+                router.visit(`/copilot/${data.thread_id}`);
+            }
+        } catch (error) {
+            console.error('[AskCopilot] Error:', error);
+            setIsCreating(false);
+        }
+    };
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleClick}
+                    disabled={isCreating}
+                    className="gap-1.5 text-primary hover:text-primary hover:bg-primary/10"
+                >
+                    {isCreating ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                        <MessageSquare className="size-3.5" />
+                    )}
+                    <span className="hidden sm:inline">
+                        {isCreating ? 'Abriendo...' : 'Preguntar al Copilot'}
+                    </span>
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+                <p>Preguntar sobre este evento en el Copilot</p>
+            </TooltipContent>
+        </Tooltip>
+    );
+}
+
 interface DecisionBarProps {
     event: SamsaraEventPayload;
     reviewRequired: boolean;
@@ -717,6 +796,9 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                             </>
                         )}
                     </Badge>
+
+                    {/* Ask Copilot about this event (T5) */}
+                    <AskCopilotButton event={event} />
 
                     {/* Reprocess Button (Super Admin Only) */}
                     {isSuperAdmin && (

@@ -75,6 +75,39 @@ services:
       - sam-network
 
   # ---------------------------------------------------------------------------
+  # Laravel Reverb (WebSocket Server)
+  # ---------------------------------------------------------------------------
+  reverb:
+    build:
+      context: .
+      dockerfile: Dockerfile.horizon
+    container_name: sam-reverb
+    restart: unless-stopped
+    command: >
+      php artisan reverb:start
+      --host=0.0.0.0
+      --port=8080
+    env_file:
+      - .env
+    volumes:
+      - sam-logs:/var/www/html/storage/logs
+    expose:
+      - "8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    networks:
+      - sam-network
+    healthcheck:
+      test: ["CMD", "php", "-r", "echo @fsockopen('localhost', 8080) ? 'ok' : exit(1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
   # Safety Events Stream Daemon
   # Polls Samsara safety events and persists them to database
   # ---------------------------------------------------------------------------

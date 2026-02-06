@@ -29,6 +29,9 @@ class FleetAgent extends Agent
     protected ?string $companyName = null;
     protected bool $useAdvancedModel = false;
 
+    /** @var array<string, mixed>|null T5: Event context payload for contextual copilot */
+    protected ?array $eventContext = null;
+
     public function withThread(string $threadId): self
     {
         $this->threadId = $threadId;
@@ -42,6 +45,18 @@ class FleetAgent extends Agent
     public function withAdvancedModel(bool $advanced = true): self
     {
         $this->useAdvancedModel = $advanced;
+        return $this;
+    }
+
+    /**
+     * T5: Set event context for contextual copilot.
+     * When set, the system prompt includes operational context about the alert.
+     *
+     * @param array<string, mixed> $context Context payload from conversation.context_payload
+     */
+    public function withEventContext(array $context): self
+    {
+        $this->eventContext = $context;
         return $this;
     }
 
@@ -76,12 +91,16 @@ class FleetAgent extends Agent
         $companyContext = $this->companyName
             ? "Trabajas únicamente con datos de la empresa **{$this->companyName}**."
             : '';
+
+        // T5: Build event context block for the system prompt
+        $eventContextBlock = $this->buildEventContextBlock();
     
         return (string) new SystemPrompt(
-            background: [
+            background: array_filter([
                 'Eres SAM, asistente operativo de flotillas (Samsara).',
                 $companyContext,
-            ],
+                $eventContextBlock,
+            ]),
             steps: [
                 // ═══════════════════════════════════════════════════════════════
                 // REGLA PRINCIPAL (ANTI-REDUNDANCIA)
@@ -218,6 +237,93 @@ class FleetAgent extends Agent
             modelClass: ChatMessage::class,
             contextWindow: 12000
         );
+    }
+
+    /**
+     * T5: Build the event context block for the system prompt.
+     * 
+     * When a conversation is linked to a specific alert, this method
+     * generates a structured context block so the agent can answer
+     * operational questions without the user needing to repeat details.
+     */
+    private function buildEventContextBlock(): ?string
+    {
+        if (!$this->eventContext) {
+            return null;
+        }
+
+        $ctx = $this->eventContext;
+
+        $lines = [
+            '',
+            '## CONTEXTO DE ALERTA ACTIVA',
+            'Esta conversación está vinculada a una alerta específica. Usa este contexto para responder preguntas operativas.',
+            'El usuario NO necesita especificar vehículo, conductor ni hora — ya los conoces.',
+            '',
+        ];
+
+        if (!empty($ctx['event_description'])) {
+            $lines[] = "- **Tipo de alerta**: {$ctx['event_description']}";
+        }
+        if (!empty($ctx['severity'])) {
+            $lines[] = "- **Severidad**: {$ctx['severity']}";
+        }
+        if (!empty($ctx['vehicle_name'])) {
+            $lines[] = "- **Vehículo**: {$ctx['vehicle_name']}";
+        }
+        if (!empty($ctx['vehicle_id'])) {
+            $lines[] = "- **Vehicle ID (Samsara)**: {$ctx['vehicle_id']}";
+        }
+        if (!empty($ctx['driver_name'])) {
+            $lines[] = "- **Conductor**: {$ctx['driver_name']}";
+        }
+        if (!empty($ctx['driver_id'])) {
+            $lines[] = "- **Driver ID (Samsara)**: {$ctx['driver_id']}";
+        }
+        if (!empty($ctx['occurred_at'])) {
+            $lines[] = "- **Hora del evento**: {$ctx['occurred_at']}";
+        }
+        if (!empty($ctx['location_description'])) {
+            $lines[] = "- **Ubicación**: {$ctx['location_description']}";
+        }
+        if (!empty($ctx['alert_kind'])) {
+            $lines[] = "- **Clasificación**: {$ctx['alert_kind']}";
+        }
+        if (!empty($ctx['verdict'])) {
+            $lines[] = "- **Veredicto AI**: {$ctx['verdict']}";
+        }
+        if (!empty($ctx['likelihood'])) {
+            $lines[] = "- **Probabilidad**: {$ctx['likelihood']}";
+        }
+        if (!empty($ctx['reasoning'])) {
+            $lines[] = "- **Razonamiento AI**: {$ctx['reasoning']}";
+        }
+        if (!empty($ctx['ai_message'])) {
+            $lines[] = '';
+            $lines[] = '### Mensaje generado por el pipeline AI:';
+            $lines[] = $ctx['ai_message'];
+        }
+
+        // Time window context for tools
+        if (!empty($ctx['time_window'])) {
+            $tw = $ctx['time_window'];
+            $lines[] = '';
+            $lines[] = '### Ventana temporal de referencia';
+            if (!empty($tw['start_utc'])) {
+                $lines[] = "- Inicio: {$tw['start_utc']}";
+            }
+            if (!empty($tw['end_utc'])) {
+                $lines[] = "- Fin: {$tw['end_utc']}";
+            }
+            if (!empty($tw['analysis_minutes'])) {
+                $lines[] = "- Minutos de análisis: {$tw['analysis_minutes']}";
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'Cuando el usuario pregunte "¿qué pasó?", "¿qué ocurrió antes?", "¿qué pasó después?" o similar, usa automáticamente el vehicleId y la hora del evento para consultar GetVehicleStats, GetSafetyEvents, GetTrips, etc. NO pidas al usuario estos datos.';
+
+        return implode("\n", $lines);
     }
 }
 

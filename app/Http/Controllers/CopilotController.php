@@ -5,13 +5,13 @@ namespace App\Http\Controllers;
 use App\Jobs\ProcessCopilotMessageJob;
 use App\Models\ChatMessage;
 use App\Models\Conversation;
+use App\Models\SamsaraEvent;
 use App\Services\StreamingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Illuminate\Http\JsonResponse;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CopilotController extends Controller
 {
@@ -93,6 +93,8 @@ class CopilotController extends Controller
                 'is_streaming' => $isStreaming,
                 'streaming_content' => $streamingContent,
                 'active_tool' => $activeTool,
+                'context_event_id' => $currentConversation->context_event_id,
+                'context_payload' => $currentConversation->context_payload,
             ],
             'messages' => $messages,
         ]);
@@ -103,11 +105,13 @@ class CopilotController extends Controller
         $request->validate([
             'message' => 'required|string|max:10000',
             'thread_id' => 'nullable|string',
+            'context_event_id' => 'nullable|integer',
         ]);
         
         $user = $request->user();
         $message = $request->input('message');
         $threadId = $request->input('thread_id');
+        $contextEventId = $request->input('context_event_id');
         $isNewConversation = false;
         
         // Validate user has a company
@@ -116,20 +120,38 @@ class CopilotController extends Controller
                 'error' => 'No estás asociado a ninguna empresa. Contacta al administrador.',
             ], 403);
         }
+
+        // T5: Validate context event belongs to user's company (multi-tenant guard)
+        $contextPayload = null;
+        if ($contextEventId) {
+            $event = SamsaraEvent::find($contextEventId);
+
+            if (!$event || $event->company_id !== $user->company_id) {
+                return response()->json([
+                    'error' => 'Evento no encontrado o no pertenece a tu empresa.',
+                ], 403);
+            }
+
+            $contextPayload = $this->buildEventContextPayload($event);
+        }
         
         // Si no hay thread_id, crear una nueva conversación
         if (!$threadId) {
             $threadId = Str::uuid()->toString();
             $isNewConversation = true;
             
-            // Generar título a partir del primer mensaje (máximo 50 caracteres)
-            $title = Str::limit($message, 50);
+            // Generar título: si hay contexto de evento, usar info del evento
+            $title = $contextEventId
+                ? Str::limit("Alerta: " . ($contextPayload['vehicle_name'] ?? '') . " — " . ($contextPayload['event_description'] ?? ''), 60)
+                : Str::limit($message, 50);
             
             Conversation::create([
                 'thread_id' => $threadId,
                 'user_id' => $user->id,
                 'company_id' => $user->company_id,
                 'title' => $title,
+                'context_event_id' => $contextEventId,
+                'context_payload' => $contextPayload,
             ]);
         }
         
@@ -171,174 +193,10 @@ class CopilotController extends Controller
     }
 
     /**
-     * Endpoint SSE para streaming en tiempo real.
-     * Usa Redis Streams con XREAD BLOCK: sin polling, bajo CPU, escalable (200+ usuarios).
-     * El id de cada evento SSE es el ID del stream en Redis para reconexión sin perder chunks.
-     */
-    public function stream(Request $request, string $threadId, StreamingService $streamingService): StreamedResponse
-    {
-        $user = $request->user();
-
-        Log::info('SSE stream requested', ['thread_id' => $threadId, 'user_id' => $user->id]);
-
-        $conversation = Conversation::where('thread_id', $threadId)
-            ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
-            ->first();
-
-        if (!$conversation) {
-            Log::warning('SSE stream: conversation not found', ['thread_id' => $threadId]);
-            return response()->stream(function () {
-                echo "event: error\n";
-                echo "data: " . json_encode(['error' => 'Conversación no encontrada']) . "\n\n";
-                if (ob_get_level()) ob_flush();
-                flush();
-            }, 200, $this->getSseHeaders());
-        }
-
-        $lastEventId = $request->header('Last-Event-ID', '0');
-
-        return response()->stream(function () use ($threadId, $streamingService, $lastEventId) {
-            @ini_set('output_buffering', 'off');
-            @ini_set('zlib.output_compression', false);
-            while (ob_get_level()) {
-                ob_end_clean();
-            }
-
-            Log::info('SSE stream started (Redis Streams)', ['thread_id' => $threadId, 'last_id' => $lastEventId]);
-
-            $startId = $lastEventId !== '' ? $lastEventId : '0';
-            $lastHeartbeat = time();
-            $maxRuntime = 300; // 5 minutos
-            $startTime = time();
-
-            while (time() - $startTime < $maxRuntime) {
-                if (connection_aborted()) {
-                    Log::info('SSE stream: client disconnected', ['thread_id' => $threadId]);
-                    break;
-                }
-
-                $events = $streamingService->readStreamEvents($threadId, $startId, 5000);
-
-                if ($events !== []) {
-                    foreach ($events as $ev) {
-                        $id = $ev['id'];
-                        $startId = $id;
-                        $eventType = $ev['event'];
-                        $data = $ev['data'];
-
-                        if ($eventType === 'stream_start') {
-                            continue;
-                        }
-
-                        $payload = ['type' => $eventType, 'timestamp' => $data['timestamp'] ?? now()->toISOString()];
-                        if (isset($data['content'])) {
-                            $payload['content'] = $data['content'];
-                        }
-                        if (isset($data['tool_info'])) {
-                            $payload['tool_info'] = $data['tool_info'];
-                        }
-                        if (isset($data['tokens'])) {
-                            $payload['tokens'] = $data['tokens'];
-                        }
-                        if (isset($data['error'])) {
-                            $payload['error'] = $data['error'];
-                        }
-
-                        echo "id: {$id}\n";
-                        echo "data: " . json_encode($payload) . "\n\n";
-                        if (ob_get_level()) {
-                            ob_flush();
-                        }
-                        flush();
-                        $lastHeartbeat = time();
-                    }
-
-                    $last = end($events);
-                    if ($last && in_array($last['event'], ['stream_end', 'stream_error'], true)) {
-                        break;
-                    }
-                } else {
-                    if (time() - $lastHeartbeat >= 15) {
-                        echo ": heartbeat\n\n";
-                        if (ob_get_level()) {
-                            ob_flush();
-                        }
-                        flush();
-                        $lastHeartbeat = time();
-                    }
-                }
-            }
-        }, 200, $this->getSseHeaders());
-    }
-
-    /**
-     * Endpoint SSE para reconexión.
-     * Lee desde Redis Stream desde Last-Event-ID (o desde el inicio); el cliente no pierde chunks.
-     */
-    public function resume(Request $request, string $threadId, StreamingService $streamingService): StreamedResponse
-    {
-        $user = $request->user();
-
-        Log::info('SSE resume requested', ['thread_id' => $threadId, 'user_id' => $user->id]);
-
-        $conversation = Conversation::where('thread_id', $threadId)
-            ->where('user_id', $user->id)
-            ->where('company_id', $user->company_id)
-            ->first();
-
-        if (!$conversation) {
-            Log::warning('SSE resume: conversation not found', ['thread_id' => $threadId]);
-            return response()->stream(function () {
-                echo "event: error\n";
-                echo "data: " . json_encode(['error' => 'Conversación no encontrada']) . "\n\n";
-                if (ob_get_level()) ob_flush();
-                flush();
-            }, 200, $this->getSseHeaders());
-        }
-
-        $state = $streamingService->getStreamState($threadId);
-        $lastEventId = $request->header('Last-Event-ID', '0');
-
-        if (!$state) {
-            $meta = $conversation->fresh()->meta ?? [];
-            if ($meta['streaming'] ?? false) {
-                unset($meta['streaming'], $meta['streaming_started_at'], $meta['streaming_content'], $meta['active_tool']);
-                $conversation->update(['meta' => $meta]);
-            }
-            return response()->stream(function () {
-                @ini_set('output_buffering', 'off');
-                while (ob_get_level()) {
-                    ob_end_clean();
-                }
-                echo "id: 0\n";
-                echo "data: " . json_encode([
-                    'type' => 'no_active_stream',
-                    'timestamp' => now()->toISOString(),
-                ]) . "\n\n";
-                if (ob_get_level()) ob_flush();
-                flush();
-            }, 200, $this->getSseHeaders());
-        }
-
-        return $this->stream($request, $threadId, $streamingService);
-    }
-
-    /**
-     * Headers para Server-Sent Events
-     */
-    private function getSseHeaders(): array
-    {
-        return [
-            'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache',
-            'Connection' => 'keep-alive',
-            'X-Accel-Buffering' => 'no', // Desactivar buffering en nginx
-        ];
-    }
-
-    /**
-     * Obtener el progreso del stream de una conversación (para fallback/polling si SSE no funciona).
+     * Obtener el progreso del stream de una conversación (fallback/polling endpoint).
+     * 
+     * Now that we use WebSockets, this endpoint is mainly used as a fallback
+     * for clients that can't connect to WebSocket (e.g., old browsers, proxies).
      */
     public function streamProgress(Request $request, string $threadId, StreamingService $streamingService): JsonResponse
     {
@@ -491,6 +349,38 @@ class CopilotController extends Controller
         return $tools[$toolName] ?? [
             'label' => 'Procesando...',
             'icon' => 'loader',
+        ];
+    }
+
+    /**
+     * T5: Build the context payload from a SamsaraEvent for the copilot.
+     * 
+     * This payload is stored in the conversation and injected into the
+     * FleetAgent system prompt so the copilot knows the operational context.
+     */
+    private function buildEventContextPayload(SamsaraEvent $event): array
+    {
+        $alertContext = $event->alert_context ?? [];
+
+        return [
+            'event_id' => $event->id,
+            'samsara_event_id' => $event->samsara_event_id,
+            'event_type' => $event->event_type,
+            'event_description' => $event->event_description,
+            'severity' => $event->severity,
+            'vehicle_id' => $event->vehicle_id,
+            'vehicle_name' => $event->vehicle_name,
+            'driver_id' => $event->driver_id,
+            'driver_name' => $event->driver_name,
+            'occurred_at' => $event->occurred_at?->toISOString(),
+            'location_description' => $alertContext['location_description'] ?? null,
+            'alert_kind' => $event->alert_kind ?? ($alertContext['alert_kind'] ?? null),
+            'ai_status' => $event->ai_status,
+            'ai_message' => $event->ai_message,
+            'verdict' => $event->verdict ?? ($event->ai_assessment['verdict'] ?? null),
+            'likelihood' => $event->likelihood ?? ($event->ai_assessment['likelihood'] ?? null),
+            'reasoning' => $event->reasoning ?? ($event->ai_assessment['reasoning'] ?? null),
+            'time_window' => $alertContext['time_window'] ?? null,
         ];
     }
 }

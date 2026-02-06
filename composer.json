@@ -33,6 +33,7 @@
         "laravel/framework": "^12.0",
         "laravel/horizon": "*",
         "laravel/pulse": "^1.5",
+        "laravel/reverb": "^1.7",
         "laravel/sanctum": "^4.0",
         "laravel/telescope": "*",
         "laravel/tinker": "^2.10.1",

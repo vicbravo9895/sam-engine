@@ -5,6 +5,7 @@ use App\Pulse\Recorders\AlertProcessingRecorder;
 use App\Pulse\Recorders\CopilotRecorder;
 use App\Pulse\Recorders\NotificationRecorder;
 use App\Pulse\Recorders\TokenUsageRecorder;
+use App\Pulse\Recorders\WebSocketRecorder;
 use Laravel\Pulse\Http\Middleware\Authorize;
 use Laravel\Pulse\Pulse;
 use Laravel\Pulse\Recorders;
@@ -178,6 +179,10 @@ return [
 
         CopilotRecorder::class => [
             'enabled' => env('PULSE_COPILOT_ENABLED', true),
+        ],
+
+        WebSocketRecorder::class => [
+            'enabled' => env('PULSE_WEBSOCKET_ENABLED', true),
         ],
 
         /*
