@@ -344,11 +344,6 @@ const sortEventsByDate = (events: EventListItem[]): EventListItem[] => {
     });
 };
 
-/**
- * Determine Kanban column key for an event.
- * Precedence: ai_status (primary grouping), but we also consider human_status for special treatment.
- * - If ai_status is 'processing' or 'investigating', those take priority
- * - If ai_status is 'completed' or 'failed', use those
 // ============================================================================
 // QUICK FILTER DEFINITIONS
 // ============================================================================
