@@ -34,6 +34,28 @@ services:
       - sam-storage:/var/www/html/storage/app/public
       # Shared logs volume for Grafana Alloy
       - sam-logs:/var/www/html/storage/logs
+    labels:
+      # Enable Traefik for this service
+      - "traefik.enable=true"
+      
+      # HTTP Router (redirect to HTTPS)
+      - "traefik.http.routers.sam-app-http.rule=Host(`copilot.delapengineering.com`)"
+      - "traefik.http.routers.sam-app-http.entrypoints=web"
+      - "traefik.http.routers.sam-app-http.middlewares=redirect-to-https"
+      
+      # HTTPS Router (main app)
+      - "traefik.http.routers.sam-app.rule=Host(`copilot.delapengineering.com`)"
+      - "traefik.http.routers.sam-app.entrypoints=websecure"
+      - "traefik.http.routers.sam-app.tls=true"
+      - "traefik.http.routers.sam-app.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sam-app.priority=10"
+      
+      # Service configuration
+      - "traefik.http.services.sam-app.loadbalancer.server.port=80"
+      
+      # Redirect middleware
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
     depends_on:
       pgsql:
         condition: service_healthy
@@ -93,6 +115,33 @@ services:
       - sam-logs:/var/www/html/storage/logs
     expose:
       - "8080"
+    labels:
+      # Enable Traefik for this service
+      - "traefik.enable=true"
+      
+      # HTTP Router (redirect to HTTPS) - only for /app/* path
+      - "traefik.http.routers.sam-reverb-http.rule=Host(`copilot.delapengineering.com`) && PathPrefix(`/app`)"
+      - "traefik.http.routers.sam-reverb-http.entrypoints=web"
+      - "traefik.http.routers.sam-reverb-http.middlewares=redirect-to-https"
+      
+      # HTTPS Router (WebSocket) - only for /app/* path
+      - "traefik.http.routers.sam-reverb.rule=Host(`copilot.delapengineering.com`) && PathPrefix(`/app`)"
+      - "traefik.http.routers.sam-reverb.entrypoints=websecure"
+      - "traefik.http.routers.sam-reverb.tls=true"
+      - "traefik.http.routers.sam-reverb.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sam-reverb.priority=100"
+      
+      # Service configuration
+      - "traefik.http.services.sam-reverb.loadbalancer.server.port=8080"
+      
+      # WebSocket support - pass upgrade headers
+      - "traefik.http.middlewares.reverb-headers.headers.customrequestheaders.Upgrade=websocket"
+      - "traefik.http.middlewares.reverb-headers.headers.customrequestheaders.Connection=Upgrade"
+      - "traefik.http.routers.sam-reverb.middlewares=reverb-headers"
+      
+      # Redirect middleware (shared with other services)
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
     depends_on:
       redis:
         condition: service_healthy
