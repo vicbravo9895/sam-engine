@@ -14,14 +14,35 @@
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 
-// Make Pusher available globally (required by laravel-echo)
+// Runtime config injected by Laravel (app.blade.php); avoids build-time env in production
+export interface ReverbConfig {
+    key: string;
+    host: string;
+    port: number;
+    scheme: string;
+}
+
 declare global {
     interface Window {
         Pusher: typeof Pusher;
         Echo: Echo<'reverb'>;
+        __REVERB_CONFIG__?: ReverbConfig;
     }
 }
 window.Pusher = Pusher;
+
+function getReverbConfig(): ReverbConfig {
+    const fromServer = typeof window !== 'undefined' ? window.__REVERB_CONFIG__ : undefined;
+    if (fromServer?.key && fromServer?.host) {
+        return fromServer;
+    }
+    return {
+        key: (import.meta.env.VITE_REVERB_APP_KEY as string) ?? '',
+        host: (import.meta.env.VITE_REVERB_HOST as string) ?? 'localhost',
+        port: Number(import.meta.env.VITE_REVERB_PORT) || 443,
+        scheme: (import.meta.env.VITE_REVERB_SCHEME as string) ?? 'https',
+    };
+}
 
 /**
  * Helper to get CSRF token for channel authorization.
@@ -42,19 +63,18 @@ function getCsrfToken(): string {
 /**
  * Laravel Echo instance configured for Reverb WebSocket server.
  *
- * Configuration is read from Vite environment variables:
- * - VITE_REVERB_APP_KEY: App key for authentication
- * - VITE_REVERB_HOST: WebSocket server hostname
- * - VITE_REVERB_PORT: WebSocket server port
- * - VITE_REVERB_SCHEME: http or https
+ * Prefers window.__REVERB_CONFIG__ (injected by Laravel at runtime) so the same
+ * build works in production without rebuilding for VITE_* env. Falls back to
+ * VITE_REVERB_* when not in a Laravel-rendered page (e.g. dev HMR).
  */
+const reverb = getReverbConfig();
 const echo = new Echo({
     broadcaster: 'reverb',
-    key: import.meta.env.VITE_REVERB_APP_KEY as string,
-    wsHost: import.meta.env.VITE_REVERB_HOST as string,
-    wsPort: Number(import.meta.env.VITE_REVERB_PORT) || 80,
-    wssPort: Number(import.meta.env.VITE_REVERB_PORT) || 443,
-    forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+    key: reverb.key,
+    wsHost: reverb.host,
+    wsPort: reverb.port || 80,
+    wssPort: reverb.port || 443,
+    forceTLS: reverb.scheme === 'https',
     enabledTransports: ['ws', 'wss'],
     // Include CSRF token in authorization requests
     authEndpoint: '/broadcasting/auth',

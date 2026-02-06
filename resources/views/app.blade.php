@@ -5,6 +5,16 @@
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
+        {{-- Reverb WebSocket config from server (runtime); same build works in any environment --}}
+        <script>
+            window.__REVERB_CONFIG__ = {
+                key: @json(config('broadcasting.connections.reverb.key')),
+                host: @json(env('REVERB_HOST', 'localhost')),
+                port: {{ (int) (env('REVERB_PORT') ?: 443) }},
+                scheme: @json(env('REVERB_SCHEME', 'https')),
+            };
+        </script>
+
         {{-- Inline script to detect system dark mode preference and apply it immediately --}}
         <script>
             (function() {
