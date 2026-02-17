@@ -51,8 +51,124 @@ class SafetySignal extends Model
         'Speeding', 'ModerateSpeeding',
         'GenericDistraction', 'MobileUsage', 'Drowsy',
         'FollowingDistance', 'FollowingDistanceSevere',
-        'NoSeatbelt', 'RanRedLight',
+        'NoSeatbelt', 'RanRedLight', 'RollingStop',
     ];
+
+    /**
+     * Normalize behavior label to canonical PascalCase (case-insensitive match).
+     * Handles variants like noSeatbelt → NoSeatbelt, edgeRailroadCrossingViolation → EdgeRailroadCrossingViolation.
+     */
+    public static function normalizeBehaviorLabel(?string $label): ?string
+    {
+        if ($label === null || $label === '') {
+            return null;
+        }
+
+        $canonical = config('safety_signals.canonical_labels', []);
+        $lower = strtolower($label);
+
+        foreach ($canonical as $canon) {
+            if (strtolower($canon) === $lower) {
+                return $canon;
+            }
+        }
+
+        return $label;
+    }
+
+    /**
+     * Check if this signal should trigger proactive notification
+     * based on company's safety_stream_notify rules (AND conditions).
+     *
+     * A rule matches when the signal contains ALL labels in rule.conditions.
+     * Labels are compared against primary_behavior_label + behavior_labels (normalized).
+     */
+    public function shouldTriggerProactiveNotify(): bool
+    {
+        $company = $this->company;
+        if (!$company || !$company->hasSamsaraApiKey()) {
+            return false;
+        }
+
+        $config = $company->getSafetyStreamNotifyConfig();
+
+        if (!($config['enabled'] ?? true)) {
+            return false;
+        }
+
+        $rules = $config['rules'] ?? [];
+        if (empty($rules)) {
+            return false;
+        }
+
+        // Collect all normalized labels this signal carries
+        $signalLabels = $this->getNormalizedLabels();
+
+        if (empty($signalLabels)) {
+            return false;
+        }
+
+        // A rule matches if ALL its conditions are present in the signal's labels
+        foreach ($rules as $rule) {
+            $conditions = $rule['conditions'] ?? [];
+            if (empty($conditions)) {
+                continue;
+            }
+
+            $normalizedConditions = array_map(
+                fn (string $l) => self::normalizeBehaviorLabel($l) ?? $l,
+                $conditions
+            );
+
+            $allMatch = true;
+            foreach ($normalizedConditions as $condition) {
+                if (!in_array($condition, $signalLabels, true)) {
+                    $allMatch = false;
+                    break;
+                }
+            }
+
+            if ($allMatch) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Get all normalized behavior labels for this signal.
+     *
+     * Combines primary_behavior_label with behavior_labels array,
+     * normalizes each one, and returns unique non-null values.
+     *
+     * @return string[]
+     */
+    public function getNormalizedLabels(): array
+    {
+        $labels = [];
+
+        if ($this->primary_behavior_label) {
+            $normalized = self::normalizeBehaviorLabel($this->primary_behavior_label);
+            if ($normalized !== null) {
+                $labels[] = $normalized;
+            }
+        }
+
+        if (is_array($this->behavior_labels)) {
+            foreach ($this->behavior_labels as $label) {
+                $value = is_array($label) ? ($label['label'] ?? $label['name'] ?? null) : $label;
+                if ($value !== null) {
+                    $normalized = self::normalizeBehaviorLabel($value);
+                    if ($normalized !== null) {
+                        $labels[] = $normalized;
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique($labels));
+    }
 
     protected $fillable = [
         'company_id',

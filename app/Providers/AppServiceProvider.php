@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Models\SafetySignal;
 use App\Models\User;
+use App\Observers\SafetySignalObserver;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Pulse\Facades\Pulse;
@@ -24,6 +26,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configurePulse();
+        SafetySignal::observe(SafetySignalObserver::class);
     }
 
     /**

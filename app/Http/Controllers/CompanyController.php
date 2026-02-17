@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Services\BehaviorLabelTranslator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -180,17 +181,26 @@ class CompanyController extends Controller
 
         $company = Company::findOrFail($user->company_id);
 
+        $aiConfig = $company->getAiConfig();
+
+        // Replace safety_stream_notify with rules-based format (migrates legacy labels)
+        $aiConfig['safety_stream_notify'] = $company->getSafetyStreamNotifyConfig();
+
         return Inertia::render('company/ai-settings', [
             'company' => [
                 'id' => $company->id,
                 'name' => $company->name,
             ],
-            'aiConfig' => $company->getAiConfig(),
+            'aiConfig' => $aiConfig,
             'notificationConfig' => $company->getNotificationConfig(),
             'defaults' => [
                 'ai_config' => Company::DEFAULT_AI_CONFIG,
                 'notifications' => Company::DEFAULT_NOTIFICATION_CONFIG,
             ],
+            'canonicalBehaviorLabels' => config('safety_signals.canonical_labels', []),
+            'labelTranslations' => collect(config('safety_signals.canonical_labels', []))
+                ->mapWithKeys(fn (string $label) => [$label => BehaviorLabelTranslator::getName($label)])
+                ->all(),
         ]);
     }
 
@@ -233,6 +243,14 @@ class CompanyController extends Controller
             'channels_enabled.whatsapp' => ['required', 'boolean'],
             'channels_enabled.call' => ['required', 'boolean'],
             'channels_enabled.email' => ['required', 'boolean'],
+            // Safety stream notify
+            'safety_stream_notify' => ['sometimes', 'array'],
+            'safety_stream_notify.enabled' => ['required_with:safety_stream_notify', 'boolean'],
+            'safety_stream_notify.rules' => ['required_with:safety_stream_notify', 'array'],
+            'safety_stream_notify.rules.*.id' => ['required', 'string'],
+            'safety_stream_notify.rules.*.conditions' => ['required', 'array', 'min:1'],
+            'safety_stream_notify.rules.*.conditions.*' => ['required', 'string'],
+            'safety_stream_notify.rules.*.action' => ['required', 'string', 'in:notify'],
         ], [
             'investigation_windows.required' => 'Los parámetros de investigación son requeridos.',
             'monitoring.required' => 'Los parámetros de monitoreo son requeridos.',
@@ -247,6 +265,14 @@ class CompanyController extends Controller
             'monitoring' => $validated['monitoring'],
         ];
 
+        // Include safety_stream_notify if provided
+        if (isset($validated['safety_stream_notify'])) {
+            $aiConfig['safety_stream_notify'] = [
+                'enabled' => $validated['safety_stream_notify']['enabled'],
+                'rules' => $validated['safety_stream_notify']['rules'],
+            ];
+        }
+
         // Build notifications config
         $notificationsConfig = [
             'channels_enabled' => $validated['channels_enabled'],
@@ -260,6 +286,11 @@ class CompanyController extends Controller
             $settings['ai_config'] ?? Company::DEFAULT_AI_CONFIG,
             $aiConfig
         );
+
+        // safety_stream_notify.rules is a list, not a map — replace it entirely
+        if (isset($aiConfig['safety_stream_notify'])) {
+            $settings['ai_config']['safety_stream_notify'] = $aiConfig['safety_stream_notify'];
+        }
         
         $settings['notifications'] = array_replace_recursive(
             $settings['notifications'] ?? Company::DEFAULT_NOTIFICATION_CONFIG,

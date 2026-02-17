@@ -59,6 +59,14 @@ class Company extends Model
                 'recipients' => [],
             ],
         ],
+        'safety_stream_notify' => [
+            'enabled' => true,
+            'rules' => [
+                ['id' => 'default-crash', 'conditions' => ['Crash'], 'action' => 'notify'],
+                ['id' => 'default-fcw', 'conditions' => ['ForwardCollisionWarning'], 'action' => 'notify'],
+                ['id' => 'default-speeding', 'conditions' => ['SevereSpeeding'], 'action' => 'notify'],
+            ],
+        ],
     ];
 
     /**
@@ -299,6 +307,37 @@ class Company extends Model
         $channels = $this->getNotificationConfig('channels_enabled', []);
         
         return array_keys(array_filter($channels, fn($enabled) => $enabled === true));
+    }
+
+    /**
+     * Get safety_stream_notify config with rules (migrating legacy labels format).
+     *
+     * If the stored config uses the old `labels` array, it is converted to
+     * the new `rules` format on the fly (one rule per label).
+     *
+     * @return array{enabled: bool, rules: array<int, array{id: string, conditions: string[], action: string}>}
+     */
+    public function getSafetyStreamNotifyConfig(): array
+    {
+        $config = $this->getAiConfig('safety_stream_notify', []);
+
+        // Migrate legacy labels → rules
+        if (isset($config['labels']) && !isset($config['rules'])) {
+            $config['rules'] = array_map(
+                fn (string $label) => [
+                    'id' => 'migrated-' . \Illuminate\Support\Str::slug($label),
+                    'conditions' => [$label],
+                    'action' => 'notify',
+                ],
+                $config['labels']
+            );
+            unset($config['labels']);
+        }
+
+        return [
+            'enabled' => $config['enabled'] ?? true,
+            'rules' => $config['rules'] ?? [],
+        ];
     }
 
     /**
