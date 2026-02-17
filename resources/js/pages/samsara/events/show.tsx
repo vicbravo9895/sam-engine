@@ -391,61 +391,61 @@ const ALERTS_INDEX_URL = '/samsara/alerts';
 const getAlertShowUrl = (id: number) => `/samsara/alerts/${id}`;
 
 const severityConfig: Record<string, { bg: string; text: string; border: string; icon: LucideIcon }> = {
-    info: { 
-        bg: 'bg-blue-500/10', 
-        text: 'text-blue-600 dark:text-blue-400', 
-        border: 'border-blue-500/30',
-        icon: AlertCircle 
+    info: {
+        bg: 'bg-info/10',
+        text: 'text-info',
+        border: 'border-info/30',
+        icon: AlertCircle,
     },
-    warning: { 
-        bg: 'bg-amber-500/10', 
-        text: 'text-amber-600 dark:text-amber-400', 
-        border: 'border-amber-500/30',
-        icon: AlertTriangle 
+    warning: {
+        bg: 'bg-warning/10',
+        text: 'text-warning',
+        border: 'border-warning/30',
+        icon: AlertTriangle,
     },
-    critical: { 
-        bg: 'bg-red-500/10', 
-        text: 'text-red-600 dark:text-red-400', 
-        border: 'border-red-500/30',
-        icon: ShieldAlert 
+    critical: {
+        bg: 'bg-destructive/10',
+        text: 'text-destructive',
+        border: 'border-destructive/30',
+        icon: ShieldAlert,
     },
 };
 
 const verdictConfig: Record<string, { bg: string; border: string; text: string; icon: LucideIcon }> = {
     low: {
-        bg: 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/50 dark:to-emerald-900/30',
-        border: 'border-emerald-200 dark:border-emerald-800',
-        text: 'text-emerald-800 dark:text-emerald-200',
+        bg: 'bg-success/10',
+        border: 'border-success/30',
+        text: 'text-success',
         icon: ShieldCheck,
     },
     medium: {
-        bg: 'bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/50 dark:to-amber-900/30',
-        border: 'border-amber-200 dark:border-amber-800',
-        text: 'text-amber-800 dark:text-amber-200',
+        bg: 'bg-warning/10',
+        border: 'border-warning/30',
+        text: 'text-warning',
         icon: AlertTriangle,
     },
     high: {
-        bg: 'bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/50 dark:to-red-900/30',
-        border: 'border-red-200 dark:border-red-800',
-        text: 'text-red-800 dark:text-red-200',
+        bg: 'bg-destructive/10',
+        border: 'border-destructive/30',
+        text: 'text-destructive',
         icon: XCircle,
     },
     unknown: {
-        bg: 'bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950/50 dark:to-slate-900/30',
-        border: 'border-slate-200 dark:border-slate-800',
-        text: 'text-slate-800 dark:text-slate-200',
+        bg: 'bg-muted/50',
+        border: 'border-border',
+        text: 'text-muted-foreground',
         icon: Search,
     },
 };
 
 const riskEscalationConfig: Record<string, { label: string; color: string; icon: LucideIcon }> = {
-    monitor: { label: 'Monitorear', color: 'bg-slate-500/10 text-slate-600 dark:text-slate-400', icon: Eye },
-    warn: { label: 'Advertir', color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', icon: AlertTriangle },
-    notify: { label: 'Notificar', color: 'bg-blue-500/10 text-blue-600 dark:text-blue-400', icon: Bell },
-    escalate: { label: 'Escalar', color: 'bg-orange-500/10 text-orange-600 dark:text-orange-400', icon: BellRing },
-    urgent: { label: 'Urgente', color: 'bg-red-500/10 text-red-600 dark:text-red-400', icon: ShieldAlert },
-    call: { label: 'Llamar', color: 'bg-red-500/10 text-red-600 dark:text-red-400', icon: Phone },
-    emergency: { label: 'Emergencia', color: 'bg-red-600/20 text-red-700 dark:text-red-300', icon: ShieldAlert },
+    monitor: { label: 'Monitorear', color: 'bg-muted text-muted-foreground', icon: Eye },
+    warn: { label: 'Advertir', color: 'bg-warning/10 text-warning', icon: AlertTriangle },
+    notify: { label: 'Notificar', color: 'bg-info/10 text-info', icon: Bell },
+    escalate: { label: 'Escalar', color: 'bg-warning/10 text-warning', icon: BellRing },
+    urgent: { label: 'Urgente', color: 'bg-destructive/10 text-destructive', icon: ShieldAlert },
+    call: { label: 'Llamar', color: 'bg-destructive/10 text-destructive', icon: Phone },
+    emergency: { label: 'Emergencia', color: 'bg-destructive/20 text-destructive', icon: ShieldAlert },
 };
 
 const getAgentIcon = (agentName: string): LucideIcon => {
@@ -531,7 +531,7 @@ function CopyButton({ value, label }: { value: string; label?: string }) {
                     className="h-6 w-6 p-0 hover:bg-muted"
                 >
                     {copied ? (
-                        <Check className="size-3 text-emerald-500" />
+                        <Check className="size-3 text-success" />
                     ) : (
                         <Copy className="size-3 text-muted-foreground" />
                     )}
@@ -702,14 +702,14 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                     <Badge
                         className={`px-2.5 py-1 ${
                             event.ai_status === 'processing'
-                                ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 animate-pulse'
+                                ? 'bg-info/10 text-info animate-pulse'
                                 : event.ai_status === 'investigating'
-                                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 animate-pulse'
+                                    ? 'bg-warning/10 text-warning animate-pulse'
                                     : event.ai_status === 'completed'
-                                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                        ? 'bg-success/10 text-success'
                                         : event.ai_status === 'failed'
-                                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                                            : 'bg-slate-500/10 text-slate-600 dark:text-slate-400'
+                                            ? 'bg-destructive/10 text-destructive'
+                                            : 'bg-muted text-muted-foreground'
                         }`}
                     >
                         {event.ai_status === 'processing' && <Loader2 className="size-3 animate-spin mr-1" />}
@@ -720,7 +720,7 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
 
                     {/* Human Status Badge */}
                     {event.human_status && event.human_status !== 'pending' && (
-                        <Badge className="bg-blue-500/10 text-blue-600 dark:text-blue-400 gap-1 px-2.5 py-1">
+                        <Badge className="bg-info/10 text-info gap-1 px-2.5 py-1">
                             <UserCheck className="size-3" />
                             {event.human_status_label}
                         </Badge>
@@ -736,38 +736,38 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
 
                     {/* Notification Status */}
                     {notificationSent && !event.notification_status && (
-                        <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 gap-1 px-2.5 py-1">
+                        <Badge className="bg-success/10 text-success gap-1 px-2.5 py-1">
                             <Bell className="size-3" />
                             Notificado
                         </Badge>
                     )}
                     {notificationThrottled && (
-                        <Badge className="bg-slate-500/10 text-slate-600 dark:text-slate-400 gap-1 px-2.5 py-1">
+                        <Badge className="bg-muted text-muted-foreground gap-1 px-2.5 py-1">
                             <Clock className="size-3" />
                             Throttled
                         </Badge>
                     )}
                     {/* Panic Callback Status */}
                     {event.notification_status === 'panic_confirmed' && (
-                        <Badge className="bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 gap-1 px-2.5 py-1">
+                        <Badge className="bg-destructive/15 text-destructive border border-destructive/30 gap-1 px-2.5 py-1">
                             <AlertTriangle className="size-3" />
                             Pánico Confirmado
                         </Badge>
                     )}
                     {event.notification_status === 'false_alarm' && (
-                        <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 gap-1 px-2.5 py-1">
+                        <Badge className="bg-success/10 text-success gap-1 px-2.5 py-1">
                             <CheckCircle2 className="size-3" />
                             Falsa Alarma
                         </Badge>
                     )}
                     {event.notification_status === 'operator_no_response' && (
-                        <Badge className="bg-amber-500/10 text-amber-700 dark:text-amber-300 gap-1 px-2.5 py-1">
+                        <Badge className="bg-warning/10 text-warning gap-1 px-2.5 py-1">
                             <Phone className="size-3" />
                             Sin Respuesta
                         </Badge>
                     )}
                     {event.notification_status === 'escalated' && (
-                        <Badge className="bg-red-500/10 text-red-600 dark:text-red-400 gap-1 px-2.5 py-1">
+                        <Badge className="bg-destructive/10 text-destructive gap-1 px-2.5 py-1">
                             <BellRing className="size-3" />
                             Escalado
                         </Badge>
@@ -780,8 +780,8 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                     <Badge
                         className={`px-2.5 py-1 ${
                             reviewRequired
-                                ? 'bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30'
-                                : 'bg-slate-500/10 text-slate-600 dark:text-slate-400'
+                                ? 'bg-destructive/15 text-destructive border border-destructive/30'
+                                : 'bg-muted text-muted-foreground'
                         }`}
                     >
                         {reviewRequired ? (
@@ -809,7 +809,7 @@ function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
                                     size="sm"
                                     onClick={handleReprocess}
                                     disabled={isReprocessing || event.ai_status === 'processing'}
-                                    className="gap-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/50"
+                                    className="gap-1.5 text-warning hover:text-warning hover:bg-warning/10"
                                 >
                                     {isReprocessing ? (
                                         <Loader2 className="size-3.5 animate-spin" />
@@ -857,7 +857,7 @@ function CallbackStatusCard({ event }: CallbackStatusCardProps) {
     const callResponse = event.call_response;
     const respondedAt = callResponse?.responded_at;
 
-    // Configuración de estados con textos amigables para monitoristas
+    // Configuración de estados con textos amigables para monitoristas (tokens SAM)
     const statusConfigs: Record<string, {
         icon: typeof Bell;
         title: string;
@@ -866,97 +866,93 @@ function CallbackStatusCard({ event }: CallbackStatusCardProps) {
         iconColor: string;
         textColor: string;
     }> = {
-        // Estados de confirmación del operador
         panic_confirmed: {
             icon: AlertTriangle,
             title: 'Emergencia Confirmada',
             description: 'El operador confirmó que es una emergencia real. Se ha escalado al equipo de monitoreo.',
-            bgColor: 'bg-red-500/10 border-red-500/30',
-            iconColor: 'text-red-600 dark:text-red-400',
-            textColor: 'text-red-900 dark:text-red-100',
+            bgColor: 'bg-destructive/10 border-destructive/30',
+            iconColor: 'text-destructive',
+            textColor: 'text-foreground',
         },
         false_alarm: {
             icon: CheckCircle2,
             title: 'Falsa Alarma',
             description: 'El operador indicó que fue una activación accidental. No se requiere acción.',
-            bgColor: 'bg-emerald-500/10 border-emerald-500/30',
-            iconColor: 'text-emerald-600 dark:text-emerald-400',
-            textColor: 'text-emerald-900 dark:text-emerald-100',
+            bgColor: 'bg-success/10 border-success/30',
+            iconColor: 'text-success',
+            textColor: 'text-foreground',
         },
         operator_no_response: {
             icon: Phone,
             title: 'Sin Respuesta',
             description: 'El operador no respondió la llamada. La alerta queda pendiente de verificación.',
-            bgColor: 'bg-amber-500/10 border-amber-500/30',
-            iconColor: 'text-amber-600 dark:text-amber-400',
-            textColor: 'text-amber-900 dark:text-amber-100',
+            bgColor: 'bg-warning/10 border-warning/30',
+            iconColor: 'text-warning',
+            textColor: 'text-foreground',
         },
         escalated: {
             icon: BellRing,
             title: 'Escalada',
             description: 'La alerta fue escalada al equipo de monitoreo y emergencias.',
-            bgColor: 'bg-red-500/10 border-red-500/30',
-            iconColor: 'text-red-600 dark:text-red-400',
-            textColor: 'text-red-900 dark:text-red-100',
+            bgColor: 'bg-destructive/10 border-destructive/30',
+            iconColor: 'text-destructive',
+            textColor: 'text-foreground',
         },
-        // Estados de deduplicación y throttling
         dedupe_blocked: {
             icon: Bell,
             title: 'Notificación Omitida',
             description: 'Ya se envió una notificación similar recientemente. Se evitó duplicar para no saturar.',
-            bgColor: 'bg-slate-500/10 border-slate-500/30',
-            iconColor: 'text-slate-600 dark:text-slate-400',
-            textColor: 'text-slate-900 dark:text-slate-100',
+            bgColor: 'bg-muted border-border',
+            iconColor: 'text-muted-foreground',
+            textColor: 'text-foreground',
         },
         throttled: {
             icon: Bell,
             title: 'Notificación en Espera',
             description: 'La notificación está en cola debido a límites de envío. Se procesará pronto.',
-            bgColor: 'bg-blue-500/10 border-blue-500/30',
-            iconColor: 'text-blue-600 dark:text-blue-400',
-            textColor: 'text-blue-900 dark:text-blue-100',
+            bgColor: 'bg-info/10 border-info/30',
+            iconColor: 'text-info',
+            textColor: 'text-foreground',
         },
-        // Estados de envío
         pending: {
             icon: Clock,
             title: 'Pendiente de Envío',
             description: 'La notificación está programada y se enviará en breve.',
-            bgColor: 'bg-blue-500/10 border-blue-500/30',
-            iconColor: 'text-blue-600 dark:text-blue-400',
-            textColor: 'text-blue-900 dark:text-blue-100',
+            bgColor: 'bg-info/10 border-info/30',
+            iconColor: 'text-info',
+            textColor: 'text-foreground',
         },
         sent: {
             icon: CheckCircle2,
             title: 'Notificación Enviada',
             description: 'La notificación se envió correctamente al equipo de monitoreo.',
-            bgColor: 'bg-emerald-500/10 border-emerald-500/30',
-            iconColor: 'text-emerald-600 dark:text-emerald-400',
-            textColor: 'text-emerald-900 dark:text-emerald-100',
+            bgColor: 'bg-success/10 border-success/30',
+            iconColor: 'text-success',
+            textColor: 'text-foreground',
         },
         failed: {
             icon: XCircle,
             title: 'Error de Envío',
             description: 'Hubo un problema al enviar la notificación. Se reintentará automáticamente.',
-            bgColor: 'bg-red-500/10 border-red-500/30',
-            iconColor: 'text-red-600 dark:text-red-400',
-            textColor: 'text-red-900 dark:text-red-100',
+            bgColor: 'bg-destructive/10 border-destructive/30',
+            iconColor: 'text-destructive',
+            textColor: 'text-foreground',
         },
-        // Estados de monitoreo
         monitoring: {
             icon: Eye,
             title: 'En Monitoreo',
             description: 'La alerta está siendo monitoreada. Se notificará si hay cambios.',
-            bgColor: 'bg-blue-500/10 border-blue-500/30',
-            iconColor: 'text-blue-600 dark:text-blue-400',
-            textColor: 'text-blue-900 dark:text-blue-100',
+            bgColor: 'bg-info/10 border-info/30',
+            iconColor: 'text-info',
+            textColor: 'text-foreground',
         },
         no_notification: {
             icon: BellOff,
             title: 'Sin Notificación Requerida',
             description: 'El análisis determinó que no es necesario notificar en este momento.',
-            bgColor: 'bg-slate-500/10 border-slate-500/30',
-            iconColor: 'text-slate-600 dark:text-slate-400',
-            textColor: 'text-slate-900 dark:text-slate-100',
+            bgColor: 'bg-muted border-border',
+            iconColor: 'text-muted-foreground',
+            textColor: 'text-foreground',
         },
     };
 
@@ -964,9 +960,9 @@ function CallbackStatusCard({ event }: CallbackStatusCardProps) {
         icon: Bell,
         title: 'Estado de Notificación',
         description: event.notification_status_label ?? 'Procesando notificación...',
-        bgColor: 'bg-slate-500/10 border-slate-500/30',
-        iconColor: 'text-slate-600 dark:text-slate-400',
-        textColor: 'text-slate-900 dark:text-slate-100',
+        bgColor: 'bg-muted border-border',
+        iconColor: 'text-muted-foreground',
+        textColor: 'text-foreground',
     };
 
     const StatusIcon = statusConfig.icon;
@@ -1100,11 +1096,11 @@ function NextActionsCard({ event }: NextActionsCardProps) {
 
                 {/* Monitoring Reason */}
                 {monitoringReason && event.ai_status === 'investigating' && (
-                    <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 p-3">
-                        <Search className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3">
+                        <Search className="size-4 text-warning shrink-0 mt-0.5" />
                         <div>
-                            <p className="text-xs font-medium text-amber-700 dark:text-amber-300 uppercase">En monitoreo</p>
-                            <p className="text-sm text-amber-900 dark:text-amber-100">{monitoringReason}</p>
+                            <p className="text-xs font-medium text-warning uppercase">En monitoreo</p>
+                            <p className="text-sm text-foreground">{monitoringReason}</p>
                         </div>
                     </div>
                 )}
@@ -1124,7 +1120,7 @@ function NextActionsCard({ event }: NextActionsCardProps) {
                         {notificationChannels && notificationChannels.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 mt-2">
                                 {notificationChannels.map((channel, idx) => (
-                                    <Badge key={idx} className="text-xs bg-slate-100 dark:bg-slate-800">
+                                    <Badge key={idx} variant="secondary" className="text-xs">
                                         {channel === 'call' ? '📞 Llamada' : 
                                          channel === 'whatsapp' ? '💬 WhatsApp' : 
                                          channel === 'sms' ? '📱 SMS' : channel}
@@ -1148,13 +1144,13 @@ function NextActionsCard({ event }: NextActionsCardProps) {
 
                 {/* Missing Contacts Warning */}
                 {notificationContacts?.missing_contacts && (
-                    <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 p-3">
-                        <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3">
+                        <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
                         <div>
-                            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                            <p className="text-sm font-medium text-foreground">
                                 Contactos no disponibles
                             </p>
-                            <p className="text-xs text-amber-700 dark:text-amber-300">
+                            <p className="text-xs text-warning">
                                 No se encontraron contactos para notificar. Verifique la configuración del vehículo o conductor.
                             </p>
                         </div>
@@ -1230,7 +1226,7 @@ function ContextCard({ event }: ContextCardProps) {
                             </div>
                         </div>
                         {!event.vehicle_name && (
-                            <Badge variant="outline" className="text-xs text-amber-600 dark:text-amber-400 border-amber-500/30">
+                            <Badge variant="outline" className="text-xs text-warning border-warning/30">
                                 Faltante
                             </Badge>
                         )}
@@ -1251,7 +1247,7 @@ function ContextCard({ event }: ContextCardProps) {
                             </div>
                         </div>
                         {!event.driver_name && (
-                            <Badge variant="outline" className="text-xs text-amber-600 dark:text-amber-400 border-amber-500/30">
+                            <Badge variant="outline" className="text-xs text-warning border-warning/30">
                                 Faltante
                             </Badge>
                         )}
@@ -1297,12 +1293,12 @@ function ContextCard({ event }: ContextCardProps) {
 
                 {/* Triage Notes (from AI) */}
                 {event.alert_context?.triage_notes && (
-                    <div className="rounded-lg border border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20 p-3">
-                        <div className="flex items-start gap-2">
-                            <Info className="size-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                            <div>
-                                <p className="text-xs font-medium text-blue-700 dark:text-blue-300 uppercase">Notas del triaje AI</p>
-                                <p className="text-sm text-blue-900 dark:text-blue-100 mt-1">{event.alert_context.triage_notes}</p>
+<div className="rounded-lg border border-info/30 bg-info/10 p-3">
+                            <div className="flex items-start gap-2">
+                            <Info className="size-4 text-info shrink-0 mt-0.5" />
+                                <div>
+                                <p className="text-xs font-medium text-info uppercase">Notas del triaje AI</p>
+                                <p className="text-sm text-foreground mt-1">{event.alert_context.triage_notes}</p>
                             </div>
                         </div>
                     </div>
@@ -1658,17 +1654,17 @@ interface ImageLightboxProps {
 
 function ImageLightbox({ image, onClose }: ImageLightboxProps) {
     const alertLevelConfig: Record<string, { bg: string; text: string; label: string; border: string }> = {
-        'NORMAL': { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', label: 'Normal', border: 'border-emerald-500/30' },
-        'ATENCION': { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', label: 'Atención', border: 'border-amber-500/30' },
-        'ALERTA': { bg: 'bg-orange-500/10', text: 'text-orange-600 dark:text-orange-400', label: 'Alerta', border: 'border-orange-500/30' },
-        'CRITICO': { bg: 'bg-red-500/10', text: 'text-red-600 dark:text-red-400', label: 'Crítico', border: 'border-red-500/30' },
-        'INDETERMINADO': { bg: 'bg-slate-500/10', text: 'text-slate-600 dark:text-slate-400', label: 'Indeterminado', border: 'border-slate-500/30' },
+        'NORMAL': { bg: 'bg-success/10', text: 'text-success', label: 'Normal', border: 'border-success/30' },
+        'ATENCION': { bg: 'bg-warning/10', text: 'text-warning', label: 'Atención', border: 'border-warning/30' },
+        'ALERTA': { bg: 'bg-warning/10', text: 'text-warning', label: 'Alerta', border: 'border-warning/30' },
+        'CRITICO': { bg: 'bg-destructive/10', text: 'text-destructive', label: 'Crítico', border: 'border-destructive/30' },
+        'INDETERMINADO': { bg: 'bg-muted', text: 'text-muted-foreground', label: 'Indeterminado', border: 'border-border' },
     };
 
     const recommendationConfig: Record<string, { bg: string; text: string; icon: LucideIcon; border: string }> = {
-        'INTERVENIR': { bg: 'bg-red-500/15', text: 'text-red-700 dark:text-red-300', icon: ShieldAlert, border: 'border-red-500/40' },
-        'MONITOREAR': { bg: 'bg-amber-500/15', text: 'text-amber-700 dark:text-amber-300', icon: Eye, border: 'border-amber-500/40' },
-        'DESCARTAR': { bg: 'bg-emerald-500/15', text: 'text-emerald-700 dark:text-emerald-300', icon: Check, border: 'border-emerald-500/40' },
+        'INTERVENIR': { bg: 'bg-destructive/15', text: 'text-destructive', icon: ShieldAlert, border: 'border-destructive/40' },
+        'MONITOREAR': { bg: 'bg-warning/15', text: 'text-warning', icon: Eye, border: 'border-warning/40' },
+        'DESCARTAR': { bg: 'bg-success/15', text: 'text-success', icon: Check, border: 'border-success/40' },
     };
 
     const structured = image?.analysis_structured;
@@ -1810,15 +1806,15 @@ function ImageLightbox({ image, onClose }: ImageLightboxProps) {
                                 {structured?.decision_evidence && (
                                     <div className="space-y-3">
                                         {structured.decision_evidence.emergency_signals && structured.decision_evidence.emergency_signals.length > 0 && (
-                                            <div className="rounded-xl border-2 border-red-500/40 bg-red-500/10 p-4">
-                                                <p className="text-xs font-bold text-red-700 dark:text-red-300 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                            <div className="rounded-xl border-2 border-destructive/40 bg-destructive/10 p-4">
+                                                <p className="text-xs font-bold text-destructive uppercase tracking-wide mb-2 flex items-center gap-2">
                                                     <ShieldAlert className="size-4" />
                                                     Señales de emergencia
                                                 </p>
-                                                <ul className="text-sm text-red-900 dark:text-red-100 space-y-1.5">
+                                                <ul className="text-sm text-foreground space-y-1.5">
                                                     {structured.decision_evidence.emergency_signals.map((signal, idx) => (
                                                         <li key={idx} className="flex items-start gap-2">
-                                                            <span className="text-red-500 mt-0.5">•</span>
+                                                            <span className="text-destructive mt-0.5">•</span>
                                                             {signal}
                                                         </li>
                                                     ))}
@@ -1826,15 +1822,15 @@ function ImageLightbox({ image, onClose }: ImageLightboxProps) {
                                             </div>
                                         )}
                                         {structured.decision_evidence.false_positive_signals && structured.decision_evidence.false_positive_signals.length > 0 && (
-                                            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                                                <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                            <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+                                                <p className="text-xs font-bold text-success uppercase tracking-wide mb-2 flex items-center gap-2">
                                                     <Check className="size-4" />
                                                     Señales de falso positivo
                                                 </p>
-                                                <ul className="text-sm text-emerald-900 dark:text-emerald-100 space-y-1.5">
+                                                <ul className="text-sm text-foreground space-y-1.5">
                                                     {structured.decision_evidence.false_positive_signals.map((signal, idx) => (
                                                         <li key={idx} className="flex items-start gap-2">
-                                                            <span className="text-emerald-500 mt-0.5">•</span>
+                                                            <span className="text-success mt-0.5">•</span>
                                                             {signal}
                                                         </li>
                                                     ))}
@@ -1842,15 +1838,15 @@ function ImageLightbox({ image, onClose }: ImageLightboxProps) {
                                             </div>
                                         )}
                                         {structured.decision_evidence.inconclusive_elements && structured.decision_evidence.inconclusive_elements.length > 0 && (
-                                            <div className="rounded-xl border border-slate-500/30 bg-slate-500/10 p-4">
-                                                <p className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-2 flex items-center gap-2">
+                                            <div className="rounded-xl border border-border bg-muted p-4">
+                                                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
                                                     <Info className="size-4" />
                                                     Elementos inconclusos
                                                 </p>
-                                                <ul className="text-sm text-slate-900 dark:text-slate-100 space-y-1.5">
+                                                <ul className="text-sm text-foreground space-y-1.5">
                                                     {structured.decision_evidence.inconclusive_elements.map((element, idx) => (
                                                         <li key={idx} className="flex items-start gap-2">
-                                                            <span className="text-slate-500 mt-0.5">•</span>
+                                                            <span className="text-muted-foreground mt-0.5">•</span>
                                                             {element}
                                                         </li>
                                                     ))}
@@ -1862,12 +1858,12 @@ function ImageLightbox({ image, onClose }: ImageLightboxProps) {
 
                                 {/* Image Quality Issues */}
                                 {structured?.image_quality?.issues && structured.image_quality.issues.length > 0 && (
-                                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                                        <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide mb-1.5 flex items-center gap-2">
+                                    <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
+                                        <p className="text-xs font-semibold text-warning uppercase tracking-wide mb-1.5 flex items-center gap-2">
                                             <AlertTriangle className="size-3.5" />
                                             Problemas de imagen
                                         </p>
-                                        <p className="text-sm text-amber-900 dark:text-amber-100 capitalize">
+                                        <p className="text-sm text-foreground capitalize">
                                             {structured.image_quality.issues.join(', ')}
                                         </p>
                                     </div>
@@ -1957,10 +1953,10 @@ function AIReasoningCard({ event }: AIReasoningCardProps) {
                             <div 
                                 className={`h-full transition-all ${
                                     confidenceValue >= 0.7 
-                                        ? 'bg-emerald-500' 
+                                        ? 'bg-success' 
                                         : confidenceValue >= 0.4 
-                                            ? 'bg-amber-500' 
-                                            : 'bg-red-500'
+                                            ? 'bg-warning' 
+                                            : 'bg-destructive'
                                 }`}
                                 style={{ width: `${Math.min(100, confidenceValue * 100)}%` }}
                             />
@@ -1971,17 +1967,17 @@ function AIReasoningCard({ event }: AIReasoningCardProps) {
 
                 {/* Data Conflicts Warning */}
                 {hasConflict && (
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 p-3">
+                    <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
                         <div className="flex items-start gap-2">
-                            <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                            <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
                             <div>
-                                <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                                <p className="text-sm font-medium text-foreground">
                                     Conflicto de datos detectado
                                 </p>
                                 {conflicts.length > 0 && (
                                     <ul className="mt-1 space-y-1">
                                         {conflicts.map((conflict, idx) => (
-                                            <li key={idx} className="text-xs text-amber-700 dark:text-amber-300">
+                                            <li key={idx} className="text-xs text-warning">
                                                 • {conflict}
                                             </li>
                                         ))}
@@ -2001,7 +1997,7 @@ function AIReasoningCard({ event }: AIReasoningCardProps) {
                                 <Badge 
                                     key={item} 
                                     variant="outline" 
-                                    className="text-xs text-amber-600 dark:text-amber-400 border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20"
+                                    className="text-xs text-warning border-warning/30 bg-warning/10"
                                 >
                                     {item}
                                 </Badge>
@@ -2227,7 +2223,7 @@ function ProcessingCard({ simulatedTools }: ProcessingCardProps) {
                 <div className="space-y-2">
                     {simulatedTools.map((tool, idx) => (
                         <div key={idx} className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30">
-                            <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />
+                            <CheckCircle2 className="size-4 shrink-0 text-success" />
                             <span className="text-sky-900 dark:text-sky-100">{tool}</span>
                         </div>
                     ))}
@@ -2265,29 +2261,29 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
     const hasHistory = metadata.history && metadata.history.length > 0;
 
     return (
-        <Card className="border-2 border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20">
+        <Card className="border-2 border-warning/30 bg-warning/10">
             <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <div className="rounded-full bg-amber-500/20 p-2">
+                        <div className="rounded-full bg-warning/20 p-2">
                             {isRevalidationImminent ? (
-                                <Loader2 className="size-4 animate-spin text-amber-600 dark:text-amber-400" />
+                                <Loader2 className="size-4 animate-spin text-warning" />
                             ) : (
-                                <Search className="size-4 text-amber-600 dark:text-amber-400" />
+                                <Search className="size-4 text-warning" />
                             )}
                         </div>
                         <div>
-                            <CardTitle className="text-amber-900 dark:text-amber-100 text-base">
+                            <CardTitle className="text-foreground text-base">
                                 {isRevalidationImminent ? 'Ejecutando re-validación...' : 'Evento bajo investigación'}
                             </CardTitle>
-                            <CardDescription className="text-amber-700 dark:text-amber-300 text-xs">
+                            <CardDescription className="text-warning text-xs">
                                 {isRevalidationImminent 
                                     ? 'La AI está analizando nueva información'
                                     : 'La AI continúa monitoreando este evento'}
                             </CardDescription>
                         </div>
                     </div>
-                    <Badge className={`${isRevalidationImminent ? 'animate-pulse' : ''} bg-amber-500 text-white`}>
+                    <Badge className={`${isRevalidationImminent ? 'animate-pulse' : ''} bg-warning text-warning-foreground`}>
                         {metadata.count} de {metadata.max_investigations}
                     </Badge>
                 </div>
@@ -2295,24 +2291,24 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
             <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
                     {metadata.last_check && (
-                        <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-                            <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">Última verificación</p>
-                            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{metadata.last_check}</p>
+                        <div className="rounded-lg border border-warning/30 bg-background/50 p-3">
+                            <p className="text-xs font-semibold uppercase text-warning">Última verificación</p>
+                            <p className="text-sm font-medium text-foreground">{metadata.last_check}</p>
                         </div>
                     )}
                     {!isRevalidationImminent && nextInvestigationCountdownText && (
-                        <div className="rounded-lg border border-amber-200 bg-white/50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
-                            <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">Próxima verificación</p>
-                            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{nextInvestigationCountdownText}</p>
+                        <div className="rounded-lg border border-warning/30 bg-background/50 p-3">
+                            <p className="text-xs font-semibold uppercase text-warning">Próxima verificación</p>
+                            <p className="text-sm font-medium text-foreground">{nextInvestigationCountdownText}</p>
                         </div>
                     )}
                     {isRevalidationImminent && (
-                        <div className="rounded-lg border border-amber-400 bg-amber-100/70 p-3 dark:border-amber-600 dark:bg-amber-900/50">
-                            <p className="text-xs font-semibold uppercase text-amber-700 dark:text-amber-400">Estado</p>
-                            <p className="text-sm font-medium text-amber-900 dark:text-amber-100 flex items-center gap-2">
+                        <div className="rounded-lg border border-warning bg-warning/20 p-3">
+                            <p className="text-xs font-semibold uppercase text-warning">Estado</p>
+                            <p className="text-sm font-medium text-foreground flex items-center gap-2">
                                 <span className="relative flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75" />
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-600" />
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75" />
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-warning" />
                                 </span>
                                 Analizando...
                             </p>
@@ -2326,7 +2322,7 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
                         <button
                             type="button"
                             onClick={() => setShowHistory(!showHistory)}
-                            className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+                            className="flex items-center gap-2 text-sm text-warning hover:text-foreground transition-colors"
                         >
                             <Clock className="size-4" />
                             <span>Historial de investigaciones ({metadata.history.length})</span>
@@ -2338,14 +2334,14 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
                                 {metadata.history.map((entry, index) => (
                                     <div 
                                         key={index} 
-                                        className="rounded-lg border border-amber-200 bg-white/70 p-3 dark:border-amber-800 dark:bg-amber-950/40"
+                                        className="rounded-lg border border-warning/30 bg-background/70 p-3"
                                     >
                                         <div className="flex items-center justify-between mb-2">
-                                            <span className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                                            <span className="text-xs font-bold text-warning">
                                                 Investigación #{entry.investigation_number || entry.count || index + 1}
                                             </span>
                                             {(entry.queried_at || entry.timestamp) && (
-                                                <span className="text-xs text-amber-600 dark:text-amber-500">
+                                                <span className="text-xs text-warning">
                                                     {formatDateTime(entry.queried_at || entry.timestamp)}
                                                 </span>
                                             )}
@@ -2353,7 +2349,7 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
 
                                         {/* Time Window */}
                                         {entry.time_window && (
-                                            <div className="text-xs text-amber-800 dark:text-amber-200 mb-2">
+                                            <div className="text-xs text-muted-foreground mb-2">
                                                 <span className="font-medium">Ventana analizada:</span>{' '}
                                                 {entry.time_window.minutes_covered} minutos
                                             </div>
@@ -2363,24 +2359,24 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
                                         {entry.findings && (
                                             <div className="flex flex-wrap gap-2 mb-2">
                                                 {(entry.findings.new_safety_events ?? 0) > 0 && (
-                                                    <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
+                                                    <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">
                                                         {entry.findings.new_safety_events} safety events
                                                     </Badge>
                                                 )}
                                                 {(entry.findings.new_camera_items ?? 0) > 0 && (
-                                                    <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700">
+                                                    <Badge variant="outline" className="text-xs bg-info/10 text-info border-info/30">
                                                         {entry.findings.new_camera_items} imágenes
                                                     </Badge>
                                                 )}
                                                 {entry.findings.has_vehicle_stats && (
-                                                    <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                                                    <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
                                                         Stats actualizadas
                                                     </Badge>
                                                 )}
                                                 {(entry.findings.new_safety_events ?? 0) === 0 && 
                                                  (entry.findings.new_camera_items ?? 0) === 0 && 
                                                  !entry.findings.has_vehicle_stats && (
-                                                    <Badge variant="outline" className="text-xs bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-900/30 dark:text-slate-400 dark:border-slate-700">
+                                                    <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-border">
                                                         Sin nuevos datos
                                                     </Badge>
                                                 )}
@@ -2389,17 +2385,17 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
 
                                         {/* Safety Events Details */}
                                         {entry.safety_events_details && entry.safety_events_details.length > 0 && (
-                                            <div className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                                            <div className="text-xs text-warning mt-2">
                                                 <span className="font-medium">Eventos detectados:</span>
                                                 <ul className="mt-1 space-y-1 pl-3">
                                                     {entry.safety_events_details.map((evt, i) => (
                                                         <li key={i} className="flex items-center gap-2">
                                                             <span className={`size-1.5 rounded-full ${
-                                                                evt.severity === 'critical' ? 'bg-red-500' : 
-                                                                evt.severity === 'severe' ? 'bg-orange-500' : 'bg-amber-500'
+                                                                evt.severity === 'critical' ? 'bg-destructive' : 
+                                                                evt.severity === 'severe' ? 'bg-warning' : 'bg-warning'
                                                             }`} />
                                                             <span>{evt.behavior || 'Evento'}</span>
-                                                            <span className="text-amber-500">({evt.severity})</span>
+                                                            <span className="text-warning">({evt.severity})</span>
                                                         </li>
                                                     ))}
                                                 </ul>
@@ -2408,7 +2404,7 @@ function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidati
 
                                         {/* Reason */}
                                         {entry.reason && (
-                                            <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 italic">
+                                            <div className="text-xs text-warning mt-2 italic">
                                                 "{entry.reason}"
                                             </div>
                                         )}
@@ -2441,7 +2437,7 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
     if (event.ai_status === 'investigating') return null; // Shown in InvestigatingCard
 
     return (
-        <Card className="border border-slate-200 dark:border-slate-800">
+        <Card className="border border-border">
             <CardHeader className="pb-3">
                 <button
                     type="button"
@@ -2449,8 +2445,8 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
                     className="flex items-center justify-between w-full"
                 >
                     <div className="flex items-center gap-2">
-                        <div className="rounded-full bg-slate-100 dark:bg-slate-800 p-2">
-                            <Clock className="size-4 text-slate-600 dark:text-slate-400" />
+                        <div className="rounded-full bg-muted p-2">
+                            <Clock className="size-4 text-muted-foreground" />
                         </div>
                         <div className="text-left">
                             <CardTitle className="text-base">
@@ -2461,7 +2457,7 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
                             </CardDescription>
                         </div>
                     </div>
-                    <ChevronDown className={`size-5 text-slate-500 transition-transform ${showHistory ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`size-5 text-muted-foreground transition-transform ${showHistory ? 'rotate-180' : ''}`} />
                 </button>
             </CardHeader>
             
@@ -2471,14 +2467,14 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
                         {metadata.history.map((entry, index) => (
                             <div 
                                 key={index} 
-                                className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-800/50"
+                                className="rounded-lg border border-border bg-muted/50 p-3"
                             >
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    <span className="text-xs font-bold text-foreground">
                                         Investigación #{entry.investigation_number || entry.count || index + 1}
                                     </span>
                                     {(entry.queried_at || entry.timestamp) && (
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                                        <span className="text-xs text-muted-foreground">
                                             {formatDateTime(entry.queried_at || entry.timestamp)}
                                         </span>
                                     )}
@@ -2486,7 +2482,7 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
 
                                 {/* Time Window */}
                                 {entry.time_window && (
-                                    <div className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+                                    <div className="text-xs text-muted-foreground mb-2">
                                         <span className="font-medium">Ventana analizada:</span>{' '}
                                         {entry.time_window.minutes_covered} minutos
                                     </div>
@@ -2496,17 +2492,17 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
                                 {entry.findings && (
                                     <div className="flex flex-wrap gap-2 mb-2">
                                         {(entry.findings.new_safety_events ?? 0) > 0 && (
-                                            <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700">
+                                            <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">
                                                 {entry.findings.new_safety_events} safety events
                                             </Badge>
                                         )}
                                         {(entry.findings.new_camera_items ?? 0) > 0 && (
-                                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700">
+                                            <Badge variant="outline" className="text-xs bg-info/10 text-info border-info/30">
                                                 {entry.findings.new_camera_items} imágenes
                                             </Badge>
                                         )}
                                         {entry.findings.has_vehicle_stats && (
-                                            <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700">
+                                            <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
                                                 Stats actualizadas
                                             </Badge>
                                         )}
@@ -2522,17 +2518,17 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
 
                                 {/* Safety Events Details */}
                                 {entry.safety_events_details && entry.safety_events_details.length > 0 && (
-                                    <div className="text-xs text-slate-600 dark:text-slate-400 mt-2">
+                                    <div className="text-xs text-muted-foreground mt-2">
                                         <span className="font-medium">Eventos detectados:</span>
                                         <ul className="mt-1 space-y-1 pl-3">
                                             {entry.safety_events_details.map((evt, i) => (
                                                 <li key={i} className="flex items-center gap-2">
                                                     <span className={`size-1.5 rounded-full ${
-                                                        evt.severity === 'critical' ? 'bg-red-500' : 
-                                                        evt.severity === 'severe' ? 'bg-orange-500' : 'bg-amber-500'
+                                                        evt.severity === 'critical' ? 'bg-destructive' : 
+                                                        evt.severity === 'severe' ? 'bg-warning' : 'bg-warning'
                                                     }`} />
                                                     <span>{evt.behavior || 'Evento'}</span>
-                                                    <span className="text-slate-400">({evt.severity})</span>
+                                                    <span className="text-muted-foreground">({evt.severity})</span>
                                                 </li>
                                             ))}
                                         </ul>
@@ -2541,7 +2537,7 @@ function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
 
                                 {/* Reason */}
                                 {entry.reason && (
-                                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 italic">
+                                    <div className="text-xs text-muted-foreground mt-2 italic">
                                         "{entry.reason}"
                                     </div>
                                 )}
@@ -2798,7 +2794,7 @@ export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
                                             </CardDescription>
                                         </div>
                                         {reviewRequired && (
-                                            <Badge className="ml-auto bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 text-xs">
+                                            <Badge className="ml-auto bg-destructive/15 text-destructive border border-destructive/30 text-xs">
                                                 Requerida
                                             </Badge>
                                         )}

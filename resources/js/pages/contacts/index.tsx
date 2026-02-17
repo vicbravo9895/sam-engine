@@ -105,11 +105,18 @@ const typeIcons: Record<string, React.ElementType> = {
     dispatch: Building2,
 };
 
-const typeColors: Record<string, string> = {
-    monitoring_team: 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-200',
-    supervisor: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200',
-    emergency: 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-200',
-    dispatch: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200',
+const typeVariants: Record<string, 'info' | 'warning' | 'destructive' | 'success'> = {
+    monitoring_team: 'info',
+    supervisor: 'warning',
+    emergency: 'destructive',
+    dispatch: 'success',
+};
+
+const typeIconClasses: Record<string, string> = {
+    monitoring_team: 'bg-info/10 text-info',
+    supervisor: 'bg-warning/10 text-warning',
+    emergency: 'bg-destructive/10 text-destructive',
+    dispatch: 'bg-success/10 text-success',
 };
 
 export default function ContactsIndex({ contacts, filters, types }: IndexProps) {
@@ -318,7 +325,7 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                                     <CardHeader className="pb-3">
                                         <div className="flex items-start justify-between">
                                             <div className="flex items-center gap-3">
-                                                <div className={`rounded-full p-2 ${typeColors[contact.type] || 'bg-slate-100'}`}>
+                                                <div className={`rounded-full p-2 ${typeIconClasses[contact.type] ?? 'bg-muted text-muted-foreground'}`}>
                                                     <Icon className="size-4" />
                                                 </div>
                                                 <div>
@@ -346,7 +353,7 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                                     </CardHeader>
                                     <CardContent className="space-y-3">
                                         <div className="flex items-center gap-2">
-                                            <Badge className={typeColors[contact.type]}>
+                                            <Badge variant={typeVariants[contact.type] ?? 'secondary'}>
                                                 {types[contact.type] || contact.type}
                                             </Badge>
                                             <Badge variant="outline" className="text-xs">

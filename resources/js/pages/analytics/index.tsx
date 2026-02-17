@@ -454,15 +454,16 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
                 />
             </section>
 
-            {/* System Comparison Cards */}
+            {/* System Comparison Cards - same gradient treatment as KPI row */}
             <section className="grid gap-6 lg:grid-cols-2">
                 {/* Alerts Summary Card */}
-                <Card className="overflow-hidden">
-                    <CardHeader className="border-b bg-gradient-to-r from-primary/5 to-transparent pb-4">
+                <Card className="relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-primary/5" />
+                    <CardHeader className="relative border-b border-primary/10 pb-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                                    <Bell className="size-5 text-primary" />
+                                <div className="rounded-lg bg-background/80 p-2.5 text-primary backdrop-blur">
+                                    <Bell className="size-5" />
                                 </div>
                                 <div>
                                     <CardTitle className="text-base">Alertas AI</CardTitle>
@@ -473,13 +474,14 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => onNavigateToTab('alerts')}
+                                className="shrink-0"
                             >
                                 Ver detalles
                                 <ArrowRight className="ml-1 size-4" />
                             </Button>
                         </div>
                     </CardHeader>
-                    <CardContent className="p-4">
+                    <CardContent className="relative p-4">
                         <div className="grid grid-cols-2 gap-4">
                             <MetricItem
                                 label="Total alertas"
@@ -505,7 +507,7 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
                                 accent="text-blue-500"
                             />
                         </div>
-                        <div className="mt-4 flex items-center justify-between rounded-lg bg-muted/50 p-3">
+                        <div className="mt-4 flex items-center justify-between rounded-lg bg-background/60 p-3 backdrop-blur">
                             <span className="text-sm text-muted-foreground">Promedio diario</span>
                             <Badge variant="secondary" className="font-mono">
                                 {summary.alerts.avg_daily} alertas/día
@@ -515,12 +517,13 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
                 </Card>
 
                 {/* Signals Summary Card */}
-                <Card className="overflow-hidden">
-                    <CardHeader className="border-b bg-gradient-to-r from-amber-500/5 to-transparent pb-4">
+                <Card className="relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500/20 to-amber-500/5" />
+                    <CardHeader className="relative border-b border-amber-500/10 pb-4">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10">
-                                    <Radio className="size-5 text-amber-500" />
+                                <div className="rounded-lg bg-background/80 p-2.5 text-amber-500 backdrop-blur">
+                                    <Radio className="size-5" />
                                 </div>
                                 <div>
                                     <CardTitle className="text-base">Señales de Seguridad</CardTitle>
@@ -531,13 +534,14 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => onNavigateToTab('signals')}
+                                className="shrink-0"
                             >
                                 Ver detalles
                                 <ArrowRight className="ml-1 size-4" />
                             </Button>
                         </div>
                     </CardHeader>
-                    <CardContent className="p-4">
+                    <CardContent className="relative p-4">
                         <div className="grid grid-cols-2 gap-4">
                             <MetricItem
                                 label="Total señales"
@@ -562,7 +566,7 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
                                 accent="text-emerald-500"
                             />
                         </div>
-                        <div className="mt-4 flex items-center justify-between rounded-lg bg-muted/50 p-3">
+                        <div className="mt-4 flex items-center justify-between rounded-lg bg-background/60 p-3 backdrop-blur">
                             <span className="text-sm text-muted-foreground">Promedio diario</span>
                             <Badge variant="secondary" className="font-mono">
                                 {summary.signals.avg_daily.toFixed(1)} señales/día

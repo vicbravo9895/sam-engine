@@ -1,5 +1,6 @@
 import InputError from '@/components/input-error';
 import TextLink from '@/components/text-link';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -99,9 +100,11 @@ export default function Login({
             </Form>
 
             {status && (
-                <div className="mb-4 text-center text-sm font-medium text-green-600">
-                    {status}
-                </div>
+                <Alert variant="success" className="mb-4">
+                    <AlertDescription className="text-center font-medium">
+                        {status}
+                    </AlertDescription>
+                </Alert>
             )}
         </AuthLayout>
     );

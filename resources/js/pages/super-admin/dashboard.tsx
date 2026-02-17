@@ -133,7 +133,7 @@ export default function SuperAdminDashboard() {
                         <CardContent>
                             <div className="text-3xl font-bold">{stats.companies.total}</div>
                             <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="text-emerald-600">{stats.companies.active} activas</span>
+                                <span className="text-success">{stats.companies.active} activas</span>
                                 <span>•</span>
                                 <span className="flex items-center gap-1">
                                     <Key className="size-3" />
@@ -151,7 +151,7 @@ export default function SuperAdminDashboard() {
                         <CardContent>
                             <div className="text-3xl font-bold">{stats.users.total}</div>
                             <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="flex items-center gap-1 text-emerald-600">
+                                <span className="flex items-center gap-1 text-success">
                                     <UserCheck className="size-3" />
                                     {stats.users.active} activos
                                 </span>
@@ -182,7 +182,7 @@ export default function SuperAdminDashboard() {
                         <CardContent>
                             <div className="text-3xl font-bold">{stats.conversations.total}</div>
                             <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="flex items-center gap-1 text-sky-600">
+                                <span className="flex items-center gap-1 text-info">
                                     <Activity className="size-3" />
                                     {stats.conversations.today} hoy
                                 </span>
@@ -196,8 +196,8 @@ export default function SuperAdminDashboard() {
                     <Link href="/super-admin/companies/create">
                         <Card className="hover:bg-muted/50 cursor-pointer transition-colors">
                             <CardContent className="flex items-center gap-4 p-6">
-                                <div className="flex size-12 items-center justify-center rounded-full bg-emerald-500/10">
-                                    <Building2 className="size-6 text-emerald-600" />
+                                <div className="flex size-12 items-center justify-center rounded-full bg-success/10">
+                                    <Building2 className="size-6 text-success" />
                                 </div>
                                 <div className="flex-1">
                                     <h3 className="font-semibold">Nueva Empresa</h3>
@@ -213,8 +213,8 @@ export default function SuperAdminDashboard() {
                     <Link href="/super-admin/users/create">
                         <Card className="hover:bg-muted/50 cursor-pointer transition-colors">
                             <CardContent className="flex items-center gap-4 p-6">
-                                <div className="flex size-12 items-center justify-center rounded-full bg-sky-500/10">
-                                    <Users className="size-6 text-sky-600" />
+                                <div className="flex size-12 items-center justify-center rounded-full bg-info/10">
+                                    <Users className="size-6 text-info" />
                                 </div>
                                 <div className="flex-1">
                                     <h3 className="font-semibold">Nuevo Usuario</h3>
@@ -359,13 +359,13 @@ export default function SuperAdminDashboard() {
                                         <span className="font-medium">{adoptionMetrics.pipeline.events_today}</span>
                                     </div>
                                     {adoptionMetrics.pipeline.failed_last_7_days > 0 && (
-                                        <div className="flex justify-between text-red-600">
+                                        <div className="flex justify-between text-destructive">
                                             <span>Fallidos (7d)</span>
                                             <span className="font-medium">{adoptionMetrics.pipeline.failed_last_7_days}</span>
                                         </div>
                                     )}
                                     {adoptionMetrics.pipeline.pending_webhooks > 0 && (
-                                        <div className="flex justify-between text-amber-600">
+                                        <div className="flex justify-between text-warning">
                                             <span>Webhooks pendientes</span>
                                             <span className="font-medium">{adoptionMetrics.pipeline.pending_webhooks}</span>
                                         </div>

@@ -1,0 +1,66 @@
+/**
+ * SAM Design System - Brand tokens
+ * Single source of truth for colors, surfaces, and feedback.
+ * Use semantic variables (--primary, --accent, etc.) in app.css; do not hardcode these in components.
+ */
+:root {
+    /* Brand - Navy */
+    --sam-primary: #00243C;
+    --sam-primary-hover: #003048;
+    --sam-secondary: #003048;
+
+    /* Brand - Accent Teal / Blue */
+    --sam-accent-teal: #14788C;
+    --sam-accent-teal-hover: #148296;
+    --sam-accent-teal-2: #148296;
+    --sam-accent-blue: #0A5A78;
+    --sam-accent-deep: #0A466E;
+
+    /* Surfaces */
+    --sam-bg: #F7FAFC;
+    --sam-surface: #FFFFFF;
+    --sam-border: #E5E7EB;
+
+    /* Text */
+    --sam-text: #0B1220;
+    --sam-text-muted: #334155;
+
+    /* Derived - light surfaces for secondary/muted/accent hover */
+    --sam-muted-bg: #f1f5f9;
+    --sam-accent-bg: #e6f4f4;
+
+    /* Feedback - sober, AA contrast */
+    --sam-success: #0d6842;
+    --sam-success-foreground: #ffffff;
+    --sam-warning: #b45309;
+    --sam-warning-foreground: #0B1220;
+    --sam-error: #b91c1c;
+    --sam-error-foreground: #ffffff;
+    --sam-info: #0e7490;
+    --sam-info-foreground: #ffffff;
+
+    /* Primary button text on dark background */
+    --sam-primary-foreground: #ffffff;
+}
+
+/* Dark mode - SAM tokens with safe contrast (no white text on light) */
+.dark {
+    --sam-bg: #0f172a;
+    --sam-surface: #1e293b;
+    --sam-border: #334155;
+    --sam-text: #f1f5f9;
+    --sam-text-muted: #94a3b8;
+    --sam-muted-bg: #1e293b;
+    --sam-accent-bg: #164e63;
+    --sam-primary: #38bdf8;
+    --sam-primary-foreground: #0f172a;
+    --sam-accent-teal: #2dd4bf;
+    --sam-success: #34d399;
+    --sam-success-foreground: #022c22;
+    --sam-warning: #fbbf24;
+    --sam-warning-foreground: #422006;
+    --sam-error: #f87171;
+    --sam-error-foreground: #450a0a;
+    --sam-info: #38bdf8;
+    --sam-info-foreground: #0c4a6e;
+}
