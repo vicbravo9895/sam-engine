@@ -29,8 +29,7 @@ import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router } from '@inertiajs/react';
-import html2canvas from 'html2canvas-pro';
-import { jsPDF } from 'jspdf';
+import type html2canvas from 'html2canvas-pro';
 import {
     Activity,
     Car,
@@ -140,11 +139,15 @@ export default function FleetReportIndex({
         tag.name.toLowerCase().includes(tagSearchTerm.toLowerCase())
     );
 
+    const loadHtml2Canvas = () =>
+        import('html2canvas-pro').then((m) => m.default) as Promise<typeof html2canvas>;
+
     const handleExportImage = async () => {
         if (!reportRef.current || isExporting) return;
         setIsExporting(true);
         try {
-            const canvas = await html2canvas(reportRef.current, {
+            const render = await loadHtml2Canvas();
+            const canvas = await render(reportRef.current, {
                 scale: 2,
                 useCORS: true,
                 backgroundColor: '#ffffff',
@@ -162,7 +165,11 @@ export default function FleetReportIndex({
         if (!reportRef.current || isExporting) return;
         setIsExporting(true);
         try {
-            const canvas = await html2canvas(reportRef.current, {
+            const [render, { jsPDF }] = await Promise.all([
+                loadHtml2Canvas(),
+                import('jspdf'),
+            ]);
+            const canvas = await render(reportRef.current, {
                 scale: 2,
                 useCORS: true,
                 backgroundColor: '#ffffff',
