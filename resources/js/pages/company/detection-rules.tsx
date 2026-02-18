@@ -40,6 +40,7 @@ interface StaleVehicleMonitorConfig {
     channels: string[];
     recipients: string[];
     cooldown_minutes: number;
+    inactive_after_days: number;
 }
 
 interface Props {
@@ -122,6 +123,7 @@ export default function DetectionRulesPage() {
         channels: staleVehicleMonitor.channels,
         recipients: staleVehicleMonitor.recipients,
         cooldown_minutes: staleVehicleMonitor.cooldown_minutes,
+        inactive_after_days: staleVehicleMonitor.inactive_after_days,
     });
 
     const handleRulesChange = useCallback((newRules: Rule[]) => {
@@ -473,6 +475,38 @@ export default function DetectionRulesPage() {
                                             {staleForm.errors.cooldown_minutes && (
                                                 <p className="text-xs text-red-500">
                                                     {staleForm.errors.cooldown_minutes}
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>
+                                                Ignorar vehículos inactivos
+                                            </Label>
+                                            <p className="text-muted-foreground text-xs">
+                                                Vehículos sin reportar por más de estos días se consideran inactivos y no generan alertas.
+                                            </p>
+                                            <div className="flex items-center gap-2">
+                                                <Input
+                                                    type="number"
+                                                    min={1}
+                                                    max={365}
+                                                    value={staleForm.data.inactive_after_days}
+                                                    onChange={(e) =>
+                                                        staleForm.setData(
+                                                            'inactive_after_days',
+                                                            parseInt(e.target.value, 10) || 20,
+                                                        )
+                                                    }
+                                                    className="w-24"
+                                                />
+                                                <span className="text-muted-foreground text-sm">
+                                                    días
+                                                </span>
+                                            </div>
+                                            {staleForm.errors.inactive_after_days && (
+                                                <p className="text-xs text-red-500">
+                                                    {staleForm.errors.inactive_after_days}
                                                 </p>
                                             )}
                                         </div>

@@ -429,11 +429,14 @@ class CompanyController extends Controller
             'recipients' => ['required', 'array', 'min:1'],
             'recipients.*' => ['string', 'in:monitoring_team,supervisor,operator,emergency,dispatch'],
             'cooldown_minutes' => ['required', 'integer', 'min:15', 'max:1440'],
+            'inactive_after_days' => ['required', 'integer', 'min:1', 'max:365'],
         ], [
             'channels.min' => 'Debes seleccionar al menos un canal de notificación.',
             'recipients.min' => 'Debes seleccionar al menos un tipo de destinatario.',
             'threshold_minutes.min' => 'El umbral mínimo es 5 minutos.',
             'cooldown_minutes.min' => 'El cooldown mínimo es 15 minutos.',
+            'inactive_after_days.min' => 'El mínimo es 1 día.',
+            'inactive_after_days.max' => 'El máximo es 365 días.',
         ]);
 
         $settings = $company->settings ?? [];
