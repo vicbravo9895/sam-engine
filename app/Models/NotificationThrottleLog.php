@@ -16,7 +16,7 @@ class NotificationThrottleLog extends Model
     /**
      * The table associated with the model.
      */
-    protected $table = 'notification_throttle_log';
+    protected $table = 'notification_throttle_logs';
 
     /**
      * Disable timestamps - using custom timestamp column.

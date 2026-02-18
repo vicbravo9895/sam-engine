@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Safety Signal Model.
@@ -81,34 +82,60 @@ class SafetySignal extends Model
      * based on company's safety_stream_notify rules (AND conditions).
      *
      * A rule matches when the signal contains ALL labels in rule.conditions.
-     * Labels are compared against primary_behavior_label + behavior_labels (normalized).
+     * Returns the first matched rule array or null.
+     *
+     * @return array{id: string, conditions: string[], action: string}|null
      */
-    public function shouldTriggerProactiveNotify(): bool
+    public function getMatchedRule(): ?array
     {
         $company = $this->company;
         if (!$company || !$company->hasSamsaraApiKey()) {
-            return false;
+            Log::debug('DetectionEngine: Skipped — no company or no Samsara API key', [
+                'signal_id' => $this->id,
+                'company_id' => $this->company_id,
+            ]);
+            return null;
         }
 
         $config = $company->getSafetyStreamNotifyConfig();
 
         if (!($config['enabled'] ?? true)) {
-            return false;
+            Log::debug('DetectionEngine: Skipped — safety_stream_notify disabled', [
+                'signal_id' => $this->id,
+                'company_id' => $this->company_id,
+            ]);
+            return null;
         }
 
         $rules = $config['rules'] ?? [];
         if (empty($rules)) {
-            return false;
+            Log::debug('DetectionEngine: Skipped — no rules configured', [
+                'signal_id' => $this->id,
+                'company_id' => $this->company_id,
+            ]);
+            return null;
         }
 
-        // Collect all normalized labels this signal carries
         $signalLabels = $this->getNormalizedLabels();
 
         if (empty($signalLabels)) {
-            return false;
+            Log::debug('DetectionEngine: Skipped — signal has no behavior labels', [
+                'signal_id' => $this->id,
+                'company_id' => $this->company_id,
+                'primary_behavior_label' => $this->primary_behavior_label,
+            ]);
+            return null;
         }
 
-        // A rule matches if ALL its conditions are present in the signal's labels
+        Log::info('DetectionEngine: Evaluating rules', [
+            'signal_id' => $this->id,
+            'company_id' => $this->company_id,
+            'signal_labels' => $signalLabels,
+            'rules_count' => count($rules),
+            'vehicle_name' => $this->vehicle_name,
+            'primary_behavior_label' => $this->primary_behavior_label,
+        ]);
+
         foreach ($rules as $rule) {
             $conditions = $rule['conditions'] ?? [];
             if (empty($conditions)) {
@@ -121,19 +148,55 @@ class SafetySignal extends Model
             );
 
             $allMatch = true;
+            $matchDetails = [];
             foreach ($normalizedConditions as $condition) {
-                if (!in_array($condition, $signalLabels, true)) {
+                $matched = in_array($condition, $signalLabels, true);
+                $matchDetails[$condition] = $matched;
+                if (!$matched) {
                     $allMatch = false;
                     break;
                 }
             }
 
+            Log::debug('DetectionEngine: Rule evaluation', [
+                'signal_id' => $this->id,
+                'rule_id' => $rule['id'] ?? 'unknown',
+                'rule_conditions' => $normalizedConditions,
+                'rule_action' => $rule['action'] ?? 'ai_pipeline',
+                'signal_labels' => $signalLabels,
+                'match_details' => $matchDetails,
+                'all_match' => $allMatch,
+            ]);
+
             if ($allMatch) {
-                return true;
+                Log::info('DetectionEngine: Rule MATCHED', [
+                    'signal_id' => $this->id,
+                    'company_id' => $this->company_id,
+                    'rule_id' => $rule['id'] ?? 'unknown',
+                    'rule_conditions' => $normalizedConditions,
+                    'rule_action' => $rule['action'] ?? 'ai_pipeline',
+                    'vehicle_name' => $this->vehicle_name,
+                    'driver_name' => $this->driver_name,
+                ]);
+                return $rule;
             }
         }
 
-        return false;
+        Log::debug('DetectionEngine: No rules matched', [
+            'signal_id' => $this->id,
+            'company_id' => $this->company_id,
+            'signal_labels' => $signalLabels,
+        ]);
+
+        return null;
+    }
+
+    /**
+     * @deprecated Use getMatchedRule() instead. Kept for backward compatibility.
+     */
+    public function shouldTriggerProactiveNotify(): bool
+    {
+        return $this->getMatchedRule() !== null;
     }
 
     /**

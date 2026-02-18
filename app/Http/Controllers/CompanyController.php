@@ -183,9 +183,6 @@ class CompanyController extends Controller
 
         $aiConfig = $company->getAiConfig();
 
-        // Replace safety_stream_notify with rules-based format (migrates legacy labels)
-        $aiConfig['safety_stream_notify'] = $company->getSafetyStreamNotifyConfig();
-
         return Inertia::render('company/ai-settings', [
             'company' => [
                 'id' => $company->id,
@@ -197,10 +194,6 @@ class CompanyController extends Controller
                 'ai_config' => Company::DEFAULT_AI_CONFIG,
                 'notifications' => Company::DEFAULT_NOTIFICATION_CONFIG,
             ],
-            'canonicalBehaviorLabels' => config('safety_signals.canonical_labels', []),
-            'labelTranslations' => collect(config('safety_signals.canonical_labels', []))
-                ->mapWithKeys(fn (string $label) => [$label => BehaviorLabelTranslator::getName($label)])
-                ->all(),
         ]);
     }
 
@@ -250,7 +243,11 @@ class CompanyController extends Controller
             'safety_stream_notify.rules.*.id' => ['required', 'string'],
             'safety_stream_notify.rules.*.conditions' => ['required', 'array', 'min:1'],
             'safety_stream_notify.rules.*.conditions.*' => ['required', 'string'],
-            'safety_stream_notify.rules.*.action' => ['required', 'string', 'in:notify'],
+            'safety_stream_notify.rules.*.action' => ['required', 'string', 'in:ai_pipeline,notify_immediate,both,notify'],
+            'safety_stream_notify.rules.*.channels' => ['sometimes', 'array'],
+            'safety_stream_notify.rules.*.channels.*' => ['string', 'in:whatsapp,sms,call'],
+            'safety_stream_notify.rules.*.recipients' => ['sometimes', 'array'],
+            'safety_stream_notify.rules.*.recipients.*' => ['string', 'in:monitoring_team,supervisor,operator,emergency,dispatch'],
         ], [
             'investigation_windows.required' => 'Los parámetros de investigación son requeridos.',
             'monitoring.required' => 'Los parámetros de monitoreo son requeridos.',
@@ -330,6 +327,122 @@ class CompanyController extends Controller
         $company->save();
 
         return back()->with('success', 'Configuración de AI restablecida a valores predeterminados.');
+    }
+
+    /**
+     * Show the Detection Rules Engine page (Motor de Reglas de Detección).
+     */
+    public function editDetectionRules(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            abort(403, 'Solo los administradores pueden editar el Motor de Reglas de Detección.');
+        }
+
+        $company = Company::findOrFail($user->company_id);
+        $config = $company->getSafetyStreamNotifyConfig();
+
+        return Inertia::render('company/detection-rules', [
+            'company' => [
+                'id' => $company->id,
+                'name' => $company->name,
+            ],
+            'safetyStreamNotify' => [
+                'enabled' => $config['enabled'],
+                'rules' => $config['rules'],
+            ],
+            'staleVehicleMonitor' => $company->getStaleVehicleMonitorConfig(),
+            'canonicalBehaviorLabels' => config('safety_signals.canonical_labels', []),
+            'labelTranslations' => collect(config('safety_signals.canonical_labels', []))
+                ->mapWithKeys(fn (string $label) => [$label => BehaviorLabelTranslator::getName($label)])
+                ->all(),
+        ]);
+    }
+
+    /**
+     * Update only the detection rules (safety_stream_notify).
+     */
+    public function updateDetectionRules(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            abort(403, 'Solo los administradores pueden actualizar el Motor de Reglas de Detección.');
+        }
+
+        $company = $user->company;
+
+        if (!$company) {
+            abort(404, 'No se encontró la empresa.');
+        }
+
+        $validated = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'rules' => ['required', 'array'],
+            'rules.*.id' => ['required', 'string'],
+            'rules.*.conditions' => ['required', 'array', 'min:1'],
+            'rules.*.conditions.*' => ['required', 'string'],
+            'rules.*.action' => ['required', 'string', 'in:ai_pipeline,notify_immediate,both,notify'],
+            'rules.*.channels' => ['sometimes', 'array'],
+            'rules.*.channels.*' => ['string', 'in:whatsapp,sms,call'],
+            'rules.*.recipients' => ['sometimes', 'array'],
+            'rules.*.recipients.*' => ['string', 'in:monitoring_team,supervisor,operator,emergency,dispatch'],
+        ], [
+            'rules.*.conditions.min' => 'Cada regla debe tener al menos una condición.',
+        ]);
+
+        $settings = $company->settings ?? [];
+        $settings['ai_config'] = $settings['ai_config'] ?? Company::DEFAULT_AI_CONFIG;
+        $settings['ai_config']['safety_stream_notify'] = [
+            'enabled' => $validated['enabled'],
+            'rules' => $validated['rules'],
+        ];
+        $company->settings = $settings;
+        $company->save();
+
+        return back()->with('success', 'Motor de Reglas de Detección actualizado correctamente.');
+    }
+
+    /**
+     * Update the stale vehicle monitor configuration.
+     */
+    public function updateStaleVehicleMonitor(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            abort(403, 'Solo los administradores pueden actualizar el monitor de vehículos.');
+        }
+
+        $company = $user->company;
+
+        if (!$company) {
+            abort(404, 'No se encontró la empresa.');
+        }
+
+        $validated = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'threshold_minutes' => ['required', 'integer', 'min:5', 'max:1440'],
+            'channels' => ['required', 'array', 'min:1'],
+            'channels.*' => ['string', 'in:whatsapp,sms,call'],
+            'recipients' => ['required', 'array', 'min:1'],
+            'recipients.*' => ['string', 'in:monitoring_team,supervisor,operator,emergency,dispatch'],
+            'cooldown_minutes' => ['required', 'integer', 'min:15', 'max:1440'],
+        ], [
+            'channels.min' => 'Debes seleccionar al menos un canal de notificación.',
+            'recipients.min' => 'Debes seleccionar al menos un tipo de destinatario.',
+            'threshold_minutes.min' => 'El umbral mínimo es 5 minutos.',
+            'cooldown_minutes.min' => 'El cooldown mínimo es 15 minutos.',
+        ]);
+
+        $settings = $company->settings ?? [];
+        $settings['ai_config'] = $settings['ai_config'] ?? Company::DEFAULT_AI_CONFIG;
+        $settings['ai_config']['stale_vehicle_monitor'] = $validated;
+        $company->settings = $settings;
+        $company->save();
+
+        return back()->with('success', 'Monitor de vehículos sin reportar actualizado correctamente.');
     }
 
     /**

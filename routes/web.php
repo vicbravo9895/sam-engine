@@ -97,6 +97,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('company/ai-settings', [CompanyController::class, 'editAiSettings'])->name('company.ai-settings.edit');
     Route::put('company/ai-settings', [CompanyController::class, 'updateAiSettings'])->name('company.ai-settings.update');
     Route::post('company/ai-settings/reset', [CompanyController::class, 'resetAiSettings'])->name('company.ai-settings.reset');
+
+    // Detection Rules Engine — Motor de Reglas de Detección (admin only)
+    Route::get('company/detection-rules', [CompanyController::class, 'editDetectionRules'])->name('company.detection-rules.edit');
+    Route::put('company/detection-rules', [CompanyController::class, 'updateDetectionRules'])->name('company.detection-rules.update');
+
+    // Stale Vehicle Monitor — Monitor de Vehículos sin Reportar (admin only)
+    Route::put('company/stale-vehicle-monitor', [CompanyController::class, 'updateStaleVehicleMonitor'])->name('company.stale-vehicle-monitor.update');
 });
 
 // Super Admin routes

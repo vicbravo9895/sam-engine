@@ -1,4 +1,3 @@
-import { DetectionFlow, type Rule } from '@/components/company/detection-flow';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,7 +15,6 @@ import {
     Clock,
     Loader2,
     MessageSquare,
-    Network,
     Phone,
     Mail,
     RefreshCw,
@@ -25,15 +23,9 @@ import {
     Settings2,
     Timer,
 } from 'lucide-react';
-import { useCallback } from 'react';
 
 // Available interval options in minutes
 const AVAILABLE_INTERVALS = [5, 10, 15, 20, 30, 45, 60, 90, 120] as const;
-
-interface SafetyStreamNotify {
-    enabled: boolean;
-    rules: Rule[];
-}
 
 interface AiConfig {
     investigation_windows: {
@@ -51,7 +43,6 @@ interface AiConfig {
         max_revalidations: number;
     };
     escalation_matrix: Record<string, { channels: string[]; recipients: string[] }>;
-    safety_stream_notify: SafetyStreamNotify;
 }
 
 interface NotificationConfig {
@@ -74,8 +65,6 @@ interface Props {
         ai_config: AiConfig;
         notifications: NotificationConfig;
     };
-    canonicalBehaviorLabels: string[];
-    labelTranslations: Record<string, string>;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -85,8 +74,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function AiSettings() {
-    const { aiConfig, notificationConfig, defaults, canonicalBehaviorLabels, labelTranslations } =
-        usePage().props as Props;
+    const { aiConfig, notificationConfig, defaults } = usePage().props as Props;
 
     // Use nested structure for form data
     const form = useForm({
@@ -109,10 +97,6 @@ export default function AiSettings() {
             whatsapp: notificationConfig.channels_enabled.whatsapp,
             call: notificationConfig.channels_enabled.call,
             email: notificationConfig.channels_enabled.email,
-        },
-        safety_stream_notify: {
-            enabled: aiConfig.safety_stream_notify?.enabled ?? true,
-            rules: aiConfig.safety_stream_notify?.rules ?? [],
         },
     });
 
@@ -163,18 +147,6 @@ export default function AiSettings() {
             setMonitoring('check_intervals', newIntervals);
         }
     };
-
-    // Callback for detection flow rule changes
-    const handleRulesChange = useCallback(
-        (newRules: Rule[]) => {
-            form.setData('safety_stream_notify', {
-                ...form.data.safety_stream_notify,
-                rules: newRules,
-            });
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [form.data.safety_stream_notify],
-    );
 
     const isModified = (
         section: 'investigation_windows' | 'monitoring' | 'channels_enabled',
@@ -602,71 +574,28 @@ export default function AiSettings() {
                         </CardContent>
                     </Card>
 
-                    {/* Detection Flow Card */}
+                    {/* Motor de Reglas de Detección — enlace a página dedicada */}
                     <Card>
                         <CardHeader>
-                            <div className="flex items-center gap-3">
-                                <div className="flex size-12 items-center justify-center rounded-full bg-violet-500/10">
-                                    <Network className="size-6 text-violet-600" />
-                                </div>
-                                <div className="flex-1">
-                                    <CardTitle>Flujo de Detección y Notificaciones</CardTitle>
-                                    <CardDescription>
-                                        Define qué señales de seguridad disparan el pipeline de IA y notificaciones
-                                    </CardDescription>
-                                </div>
-                                <Switch
-                                    checked={form.data.safety_stream_notify.enabled}
-                                    onCheckedChange={(checked) =>
-                                        form.setData('safety_stream_notify', {
-                                            ...form.data.safety_stream_notify,
-                                            enabled: checked,
-                                        })
-                                    }
-                                />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {form.data.safety_stream_notify.enabled ? (
-                                <>
-                                    <p className="text-muted-foreground mb-4 text-sm">
-                                        Arrastra señales desde la paleta izquierda al canvas. Cada nodo
-                                        <span className="mx-1 inline-flex items-center rounded bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-900 dark:text-violet-300">
-                                            AND
-                                        </span>
-                                        agrupa condiciones que deben cumplirse simultáneamente. Conecta varios triggers al
-                                        mismo AND para crear reglas combinadas.
-                                    </p>
-                                    <DetectionFlow
-                                        rules={form.data.safety_stream_notify.rules}
-                                        canonicalLabels={canonicalBehaviorLabels}
-                                        labelTranslations={labelTranslations}
-                                        onChange={handleRulesChange}
-                                    />
-                                    {form.data.safety_stream_notify.rules.length === 0 && (
-                                        <div className="mt-3 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
-                                            <BellOff className="size-4 text-amber-600" />
-                                            <p className="text-sm text-amber-800 dark:text-amber-200">
-                                                No hay reglas configuradas. Arrastra señales al canvas para crear reglas de detección.
-                                            </p>
-                                        </div>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
-                                    <BellOff className="size-5 text-zinc-500" />
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex size-12 items-center justify-center rounded-full bg-violet-500/10">
+                                        <Bot className="size-6 text-violet-600" />
+                                    </div>
                                     <div>
-                                        <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                                            Notificaciones proactivas deshabilitadas
-                                        </p>
-                                        <p className="text-muted-foreground text-xs">
-                                            Las señales del safety stream no dispararán el pipeline de IA automáticamente.
-                                            Las reglas se conservan para cuando reactives esta función.
-                                        </p>
+                                        <CardTitle>Motor de Reglas de Detección</CardTitle>
+                                        <CardDescription>
+                                            Configura qué señales de seguridad disparan alertas y el pipeline de IA
+                                        </CardDescription>
                                     </div>
                                 </div>
-                            )}
-                        </CardContent>
+                                <Link href="/company/detection-rules">
+                                    <Button variant="outline" size="sm">
+                                        Configurar reglas
+                                    </Button>
+                                </Link>
+                            </div>
+                        </CardHeader>
                     </Card>
 
                     {/* Actions */}

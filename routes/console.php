@@ -91,3 +91,10 @@ Schedule::command('samsara:detect-patterns --hours=4 --threshold=3')
     ->withoutOverlapping()
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/pattern-detection.log'));
+
+// Check for stale vehicles (not reporting stats) every 5 minutes
+Schedule::command('samsara:check-stale-vehicles')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/stale-vehicle-check.log'));

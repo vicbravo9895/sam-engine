@@ -1,0 +1,32 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('stale_vehicle_alerts', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('company_id')->constrained()->cascadeOnDelete();
+            $table->string('samsara_vehicle_id');
+            $table->string('vehicle_name');
+            $table->timestamp('last_stat_at');
+            $table->timestamp('alerted_at');
+            $table->timestamp('resolved_at')->nullable();
+            $table->json('channels_used')->nullable();
+            $table->json('recipients_notified')->nullable();
+            $table->timestamps();
+
+            $table->index(['company_id', 'samsara_vehicle_id']);
+            $table->index(['company_id', 'resolved_at']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('stale_vehicle_alerts');
+    }
+};

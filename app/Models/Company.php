@@ -62,10 +62,17 @@ class Company extends Model
         'safety_stream_notify' => [
             'enabled' => true,
             'rules' => [
-                ['id' => 'default-crash', 'conditions' => ['Crash'], 'action' => 'notify'],
-                ['id' => 'default-fcw', 'conditions' => ['ForwardCollisionWarning'], 'action' => 'notify'],
-                ['id' => 'default-speeding', 'conditions' => ['SevereSpeeding'], 'action' => 'notify'],
+                ['id' => 'default-crash', 'conditions' => ['Crash'], 'action' => 'ai_pipeline', 'channels' => [], 'recipients' => []],
+                ['id' => 'default-fcw', 'conditions' => ['ForwardCollisionWarning'], 'action' => 'ai_pipeline', 'channels' => [], 'recipients' => []],
+                ['id' => 'default-speeding', 'conditions' => ['SevereSpeeding'], 'action' => 'ai_pipeline', 'channels' => [], 'recipients' => []],
             ],
+        ],
+        'stale_vehicle_monitor' => [
+            'enabled' => false,
+            'threshold_minutes' => 30,
+            'channels' => ['whatsapp', 'sms'],
+            'recipients' => ['monitoring_team', 'supervisor'],
+            'cooldown_minutes' => 60,
         ],
     ];
 
@@ -319,24 +326,28 @@ class Company extends Model
      */
     public function getSafetyStreamNotifyConfig(): array
     {
-        $config = $this->getAiConfig('safety_stream_notify', []);
+        $stored = $this->getSetting('ai_config.safety_stream_notify');
+
+        if ($stored === null) {
+            return self::DEFAULT_AI_CONFIG['safety_stream_notify'];
+        }
 
         // Migrate legacy labels → rules
-        if (isset($config['labels']) && !isset($config['rules'])) {
-            $config['rules'] = array_map(
+        if (isset($stored['labels']) && !isset($stored['rules'])) {
+            $stored['rules'] = array_map(
                 fn (string $label) => [
-                    'id' => 'migrated-' . \Illuminate\Support\Str::slug($label),
+                    'id' => 'migrated-' . Str::slug($label),
                     'conditions' => [$label],
                     'action' => 'notify',
                 ],
-                $config['labels']
+                $stored['labels']
             );
-            unset($config['labels']);
+            unset($stored['labels']);
         }
 
         return [
-            'enabled' => $config['enabled'] ?? true,
-            'rules' => $config['rules'] ?? [],
+            'enabled' => $stored['enabled'] ?? true,
+            'rules' => $stored['rules'] ?? [],
         ];
     }
 
@@ -353,10 +364,12 @@ class Company extends Model
 
         foreach ($overrides as $key => $value) {
             if (is_array($value) && isset($merged[$key]) && is_array($merged[$key])) {
-                // Recursively merge nested arrays
-                $merged[$key] = $this->mergeConfigRecursive($merged[$key], $value);
+                if (array_is_list($value) || array_is_list($merged[$key])) {
+                    $merged[$key] = $value;
+                } else {
+                    $merged[$key] = $this->mergeConfigRecursive($merged[$key], $value);
+                }
             } else {
-                // Override the value
                 $merged[$key] = $value;
             }
         }
@@ -397,6 +410,28 @@ class Company extends Model
     public function drivers(): HasMany
     {
         return $this->hasMany(Driver::class);
+    }
+
+    /**
+     * Get the stale vehicle alerts for this company.
+     */
+    public function staleVehicleAlerts(): HasMany
+    {
+        return $this->hasMany(StaleVehicleAlert::class);
+    }
+
+    /**
+     * Get stale vehicle monitor configuration with defaults.
+     */
+    public function getStaleVehicleMonitorConfig(): array
+    {
+        $stored = $this->getSetting('ai_config.stale_vehicle_monitor');
+
+        if ($stored === null) {
+            return self::DEFAULT_AI_CONFIG['stale_vehicle_monitor'];
+        }
+
+        return array_merge(self::DEFAULT_AI_CONFIG['stale_vehicle_monitor'], $stored);
     }
 
     /**

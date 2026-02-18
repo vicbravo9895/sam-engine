@@ -15,7 +15,7 @@ class NotificationDedupeLog extends Model
     /**
      * The table associated with the model.
      */
-    protected $table = 'notification_dedupe_log';
+    protected $table = 'notification_dedupe_logs';
 
     /**
      * Disable timestamps - using custom timestamp columns.

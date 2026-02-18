@@ -135,7 +135,7 @@ class SendNotificationJob implements ShouldQueue
                 success: $result['success'] ?? false,
                 durationMs: (int) $duration,
                 companyId: $this->event->company_id,
-                escalationLevel: $this->decision['escalation_level'] ?? 'standard'
+                escalationLevel: $this->decision['escalation_level'] ?? 'high'
             );
         }
     }
@@ -565,9 +565,11 @@ class SendNotificationJob implements ShouldQueue
     private function persistResults(array $results): void
     {
         foreach ($results as $result) {
+            $channel = $result['channel'] === 'whatsapp_template' ? 'whatsapp' : $result['channel'];
+
             NotificationResult::create([
                 'samsara_event_id' => $this->event->id,
-                'channel' => $result['channel'],
+                'channel' => $channel,
                 'recipient_type' => $result['recipient_type'] ?? 'unknown',
                 'to_number' => $result['to'],
                 'success' => $result['success'],
