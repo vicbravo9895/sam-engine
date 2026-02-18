@@ -73,6 +73,7 @@ class Company extends Model
             'channels' => ['whatsapp', 'sms'],
             'recipients' => ['monitoring_team', 'supervisor'],
             'cooldown_minutes' => 60,
+            'inactive_after_days' => 20,
         ],
     ];
 

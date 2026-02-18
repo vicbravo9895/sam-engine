@@ -41,7 +41,7 @@ Schedule::command('samsara:sync-tags')
 // Sync vehicle stats (GPS, engine state, odometer) every 30 seconds
 Schedule::command('samsara:sync-vehicle-stats')
     ->everyThirtySeconds()
-    ->withoutOverlapping()
+    ->withoutOverlapping(2)
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/vehicle-stats-sync.log'));
 

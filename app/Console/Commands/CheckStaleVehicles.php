@@ -64,11 +64,14 @@ class CheckStaleVehicles extends Command
     {
         $thresholdMinutes = $config['threshold_minutes'] ?? 30;
         $cooldownMinutes = $config['cooldown_minutes'] ?? 60;
+        $inactiveAfterDays = $config['inactive_after_days'] ?? 20;
+
+        $inactiveCutoff = now()->subDays($inactiveAfterDays);
 
         $staleVehicles = VehicleStat::where('company_id', $company->id)
-            ->where(function ($q) use ($thresholdMinutes) {
+            ->where(function ($q) use ($thresholdMinutes, $inactiveCutoff) {
                 $q->where('synced_at', '<', now()->subMinutes($thresholdMinutes))
-                  ->orWhereNull('synced_at');
+                  ->where('synced_at', '>=', $inactiveCutoff);
             })
             ->get();
 
@@ -96,18 +99,19 @@ class CheckStaleVehicles extends Command
             ]);
         }
 
-        $resolved = $this->resolveRecoveredVehicles($company, $thresholdMinutes);
+        $resolved = $this->resolveRecoveredVehicles($company, $thresholdMinutes, $inactiveAfterDays);
 
         return [$alertsDispatched, $resolved];
     }
 
-    private function resolveRecoveredVehicles(Company $company, int $thresholdMinutes): int
+    private function resolveRecoveredVehicles(Company $company, int $thresholdMinutes, int $inactiveAfterDays): int
     {
         $unresolvedAlerts = StaleVehicleAlert::forCompany($company->id)
             ->unresolved()
             ->get();
 
         $resolved = 0;
+        $inactiveCutoff = now()->subDays($inactiveAfterDays);
 
         /** @var StaleVehicleAlert $alert */
         foreach ($unresolvedAlerts as $alert) {
@@ -122,15 +126,20 @@ class CheckStaleVehicles extends Command
             $isReporting = $currentStat->synced_at
                 && $currentStat->synced_at->gt(now()->subMinutes($thresholdMinutes));
 
-            if ($isReporting) {
+            $isInactive = !$currentStat->synced_at
+                || $currentStat->synced_at->lt($inactiveCutoff);
+
+            if ($isReporting || $isInactive) {
+                $reason = $isInactive ? 'inactive' : 'recovered';
                 $alert->markResolved();
                 $resolved++;
 
-                Log::info('StaleVehicleCheck: Vehicle recovered, alert resolved', [
+                Log::info("StaleVehicleCheck: Alert resolved ({$reason})", [
                     'company_id' => $company->id,
                     'vehicle_id' => $alert->samsara_vehicle_id,
                     'vehicle_name' => $alert->vehicle_name,
                     'alert_id' => $alert->id,
+                    'last_synced_at' => $currentStat->synced_at?->toIso8601String(),
                 ]);
             }
         }
