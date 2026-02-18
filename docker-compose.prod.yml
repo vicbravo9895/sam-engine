@@ -39,12 +39,12 @@ services:
       - "traefik.enable=true"
       
       # HTTP Router (redirect to HTTPS)
-      - "traefik.http.routers.sam-app-http.rule=Host(`copilot.delapengineering.com`)"
+      - "traefik.http.routers.sam-app-http.rule=Host(`cloud.samglobaltechnologies.com`)"
       - "traefik.http.routers.sam-app-http.entrypoints=web"
       - "traefik.http.routers.sam-app-http.middlewares=redirect-to-https"
       
       # HTTPS Router (main app)
-      - "traefik.http.routers.sam-app.rule=Host(`copilot.delapengineering.com`)"
+      - "traefik.http.routers.sam-app.rule=Host(`cloud.samglobaltechnologies.com`)"
       - "traefik.http.routers.sam-app.entrypoints=websecure"
       - "traefik.http.routers.sam-app.tls=true"
       - "traefik.http.routers.sam-app.tls.certresolver=letsencrypt"
@@ -122,11 +122,11 @@ services:
       # OPCIÓN 1: Routing por PATH (mismo dominio)
       # Usar si Dokploy aplica los labels correctamente
       # HTTP Router (redirect to HTTPS)
-      - "traefik.http.routers.sam-reverb-http.rule=Host(`copilot.delapengineering.com`) && PathPrefix(`/app`)"
+      - "traefik.http.routers.sam-reverb-http.rule=Host(`cloud.samglobaltechnologies.com`) && PathPrefix(`/app`)"
       - "traefik.http.routers.sam-reverb-http.entrypoints=web"
       - "traefik.http.routers.sam-reverb-http.middlewares=redirect-to-https"
       # HTTPS Router (WebSocket)
-      - "traefik.http.routers.sam-reverb.rule=Host(`copilot.delapengineering.com`) && PathPrefix(`/app`)"
+      - "traefik.http.routers.sam-reverb.rule=Host(`cloud.samglobaltechnologies.com`) && PathPrefix(`/app`)"
       - "traefik.http.routers.sam-reverb.entrypoints=websecure"
       - "traefik.http.routers.sam-reverb.tls=true"
       - "traefik.http.routers.sam-reverb.tls.certresolver=letsencrypt"
@@ -135,7 +135,7 @@ services:
       
       # OPCIÓN 2: Routing por SUBDOMAIN (más confiable)
       # Descomentar estas líneas y comentar las de arriba si usas subdomain
-      # - "traefik.http.routers.sam-reverb.rule=Host(`reverb.copilot.delapengineering.com`)"
+      # - "traefik.http.routers.sam-reverb.rule=Host(`reverb.cloud.samglobaltechnologies.com`)"
       # - "traefik.http.routers.sam-reverb.entrypoints=websecure"
       # - "traefik.http.routers.sam-reverb.tls=true"
       # - "traefik.http.routers.sam-reverb.tls.certresolver=letsencrypt"
