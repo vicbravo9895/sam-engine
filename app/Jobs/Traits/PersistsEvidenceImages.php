@@ -2,187 +2,141 @@
 
 namespace App\Jobs\Traits;
 
-use Illuminate\Support\Facades\Http;
+use App\Jobs\PersistMediaAssetJob;
+use App\Models\MediaAsset;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Trait para persistir imágenes de evidencia desde URLs de Samsara.
- * 
+ * Trait para despachar la persistencia de imágenes de evidencia de forma asíncrona.
+ *
+ * Crea registros MediaAsset y despacha PersistMediaAssetJob para cada imagen.
+ * Las URLs en los arrays se mantienen como están (source URLs) hasta que
+ * el job las reemplace con URLs locales en los campos JSON del evento.
+ *
  * Usado por ProcessSamsaraEventJob y RevalidateSamsaraEventJob.
  */
 trait PersistsEvidenceImages
 {
     /**
-     * Persiste las imágenes de evidencia desde las URLs de Samsara.
-     * 
+     * Despacha jobs asíncronos para persistir las imágenes de evidencia.
+     *
      * Busca URLs en dos lugares:
-     * 1. execution.agents[].tools[].media_urls (legacy: cuando el investigador usaba tools)
-     * 2. camera_analysis.media_urls (nuevo: análisis pre-cargado automático)
-     * 
-     * @param array|null $execution Los execution del resultado de AI
-     * @param array|null $cameraAnalysis El análisis de cámara pre-cargado
-     * @return array Los datos actualizados con URLs locales [execution, camera_analysis]
+     * 1. camera_analysis.media_urls (análisis pre-cargado automático)
+     * 2. execution.agents[].tools[].media_urls (legacy)
+     *
+     * @return array Los arrays originales sin modificar [execution, cameraAnalysis]
      */
     private function persistEvidenceImages(?array $execution, ?array $cameraAnalysis = null): array
     {
-        $totalMediaUrlsFound = 0;
-        $totalDownloaded = 0;
         $eventId = $this->event->id;
+        $companyId = $this->event->company_id;
+        $disk = config('filesystems.media');
+        $dispatched = 0;
 
-        Log::info("persistEvidenceImages: Starting", [
+        Log::info('media_asset.dispatching_evidence', [
             'event_id' => $eventId,
             'has_camera_analysis' => !empty($cameraAnalysis),
-            'camera_analysis_keys' => $cameraAnalysis ? array_keys($cameraAnalysis) : [],
         ]);
 
         // =========================================================
-        // 1. Buscar en camera_analysis (nuevo: análisis pre-cargado)
+        // 1. camera_analysis.media_urls (análisis pre-cargado)
         // =========================================================
         if ($cameraAnalysis && !empty($cameraAnalysis['media_urls'])) {
-            $totalMediaUrlsFound += count($cameraAnalysis['media_urls']);
-
-            Log::info("persistEvidenceImages: Found media_urls in camera_analysis", [
-                'event_id' => $eventId,
-                'media_urls_count' => count($cameraAnalysis['media_urls']),
-                'first_url_preview' => substr($cameraAnalysis['media_urls'][0] ?? '', 0, 100),
-            ]);
-
-            $localUrls = [];
             foreach ($cameraAnalysis['media_urls'] as $index => $samsaraUrl) {
-                Log::debug("persistEvidenceImages: Downloading image", [
-                    'event_id' => $eventId,
-                    'index' => $index,
-                    'url_preview' => substr($samsaraUrl, 0, 80),
-                ]);
-                
-                $localUrl = $this->downloadAndStoreImage($samsaraUrl);
-                if ($localUrl) {
-                    $localUrls[] = $localUrl;
-                    $totalDownloaded++;
-                    Log::info("persistEvidenceImages: Image saved successfully", [
-                        'event_id' => $eventId,
-                        'index' => $index,
-                        'local_url' => $localUrl,
-                    ]);
-                } else {
-                    Log::warning("persistEvidenceImages: Failed to download image", [
-                        'event_id' => $eventId,
-                        'index' => $index,
-                    ]);
+                if (!$this->isRemoteUrl($samsaraUrl)) {
+                    continue;
                 }
-            }
 
-            // Reemplazar con URLs locales
-            if (!empty($localUrls)) {
-                $cameraAnalysis['media_urls'] = $localUrls;
-                
-                // También actualizar las URLs en cada análisis individual
-                foreach ($cameraAnalysis['analyses'] ?? [] as $index => $analysis) {
-                    if (isset($localUrls[$index])) {
-                        $cameraAnalysis['analyses'][$index]['local_url'] = $localUrls[$index];
-                    }
-                }
-                
-                Log::info("persistEvidenceImages: Updated camera_analysis with local URLs", [
-                    'event_id' => $eventId,
-                    'local_urls_count' => count($localUrls),
+                $storagePath = 'evidence/' . Str::uuid() . '.jpg';
+
+                $asset = MediaAsset::create([
+                    'company_id' => $companyId,
+                    'assetable_type' => \App\Models\SamsaraEvent::class,
+                    'assetable_id' => $eventId,
+                    'category' => MediaAsset::CATEGORY_EVIDENCE,
+                    'disk' => $disk,
+                    'source_url' => $samsaraUrl,
+                    'storage_path' => $storagePath,
+                    'status' => MediaAsset::STATUS_PENDING,
+                    'metadata' => [
+                        'origin' => 'camera_analysis',
+                        'index' => $index,
+                    ],
                 ]);
-            } else {
-                Log::warning("persistEvidenceImages: No images were downloaded successfully", [
-                    'event_id' => $eventId,
-                    'total_urls_attempted' => count($cameraAnalysis['media_urls']),
-                ]);
+
+                PersistMediaAssetJob::dispatch($asset);
+                $dispatched++;
             }
-        } else {
-            Log::debug("persistEvidenceImages: No camera_analysis.media_urls found", [
-                'event_id' => $eventId,
-                'has_camera_analysis' => !empty($cameraAnalysis),
-                'has_media_urls' => isset($cameraAnalysis['media_urls']),
-            ]);
         }
 
         // =========================================================
-        // 2. Buscar en execution.agents[].tools[].media_urls (legacy)
+        // 2. execution.agents[].tools[].media_urls (legacy)
         // =========================================================
         if ($execution) {
             foreach ($execution['agents'] ?? [] as $agentIndex => $agent) {
                 $agentName = $agent['name'] ?? "agent_{$agentIndex}";
 
                 foreach ($agent['tools'] ?? [] as $toolIndex => $tool) {
-                    $toolName = $tool['name'] ?? "tool_{$toolIndex}";
+                    if (empty($tool['media_urls'])) {
+                        continue;
+                    }
 
-                    if (!empty($tool['media_urls'])) {
-                        $totalMediaUrlsFound += count($tool['media_urls']);
+                    foreach ($tool['media_urls'] as $urlIndex => $samsaraUrl) {
+                        if (!$this->isRemoteUrl($samsaraUrl)) {
+                            continue;
+                        }
 
-                        Log::debug("persistEvidenceImages: Found media_urls in tool", [
-                            'event_id' => $eventId,
-                            'agent_name' => $agentName,
-                            'tool_name' => $toolName,
-                            'media_urls_count' => count($tool['media_urls']),
+                        $storagePath = 'evidence/' . Str::uuid() . '.jpg';
+
+                        $asset = MediaAsset::create([
+                            'company_id' => $companyId,
+                            'assetable_type' => \App\Models\SamsaraEvent::class,
+                            'assetable_id' => $eventId,
+                            'category' => MediaAsset::CATEGORY_EVIDENCE,
+                            'disk' => $disk,
+                            'source_url' => $samsaraUrl,
+                            'storage_path' => $storagePath,
+                            'status' => MediaAsset::STATUS_PENDING,
+                            'metadata' => [
+                                'origin' => 'execution_tool',
+                                'agent' => $agentName,
+                                'tool_index' => $toolIndex,
+                                'url_index' => $urlIndex,
+                            ],
                         ]);
 
-                        $localUrls = [];
-                        foreach ($tool['media_urls'] as $samsaraUrl) {
-                            $localUrl = $this->downloadAndStoreImage($samsaraUrl);
-                            if ($localUrl) {
-                                $localUrls[] = $localUrl;
-                                $totalDownloaded++;
-                            }
-                        }
-                        // Reemplazar con URLs locales
-                        if (!empty($localUrls)) {
-                            $execution['agents'][$agentIndex]['tools'][$toolIndex]['media_urls'] = $localUrls;
-                        }
+                        PersistMediaAssetJob::dispatch($asset);
+                        $dispatched++;
                     }
                 }
             }
         }
 
-        Log::info("persistEvidenceImages: Completed", [
+        Log::info('media_asset.evidence_dispatched', [
             'event_id' => $eventId,
-            'total_media_urls_found' => $totalMediaUrlsFound,
-            'total_downloaded' => $totalDownloaded,
+            'jobs_dispatched' => $dispatched,
         ]);
 
         return [$execution, $cameraAnalysis];
     }
 
     /**
-     * Descarga una imagen de una URL y la guarda localmente
-     * 
-     * @param string $url URL de la imagen (S3 de Samsara)
-     * @return string|null URL local de la imagen guardada
+     * Verifica si la URL es una URL remota (no local).
+     * Evita re-despachar para URLs que ya fueron persistidas.
      */
-    private function downloadAndStoreImage(string $url): ?string
+    private function isRemoteUrl(string $url): bool
     {
-        try {
-            $response = Http::timeout(30)->get($url);
+        $appUrl = config('app.url', 'http://localhost');
 
-            if (!$response->successful()) {
-                Log::warning("Failed to download image", ['url' => substr($url, 0, 100)]);
-                return null;
-            }
-
-            $filename = Str::uuid() . '.jpg';
-            $path = "evidence/{$filename}";
-            $disk = Storage::disk(config('filesystems.media'));
-
-            $disk->put($path, $response->body());
-
-            Log::debug("Evidence image saved", [
-                'event_id' => $this->event->id,
-                'path' => $path,
-            ]);
-
-            return $disk->url($path);
-        } catch (\Exception $e) {
-            Log::warning("Error storing image", [
-                'url' => substr($url, 0, 100),
-                'error' => $e->getMessage(),
-            ]);
-            return null;
+        if (str_starts_with($url, $appUrl)) {
+            return false;
         }
+
+        if (str_starts_with($url, '/storage/')) {
+            return false;
+        }
+
+        return str_starts_with($url, 'http://') || str_starts_with($url, 'https://');
     }
 }

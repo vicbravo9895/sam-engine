@@ -160,6 +160,14 @@ return [
             'days' => 14,
             'formatter' => JsonFormatter::class,
         ],
+
+        'media-assets' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/media-assets.json'),
+            'level' => 'debug',
+            'days' => 14,
+            'formatter' => JsonFormatter::class,
+        ],
     ],
 
 ];

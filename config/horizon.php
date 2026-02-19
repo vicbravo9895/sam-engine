@@ -262,6 +262,22 @@ return [
             'nice' => 0,
         ],
         
+        // Supervisor para persistencia de assets (media)
+        'media-assets-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['media-assets'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'maxProcesses' => 3,
+            'minProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 120,
+            'nice' => 0,
+        ],
+
         // Supervisor para tareas generales (baja prioridad)
         'default-supervisor' => [
             'connection' => 'redis',
@@ -302,6 +318,14 @@ return [
                 'maxProcesses' => 3,
                 'minProcesses' => 1,
             ],
+
+            // Media assets: descarga y persistencia de archivos
+            'media-assets-supervisor' => [
+                'maxProcesses' => 4,
+                'minProcesses' => 1,
+                'balanceMaxShift' => 1,
+                'balanceCooldown' => 3,
+            ],
             
             // Default: tareas de fondo
             'default-supervisor' => [
@@ -320,6 +344,10 @@ return [
                 'minProcesses' => 1,
             ],
             'notification-supervisor' => [
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
+            ],
+            'media-assets-supervisor' => [
                 'maxProcesses' => 2,
                 'minProcesses' => 1,
             ],

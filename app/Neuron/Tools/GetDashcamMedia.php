@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Neuron\Tools;
 
+use App\Jobs\PersistMediaAssetJob;
+use App\Models\MediaAsset;
 use App\Models\Vehicle;
 use App\Neuron\Tools\Concerns\FlexibleVehicleSearch;
 use App\Neuron\Tools\Concerns\UsesCompanyContext;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use NeuronAI\Tools\PropertyType;
 use NeuronAI\Tools\Tool;
@@ -304,8 +306,12 @@ class GetDashcamMedia extends Tool
     }
 
     /**
-     * Process a single media item, downloading and persisting if needed.
-     * 
+     * Process a single media item.
+     *
+     * Si ya está persistido en disco, devuelve la URL local.
+     * Si no, crea un MediaAsset y despacha PersistMediaAssetJob para descarga asíncrona.
+     * Devuelve la URL original mientras el job procesa.
+     *
      * API response structure:
      * - input: "dashcamRoadFacing" | "dashcamDriverFacing"
      * - mediaType: "image" | "video"
@@ -315,39 +321,75 @@ class GetDashcamMedia extends Tool
      */
     protected function processMediaItem(array $mediaItem, string $vehicleId): ?array
     {
-        // API uses 'input' for the camera type (dashcamRoadFacing, dashcamDriverFacing)
         $inputType = $mediaItem['input'] ?? null;
-        // API uses 'urlInfo.url' for the actual URL
         $mediaUrl = $mediaItem['urlInfo']['url'] ?? null;
-        // API uses 'startTime' for the timestamp
         $timestamp = $mediaItem['startTime'] ?? null;
-        // No explicit ID, so we generate one from the URL path
         $mediaId = $this->extractMediaIdFromUrl($mediaUrl);
 
         if (!$mediaUrl || !$inputType) {
             return null;
         }
 
-        // Generate unique filename based on vehicle, input type, and timestamp
         $uniqueKey = $this->generateUniqueKey($vehicleId, $inputType, $timestamp, $mediaId);
         $extension = $this->getExtensionFromType($mediaItem['mediaType'] ?? 'image', $mediaUrl);
         $filename = "{$uniqueKey}.{$extension}";
         $storagePath = self::STORAGE_PATH . "/{$vehicleId}/{$filename}";
 
-        // Check if already persisted
         $localUrl = null;
         $isPersisted = false;
-        
-        if (Storage::disk($this->mediaDisk())->exists($storagePath)) {
-            $localUrl = Storage::disk($this->mediaDisk())->url($storagePath);
+        $disk = $this->mediaDisk();
+
+        // 1. Ya existe en disco → devolver URL local
+        if (Storage::disk($disk)->exists($storagePath)) {
+            $localUrl = Storage::disk($disk)->url($storagePath);
             $isPersisted = true;
         } else {
-            // Download and persist
-            try {
-                $localUrl = $this->downloadAndPersist($mediaUrl, $storagePath);
+            // 2. Buscar MediaAsset completado existente
+            $existingAsset = MediaAsset::where('storage_path', $storagePath)
+                ->where('status', MediaAsset::STATUS_COMPLETED)
+                ->first();
+
+            if ($existingAsset) {
+                $localUrl = $existingAsset->local_url;
                 $isPersisted = true;
-            } catch (\Exception $e) {
-                // If download fails, still return the original URL
+            } else {
+                // 3. Verificar que no hay un job pendiente/procesando para este path
+                $pendingExists = MediaAsset::where('storage_path', $storagePath)
+                    ->whereIn('status', [MediaAsset::STATUS_PENDING, MediaAsset::STATUS_PROCESSING])
+                    ->exists();
+
+                if (!$pendingExists) {
+                    $context = \App\Neuron\CompanyContext::current();
+                    $companyId = $context?->getCompanyId();
+
+                    if ($companyId) {
+                        $asset = MediaAsset::create([
+                            'company_id' => $companyId,
+                            'assetable_type' => null,
+                            'assetable_id' => null,
+                            'category' => MediaAsset::CATEGORY_DASHCAM,
+                            'disk' => $disk,
+                            'source_url' => $mediaUrl,
+                            'storage_path' => $storagePath,
+                            'status' => MediaAsset::STATUS_PENDING,
+                            'metadata' => [
+                                'vehicle_id' => $vehicleId,
+                                'input_type' => $inputType,
+                                'media_type' => $mediaItem['mediaType'] ?? 'image',
+                                'timestamp' => $timestamp,
+                            ],
+                        ]);
+
+                        PersistMediaAssetJob::dispatch($asset);
+
+                        Log::debug('media_asset.dashcam_dispatched', [
+                            'asset_id' => $asset->id,
+                            'vehicle_id' => $vehicleId,
+                            'storage_path' => $storagePath,
+                        ]);
+                    }
+                }
+
                 $localUrl = $mediaUrl;
             }
         }
@@ -451,29 +493,6 @@ class GetDashcamMedia extends Tool
         }
 
         return 'jpg';
-    }
-
-    /**
-     * Download media from URL and persist to storage.
-     */
-    protected function downloadAndPersist(string $url, string $storagePath): ?string
-    {
-        $response = Http::timeout(30)->get($url);
-
-        if (!$response->successful()) {
-            throw new \Exception("Failed to download media: HTTP {$response->status()}");
-        }
-
-        $disk = Storage::disk($this->mediaDisk());
-
-        $directory = dirname($storagePath);
-        if (!$disk->exists($directory)) {
-            $disk->makeDirectory($directory);
-        }
-
-        $disk->put($storagePath, $response->body());
-
-        return $disk->url($storagePath);
     }
 
     /**

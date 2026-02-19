@@ -276,8 +276,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
             // Las notificaciones se ejecutan en Laravel via SendNotificationJob
             $cameraAnalysis = $result['camera_analysis'] ?? null;
             
-            // Persistir imágenes de evidencia si existen
-            // Esto descarga las imágenes de Samsara y las guarda localmente
+            // Despachar persistencia asíncrona de imágenes de evidencia (PersistMediaAssetJob)
             [$execution, $cameraAnalysis] = $this->persistEvidenceImages($execution, $cameraAnalysis);
 
             // Agregar camera_analysis al execution para que se guarde en ai_actions
@@ -538,8 +537,7 @@ class ProcessSamsaraEventJob implements ShouldQueue
         }
     }
     
-    // Métodos persistEvidenceImages y downloadAndStoreImage están en el trait PersistsEvidenceImages
-    // NOTA: persistTwilioCallSid fue removido porque ahora SendNotificationJob maneja esto
+    // Persistencia de evidencia delegada a PersistMediaAssetJob via trait PersistsEvidenceImages
 
     /**
      * Actualiza la descripción del evento si se encontró un behavior_name más específico

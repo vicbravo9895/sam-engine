@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Jobs\PersistMediaAssetJob;
 use App\Models\Company;
+use App\Models\MediaAsset;
 use App\Models\SafetySignal;
 use App\Samsara\Client\SamsaraClient;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -418,90 +418,62 @@ class SafetyEventsStreamDaemon extends Command
     }
 
     /**
-     * Download and store media files for a safety signal.
-     * 
-     * This downloads media immediately while URLs are fresh (they expire in ~8 hours).
+     * Despacha jobs asíncronos para descargar y persistir media de un safety signal.
+     *
+     * Crea un MediaAsset por cada URL y despacha PersistMediaAssetJob.
+     * El job actualiza la URL local en media_urls del signal al completarse.
      */
     private function downloadSignalMedia(SafetySignal $signal): void
     {
         $mediaUrls = $signal->media_urls;
-        
+
         if (!is_array($mediaUrls) || empty($mediaUrls)) {
             return;
         }
 
-        $updatedMediaUrls = [];
-        $downloadedCount = 0;
+        $disk = config('filesystems.media');
+        $dispatched = 0;
 
-        foreach ($mediaUrls as $media) {
+        foreach ($mediaUrls as $index => $media) {
             $originalUrl = $media['url'] ?? $media['mediaUrl'] ?? null;
-            
+
             if (!$originalUrl) {
-                $updatedMediaUrls[] = $media;
                 continue;
             }
 
+            // Ya fue persistida anteriormente
             if (!empty($media['original_url'])) {
-                $updatedMediaUrls[] = $media;
                 continue;
             }
 
-            // Download and store
-            $localUrl = $this->downloadMedia($originalUrl, $signal->id);
-            
-            if ($localUrl) {
-                $media['url'] = $localUrl;
-                $media['original_url'] = $originalUrl;
-                $downloadedCount++;
-            }
-            
-            $updatedMediaUrls[] = $media;
+            $extension = $this->getExtensionFromUrl($originalUrl);
+            $storagePath = 'signal-media/' . Str::uuid() . '.' . $extension;
+
+            $asset = MediaAsset::create([
+                'company_id' => $signal->company_id,
+                'assetable_type' => SafetySignal::class,
+                'assetable_id' => $signal->id,
+                'category' => MediaAsset::CATEGORY_SIGNAL,
+                'disk' => $disk,
+                'source_url' => $originalUrl,
+                'storage_path' => $storagePath,
+                'status' => MediaAsset::STATUS_PENDING,
+                'metadata' => [
+                    'media_index' => $index,
+                    'media_type' => $media['type'] ?? $media['mediaType'] ?? null,
+                ],
+            ]);
+
+            PersistMediaAssetJob::dispatch($asset);
+            $dispatched++;
         }
 
-        // Update signal with local URLs
-        if ($downloadedCount > 0) {
-            $signal->update(['media_urls' => $updatedMediaUrls]);
-            
-            Log::debug('SafetyEventsStreamDaemon: Downloaded media for signal', [
+        if ($dispatched > 0) {
+            Log::info('media_asset.signal_media_dispatched', [
                 'signal_id' => $signal->id,
-                'downloaded_count' => $downloadedCount,
+                'company_id' => $signal->company_id,
+                'jobs_dispatched' => $dispatched,
             ]);
-        }
-    }
-
-    /**
-     * Download a single media file and store locally.
-     */
-    private function downloadMedia(string $url, int $signalId): ?string
-    {
-        try {
-            // Determine file extension from URL
-            $extension = $this->getExtensionFromUrl($url);
-            
-            // Download with timeout
-            $response = Http::timeout(60)->get($url);
-
-            if (!$response->successful()) {
-                Log::warning("SafetyEventsStreamDaemon: Failed to download media", [
-                    'signal_id' => $signalId,
-                    'status' => $response->status(),
-                ]);
-                return null;
-            }
-
-            $filename = Str::uuid() . '.' . $extension;
-            $path = "signal-media/{$filename}";
-            $disk = Storage::disk(config('filesystems.media'));
-
-            $disk->put($path, $response->body());
-
-            return $disk->url($path);
-        } catch (\Exception $e) {
-            Log::warning("SafetyEventsStreamDaemon: Error downloading media", [
-                'signal_id' => $signalId,
-                'error' => $e->getMessage(),
-            ]);
-            return null;
         }
     }
 
@@ -511,14 +483,13 @@ class SafetyEventsStreamDaemon extends Command
     private function getExtensionFromUrl(string $url): string
     {
         $path = parse_url($url, PHP_URL_PATH) ?? '';
-        
+
         if (str_contains($path, '.mp4')) return 'mp4';
         if (str_contains($path, '.webm')) return 'webm';
         if (str_contains($path, '.mov')) return 'mov';
         if (str_contains($path, '.jpg') || str_contains($path, '.jpeg')) return 'jpg';
         if (str_contains($path, '.png')) return 'png';
 
-        // Default to mp4 for Samsara dashcam media
         return 'mp4';
     }
 }
