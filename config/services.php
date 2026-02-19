@@ -61,4 +61,8 @@ return [
         'callback_url' => env('TWILIO_CALLBACK_URL'),
     ],
 
+    'deals' => [
+        'token' => env('DEALS_API_TOKEN'),
+    ],
+
 ];

@@ -2,11 +2,13 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\DealController;
 use App\Http\Controllers\SamsaraWebhookController;
 use App\Http\Controllers\SamsaraEventController;
 use App\Http\Controllers\SamsaraEventReviewController;
 use App\Http\Controllers\SafetySignalController;
 use App\Http\Controllers\TwilioCallbackController;
+use App\Http\Middleware\ValidateDealsToken;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -55,3 +57,7 @@ Route::prefix('safety-signals')->middleware(['web', 'auth'])->group(function () 
     Route::get('/analytics', [SafetySignalController::class, 'analytics']);
     Route::get('/analytics/advanced', [SafetySignalController::class, 'advancedAnalytics']);
 });
+
+// Deals API (external, pre-shared token auth)
+Route::post('/deals', [DealController::class, 'store'])
+    ->middleware(ValidateDealsToken::class);

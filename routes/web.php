@@ -13,6 +13,7 @@ use App\Http\Controllers\StorageController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\SuperAdmin\DashboardController as SuperAdminDashboardController;
 use App\Http\Controllers\SuperAdmin\CompanyController as SuperAdminCompanyController;
+use App\Http\Controllers\SuperAdmin\DealController as SuperAdminDealController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Middleware\EnsureSuperAdmin;
 use Illuminate\Support\Facades\Auth;
@@ -127,6 +128,13 @@ Route::middleware(['auth', 'verified', EnsureSuperAdmin::class])
         Route::resource('users', SuperAdminUserController::class);
         Route::post('users/{user}/toggle-status', [SuperAdminUserController::class, 'toggleStatus'])
             ->name('users.toggle-status');
+
+        // Deals management
+        Route::get('deals', [SuperAdminDealController::class, 'index'])->name('deals.index');
+        Route::get('deals/{deal}', [SuperAdminDealController::class, 'show'])->name('deals.show');
+        Route::patch('deals/{deal}/status', [SuperAdminDealController::class, 'updateStatus'])->name('deals.update-status');
+        Route::patch('deals/{deal}/notes', [SuperAdminDealController::class, 'updateNotes'])->name('deals.update-notes');
+        Route::delete('deals/{deal}', [SuperAdminDealController::class, 'destroy'])->name('deals.destroy');
     });
 
 require __DIR__.'/settings.php';
