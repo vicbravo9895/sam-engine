@@ -98,3 +98,10 @@ Schedule::command('samsara:check-stale-vehicles')
     ->withoutOverlapping()
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/stale-vehicle-check.log'));
+
+// Migrate local media files to S3 and free disk space (daily at 2:00 AM)
+Schedule::command('media:migrate-to-s3 --delete --update-urls')
+    ->dailyAt('02:00')
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/media-s3-migration.log'));

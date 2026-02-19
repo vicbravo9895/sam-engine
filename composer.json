@@ -39,6 +39,7 @@
         "laravel/tinker": "^2.10.1",
         "laravel/wayfinder": "^0.1.9",
         "laraveles/spanish": "^1.5",
+        "league/flysystem-aws-s3-v3": "^3.31",
         "neuron-core/neuron-ai": "^2.10",
         "predis/predis": "^3.3"
     },

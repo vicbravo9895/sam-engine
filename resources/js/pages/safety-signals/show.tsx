@@ -222,13 +222,13 @@ export default function SafetySignalShow({ signal }: ShowProps) {
                                     {signal.media_urls.map((media, index) => {
                                         const mediaUrl = media.url || media.mediaUrl || '';
                                         const isVideo = mediaUrl.includes('.mp4') || mediaUrl.includes('.webm') || media.type === 'video';
-                                        const isLocalUrl = mediaUrl.startsWith('/storage/');
+                                        const isPersistedMedia = !!media.original_url || mediaUrl.startsWith('/storage/');
                                         
                                         return (
                                             <div key={index} className="border rounded-lg overflow-hidden bg-muted/20">
                                                 {mediaUrl ? (
                                                     isVideo ? (
-                                                        isLocalUrl ? (
+                                                        isPersistedMedia ? (
                                                             <video 
                                                                 src={mediaUrl}
                                                                 controls

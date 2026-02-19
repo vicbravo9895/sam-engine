@@ -91,14 +91,14 @@ class CompanyController extends Controller
             'logo.max' => 'El logo no puede superar 2MB.',
         ]);
 
-        // Handle logo upload
         if ($request->hasFile('logo')) {
-            // Delete old logo
+            $mediaDisk = config('filesystems.media');
+
             if ($company->logo_path) {
-                Storage::disk('public')->delete($company->logo_path);
+                Storage::disk($mediaDisk)->delete($company->logo_path);
             }
 
-            $path = $request->file('logo')->store('company-logos', 'public');
+            $path = $request->file('logo')->store('company-logos', $mediaDisk);
             $validated['logo_path'] = $path;
         }
 

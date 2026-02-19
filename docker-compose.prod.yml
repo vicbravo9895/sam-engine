@@ -30,9 +30,6 @@ services:
     env_file:
       - .env
     volumes:
-      # Persistent storage for uploaded files (dashcam images, evidence, etc.)
-      - sam-storage:/var/www/html/storage/app/public
-      # Shared logs volume for Grafana Alloy
       - sam-logs:/var/www/html/storage/logs
     labels:
       # Enable Traefik for this service
@@ -82,9 +79,6 @@ services:
     env_file:
       - .env
     volumes:
-      # Share storage volume with app (horizon saves evidence images)
-      - sam-storage:/var/www/html/storage/app/public
-      # Shared logs volume for Grafana Alloy
       - sam-logs:/var/www/html/storage/logs
     depends_on:
       pgsql:
@@ -172,9 +166,6 @@ services:
     env_file:
       - .env
     volumes:
-      # Share storage volume with app (daemon saves media files)
-      - sam-storage:/var/www/html/storage/app/public
-      # Shared logs volume for Grafana Alloy
       - sam-logs:/var/www/html/storage/logs
     depends_on:
       pgsql:
@@ -292,8 +283,6 @@ volumes:
   sam-pgsql-data:
     driver: local
   sam-redis-data:
-    driver: local
-  sam-storage:
     driver: local
   sam-logs:
     driver: local

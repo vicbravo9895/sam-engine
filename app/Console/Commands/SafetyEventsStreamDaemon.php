@@ -441,8 +441,7 @@ class SafetyEventsStreamDaemon extends Command
                 continue;
             }
 
-            // Skip if already a local URL
-            if (str_starts_with($originalUrl, '/storage/')) {
+            if (!empty($media['original_url'])) {
                 $updatedMediaUrls[] = $media;
                 continue;
             }
@@ -490,14 +489,13 @@ class SafetyEventsStreamDaemon extends Command
                 return null;
             }
 
-            // Generate unique filename
             $filename = Str::uuid() . '.' . $extension;
             $path = "signal-media/{$filename}";
+            $disk = Storage::disk(config('filesystems.media'));
 
-            // Store using public disk
-            Storage::disk('public')->put($path, $response->body());
+            $disk->put($path, $response->body());
 
-            return "/storage/{$path}";
+            return $disk->url($path);
         } catch (\Exception $e) {
             Log::warning("SafetyEventsStreamDaemon: Error downloading media", [
                 'signal_id' => $signalId,

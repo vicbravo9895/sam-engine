@@ -8,29 +8,30 @@ use Illuminate\Support\Facades\Storage;
 class StorageController extends Controller
 {
     /**
-     * Serve storage files with CORS headers.
-     * This is needed because static files from the symlink don't go through Laravel middleware.
+     * Serve storage files with CORS headers (local disk) or redirect to S3.
      */
     public function serve(Request $request, string $path)
     {
-        // Only allow access to dashcam-media
-        $allowedPaths = ['dashcam-media'];
+        $allowedPrefixes = ['dashcam-media', 'evidence', 'signal-media', 'company-logos'];
         $pathParts = explode('/', $path, 2);
-        
-        if (!in_array($pathParts[0], $allowedPaths)) {
+
+        if (!in_array($pathParts[0], $allowedPrefixes)) {
             abort(403, 'Access denied');
         }
 
-        // Check if file exists
-        if (!Storage::disk('public')->exists($path)) {
+        $disk = Storage::disk(config('filesystems.media'));
+
+        if (!$disk->exists($path)) {
             abort(404, 'File not found');
         }
 
-        // Get file path and mime type
-        $filePath = Storage::disk('public')->path($path);
-        $mimeType = Storage::disk('public')->mimeType($path) ?? 'application/octet-stream';
+        if (config('filesystems.media') !== 'public') {
+            return redirect()->to($disk->url($path));
+        }
 
-        // Return file with CORS headers
+        $filePath = $disk->path($path);
+        $mimeType = $disk->mimeType($path) ?? 'application/octet-stream';
+
         return response()->file($filePath, [
             'Content-Type' => $mimeType,
             'Cache-Control' => 'public, max-age=3600',

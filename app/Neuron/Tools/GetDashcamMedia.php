@@ -17,10 +17,10 @@ class GetDashcamMedia extends Tool
 {
     use FlexibleVehicleSearch;
     use UsesCompanyContext;
-    /**
-     * Storage disk for media files.
-     */
-    private const STORAGE_DISK = 'public';
+    private function mediaDisk(): string
+    {
+        return config('filesystems.media');
+    }
 
     /**
      * Storage path prefix for dashcam media.
@@ -338,10 +338,8 @@ class GetDashcamMedia extends Tool
         $localUrl = null;
         $isPersisted = false;
         
-        if (Storage::disk(self::STORAGE_DISK)->exists($storagePath)) {
-            // Already exists, use existing file
-            // Use url() to route through StorageController which adds CORS headers
-            $localUrl = url('/storage/' . $storagePath);
+        if (Storage::disk($this->mediaDisk())->exists($storagePath)) {
+            $localUrl = Storage::disk($this->mediaDisk())->url($storagePath);
             $isPersisted = true;
         } else {
             // Download and persist
@@ -466,17 +464,16 @@ class GetDashcamMedia extends Tool
             throw new \Exception("Failed to download media: HTTP {$response->status()}");
         }
 
-        // Ensure directory exists
+        $disk = Storage::disk($this->mediaDisk());
+
         $directory = dirname($storagePath);
-        if (!Storage::disk(self::STORAGE_DISK)->exists($directory)) {
-            Storage::disk(self::STORAGE_DISK)->makeDirectory($directory);
+        if (!$disk->exists($directory)) {
+            $disk->makeDirectory($directory);
         }
 
-        // Save to storage
-        Storage::disk(self::STORAGE_DISK)->put($storagePath, $response->body());
+        $disk->put($storagePath, $response->body());
 
-        // Use url() to route through StorageController which adds CORS headers
-        return url('/storage/' . $storagePath);
+        return $disk->url($storagePath);
     }
 
     /**

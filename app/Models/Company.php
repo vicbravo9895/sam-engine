@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class Company extends Model
@@ -234,7 +235,7 @@ class Company extends Model
             return null;
         }
 
-        return asset('storage/' . $this->logo_path);
+        return Storage::disk(config('filesystems.media'))->url($this->logo_path);
     }
 
     /**

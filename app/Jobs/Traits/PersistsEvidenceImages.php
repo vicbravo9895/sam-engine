@@ -158,7 +158,6 @@ trait PersistsEvidenceImages
     private function downloadAndStoreImage(string $url): ?string
     {
         try {
-            // Descargar imagen
             $response = Http::timeout(30)->get($url);
 
             if (!$response->successful()) {
@@ -166,20 +165,18 @@ trait PersistsEvidenceImages
                 return null;
             }
 
-            // Generar nombre único
             $filename = Str::uuid() . '.jpg';
             $path = "evidence/{$filename}";
+            $disk = Storage::disk(config('filesystems.media'));
 
-            // Guardar usando Storage (public disk)
-            Storage::disk('public')->put($path, $response->body());
+            $disk->put($path, $response->body());
 
             Log::debug("Evidence image saved", [
                 'event_id' => $this->event->id,
                 'path' => $path,
             ]);
 
-            // Retornar URL pública
-            return "/storage/{$path}";
+            return $disk->url($path);
         } catch (\Exception $e) {
             Log::warning("Error storing image", [
                 'url' => substr($url, 0, 100),
