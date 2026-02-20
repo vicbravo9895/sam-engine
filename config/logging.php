@@ -55,7 +55,10 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'daily,grafana')),
+            'channels' => array_values(array_merge(
+                explode(',', (string) env('LOG_STACK', 'daily,grafana')),
+                config('sentry.enable_logs', false) ? ['sentry_logs'] : []
+            )),
             'ignore_exceptions' => false,
         ],
 

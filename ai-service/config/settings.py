@@ -131,6 +131,8 @@ class SentryConfig:
     )
     SEND_DEFAULT_PII = os.getenv("SENTRY_SEND_DEFAULT_PII", "false").lower() == "true"
     ENABLE_LOGS = os.getenv("SENTRY_ENABLE_LOGS", "true").lower() == "true"
+    # Minimum level for logs sent to Sentry (DEBUG, INFO, WARNING, ERROR)
+    LOGS_LEVEL = os.getenv("SENTRY_LOGS_LEVEL", "INFO").upper()
 
     @classmethod
     def is_configured(cls) -> bool:

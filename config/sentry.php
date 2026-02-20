@@ -33,13 +33,23 @@ return [
     'profiles_sample_rate' => env('SENTRY_PROFILES_SAMPLE_RATE') === null ? null : (float) env('SENTRY_PROFILES_SAMPLE_RATE'),
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#enable_logs
-    'enable_logs' => env('SENTRY_ENABLE_LOGS', false),
+    'enable_logs' => env('SENTRY_ENABLE_LOGS', true),
 
     // The minimum log level that will be sent to Sentry as logs using the `sentry_logs` logging channel
     'logs_channel_level' => env('SENTRY_LOG_LEVEL', env('SENTRY_LOGS_LEVEL', env('LOG_LEVEL', 'debug'))),
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#send_default_pii
     'send_default_pii' => env('SENTRY_SEND_DEFAULT_PII', false),
+
+    // Hosts to which Sentry will attach sentry-trace and baggage headers on outgoing HTTP requests (distributed tracing).
+    // Unset = default list. Set to "host1,host2" for custom. Set to empty or "," to disable propagation.
+    'trace_propagation_targets' => (function () {
+        $v = env('SENTRY_TRACE_PROPAGATION_TARGETS');
+        $list = $v !== null && $v !== ''
+            ? array_values(array_filter(array_map('trim', explode(',', (string) $v))))
+            : ['ai-service', 'localhost', '127.0.0.1'];
+        return $list ?: [];
+    })(),
 
     // @see: https://docs.sentry.io/platforms/php/guides/laravel/configuration/options/#ignore_exceptions
     // 'ignore_exceptions' => [],

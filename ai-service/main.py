@@ -19,6 +19,14 @@ from api import router, analytics_router, analysis_router
 # ============================================================================
 # SENTRY (must be initialized before other imports that might trigger errors)
 # ============================================================================
+def _sentry_before_send_log(log, hint):
+    """Filter: drop low-value health-check logs to reduce noise in Sentry."""
+    if log.get("message") and "health" in log["message"].lower():
+        if log.get("level") in ("debug", "info"):
+            return None
+    return log
+
+
 if SentryConfig.is_configured():
     sentry_sdk.init(
         dsn=SentryConfig.DSN,
@@ -29,6 +37,7 @@ if SentryConfig.is_configured():
         traces_sample_rate=SentryConfig.TRACES_SAMPLE_RATE,
         profile_session_sample_rate=SentryConfig.PROFILE_SESSION_SAMPLE_RATE,
         profile_lifecycle="trace",
+        before_send_log=_sentry_before_send_log if SentryConfig.ENABLE_LOGS else None,
     )
 from core.structured_logging import (
     setup_logging,

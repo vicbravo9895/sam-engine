@@ -771,7 +771,10 @@ sail artisan test --coverage
 
 ## Observabilidad
 
-- **Sentry**: Error monitoring, logs, tracing y profiling. Captura excepciones no manejadas, logs (canal `sentry_logs`), transacciones y spans de performance. Profiling requiere extensión Excimer (`pecl install excimer`).
+- **Sentry**: Error monitoring, **logs**, **tracing** y profiling en Laravel y AI Service. Puede reemplazar o complementar Grafana/Loki para logs y trazas.
+  - **Logs**: Con `SENTRY_ENABLE_LOGS=true` el canal `sentry_logs` se añade al stack de Laravel; los logs se envían a Sentry (sección Logs). En AI Service, `enable_logs=True` y `before_send_log` filtran ruido (p. ej. health).
+  - **Trazas completas**: Laravel envía `sentry-trace` y `baggage` a las peticiones salientes (p. ej. al AI Service). `trace_propagation_targets` en `config/sentry.php` incluye por defecto `ai-service`, `localhost`, `127.0.0.1`. En Sentry Performance se ve la transacción end-to-end (web/job → HTTP client → AI Service).
+  - Profiling requiere extensión Excimer (`pecl install excimer`).
 - **Laravel Pulse** (`/pulse`): Dashboard de monitoreo en tiempo real
 - **Langfuse** (`localhost:3030`): Traces de ejecución de agentes AI Service
 - **Laravel Telescope** (`/telescope`): Requests, jobs, queries

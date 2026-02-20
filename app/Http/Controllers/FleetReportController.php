@@ -19,6 +19,12 @@ class FleetReportController extends Controller
         $user = $request->user();
         $companyId = $user->company_id;
 
+        if ($companyId === null) {
+            abort(403, __('You must be assigned to a company to view the fleet report.'));
+        }
+
+        $companyId = (int) $companyId;
+
         // Get available tags for the filter dropdown (only those with vehicles)
         $tags = Tag::forCompany($companyId)
             ->whereNotNull('vehicles')

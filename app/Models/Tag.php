@@ -57,9 +57,14 @@ class Tag extends Model
 
     /**
      * Scope a query to only include tags for a specific company.
+     * When companyId is null (e.g. user not assigned to a company), returns a query that matches no rows.
      */
-    public function scopeForCompany($query, int $companyId)
+    public function scopeForCompany($query, ?int $companyId)
     {
+        if ($companyId === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
         return $query->where('company_id', $companyId);
     }
 
