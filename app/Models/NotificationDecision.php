@@ -37,11 +37,36 @@ class NotificationDecision extends Model
         'created_at' => 'datetime',
     ];
 
-    // Escalation levels
-    const ESCALATION_CRITICAL = 'critical';
-    const ESCALATION_HIGH = 'high';
-    const ESCALATION_LOW = 'low';
-    const ESCALATION_NONE = 'none';
+    // Escalation levels (must match DB check constraint)
+    public const ESCALATION_EMERGENCY = 'emergency';
+    public const ESCALATION_CRITICAL = 'critical';
+    public const ESCALATION_HIGH = 'high';
+    public const ESCALATION_LOW = 'low';
+    public const ESCALATION_NONE = 'none';
+
+    /** @var list<string> Allowed values for escalation_level in DB */
+    public const ESCALATION_LEVELS = [
+        self::ESCALATION_EMERGENCY,
+        self::ESCALATION_CRITICAL,
+        self::ESCALATION_HIGH,
+        self::ESCALATION_LOW,
+        self::ESCALATION_NONE,
+    ];
+
+    /**
+     * Normalize escalation level to an allowed DB value.
+     * Use before persisting to avoid check constraint violations.
+     */
+    public static function normalizeEscalationLevel(?string $level): string
+    {
+        if ($level === null || $level === '') {
+            return self::ESCALATION_NONE;
+        }
+        $level = strtolower(trim($level));
+        return in_array($level, self::ESCALATION_LEVELS, true)
+            ? $level
+            : self::ESCALATION_CRITICAL;
+    }
 
     /**
      * Boot method to set created_at.
@@ -122,6 +147,7 @@ class NotificationDecision extends Model
     public function getEscalationLabel(): string
     {
         return match($this->escalation_level) {
+            self::ESCALATION_EMERGENCY => 'Emergencia',
             self::ESCALATION_CRITICAL => 'Crítico',
             self::ESCALATION_HIGH => 'Alto',
             self::ESCALATION_LOW => 'Bajo',

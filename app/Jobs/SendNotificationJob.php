@@ -381,7 +381,7 @@ class SendNotificationJob implements ShouldQueue
             ['alert_id' => $this->alert->id],
             [
                 'should_notify' => $this->decision['should_notify'] ?? false,
-                'escalation_level' => $this->decision['escalation_level'] ?? 'none',
+                'escalation_level' => NotificationDecision::normalizeEscalationLevel($this->decision['escalation_level'] ?? null),
                 'message_text' => $this->decision['message_text'] ?? null,
                 'call_script' => $this->decision['call_script'] ?? null,
                 'reason' => $this->decision['reason'] ?? null,
@@ -416,7 +416,7 @@ class SendNotificationJob implements ShouldQueue
             ['alert_id' => $this->alert->id],
             [
                 'should_notify' => false,
-                'escalation_level' => $this->decision['escalation_level'] ?? 'none',
+                'escalation_level' => NotificationDecision::normalizeEscalationLevel($this->decision['escalation_level'] ?? null),
                 'message_text' => $this->decision['message_text'] ?? null,
                 'call_script' => $this->decision['call_script'] ?? null,
                 'reason' => $this->decision['reason'] ?? 'should_notify is false',
@@ -430,7 +430,7 @@ class SendNotificationJob implements ShouldQueue
             ['alert_id' => $this->alert->id],
             [
                 'should_notify' => true,
-                'escalation_level' => $this->decision['escalation_level'] ?? 'none',
+                'escalation_level' => NotificationDecision::normalizeEscalationLevel($this->decision['escalation_level'] ?? null),
                 'message_text' => $this->decision['message_text'] ?? null,
                 'call_script' => $this->decision['call_script'] ?? null,
                 'reason' => $checkResult['reason'] ?? 'Bloqueado por dedupe/throttle',
