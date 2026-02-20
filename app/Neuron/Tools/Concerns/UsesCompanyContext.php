@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Neuron\Tools\Concerns;
 
 use App\Neuron\CompanyContext;
-use App\Samsara\Client\SamsaraClient;
+use App\Samsara\Client\CopilotAdapter;
 
 /**
  * Trait for tools that need company context.
@@ -45,7 +45,7 @@ trait UsesCompanyContext
     /**
      * Create a Samsara client for the current company.
      */
-    protected function createSamsaraClient(): SamsaraClient
+    protected function createSamsaraClient(): CopilotAdapter
     {
         return $this->getCompanyContext()->createSamsaraClient();
     }

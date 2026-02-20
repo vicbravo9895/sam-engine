@@ -297,10 +297,10 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                 {/* Contacts List */}
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {contacts.data.length === 0 ? (
-                        <Card className="col-span-full">
+                        <Card className="col-span-full rounded-xl shadow-sm">
                             <CardContent className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
-                                <Users className="mb-4 size-12 opacity-50" />
-                                <p className="text-lg font-semibold">No hay contactos</p>
+                                <Users className="mb-4 size-16 text-muted-foreground/20" />
+                                <p className="font-display text-lg font-semibold">No hay contactos</p>
                                 <p className="text-sm">
                                     {filters.search || filters.type 
                                         ? 'No se encontraron contactos con esos criterios.' 
@@ -320,7 +320,7 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                             return (
                                 <Card 
                                     key={contact.id} 
-                                    className={`transition-all ${!contact.is_active ? 'opacity-60' : ''}`}
+                                    className={`rounded-xl shadow-sm transition-all ${!contact.is_active ? 'opacity-60' : ''}`}
                                 >
                                     <CardHeader className="pb-3">
                                         <div className="flex items-start justify-between">
@@ -338,16 +338,16 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                                                 </div>
                                             </div>
                                             <div className="flex gap-1">
-                                                {contact.is_default && (
+                                                {contact.is_default ? (
                                                     <Badge variant="secondary" className="text-xs">
                                                         Predeterminado
                                                     </Badge>
-                                                )}
-                                                {!contact.is_active && (
+                                                ) : null}
+                                                {!contact.is_active ? (
                                                     <Badge variant="outline" className="text-xs">
                                                         Inactivo
                                                     </Badge>
-                                                )}
+                                                ) : null}
                                             </div>
                                         </div>
                                     </CardHeader>
@@ -362,31 +362,31 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                                         </div>
 
                                         <div className="space-y-2 text-sm">
-                                            {contact.phone && (
+                                            {contact.phone ? (
                                                 <div className="flex items-center gap-2 text-muted-foreground">
                                                     <Phone className="size-3" />
-                                                    <span>{contact.phone}</span>
+                                                    <span className="font-mono text-xs">{contact.phone}</span>
                                                 </div>
-                                            )}
-                                            {contact.phone_whatsapp && contact.phone_whatsapp !== contact.phone && (
+                                            ) : null}
+                                            {contact.phone_whatsapp && contact.phone_whatsapp !== contact.phone ? (
                                                 <div className="flex items-center gap-2 text-muted-foreground">
                                                     <MessageSquare className="size-3" />
-                                                    <span>{contact.phone_whatsapp}</span>
+                                                    <span className="font-mono text-xs">{contact.phone_whatsapp}</span>
                                                 </div>
-                                            )}
-                                            {contact.email && (
+                                            ) : null}
+                                            {contact.email ? (
                                                 <div className="flex items-center gap-2 text-muted-foreground">
                                                     <Mail className="size-3" />
                                                     <span className="truncate">{contact.email}</span>
                                                 </div>
-                                            )}
+                                            ) : null}
                                         </div>
 
-                                        {contact.priority > 0 && (
-                                            <div className="text-xs text-muted-foreground">
+                                        {contact.priority > 0 ? (
+                                            <div className="font-mono text-xs text-muted-foreground">
                                                 Prioridad: {contact.priority}
                                             </div>
-                                        )}
+                                        ) : null}
 
                                         <div className="flex items-center justify-end gap-2 border-t pt-3">
                                             <Button
@@ -401,7 +401,7 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                                                     <><Check className="mr-1 size-3" /> Activar</>
                                                 )}
                                             </Button>
-                                            {!contact.is_default && contact.is_active && (
+                                            {!contact.is_default && contact.is_active ? (
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
@@ -411,7 +411,7 @@ export default function ContactsIndex({ contacts, filters, types }: IndexProps) 
                                                     <Check className="mr-1 size-3" />
                                                     Predeterminado
                                                 </Button>
-                                            )}
+                                            ) : null}
                                             <Button variant="ghost" size="icon" asChild>
                                                 <Link href={`/contacts/${contact.id}/edit`}>
                                                     <Edit className="size-4" />

@@ -1,2825 +1,1208 @@
+import { FadeIn, SlideUp, StaggerContainer, StaggerItem } from '@/components/motion';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from '@/components/ui/card';
-import {
     Dialog,
     DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from '@/components/ui/dialog';
 import {
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { Separator } from '@/components/ui/separator';
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { ReviewPanel } from '@/components/samsara/review-panel';
-import { useTimezone } from '@/hooks/use-timezone';
 import { type HumanStatus } from '@/types/samsara';
+import type { UnifiedTimelineEntry } from '@/types/samsara';
 import AppLayout from '@/layouts/app-layout';
-import { type BreadcrumbItem, type SharedData } from '@/types';
-import { send as copilotSend } from '@/actions/App/Http/Controllers/CopilotController';
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { type BreadcrumbItem } from '@/types';
+import { Head, Link, router } from '@inertiajs/react';
 import {
-    AlertCircle,
-    AlertTriangle,
     ArrowLeft,
     Bell,
-    BellOff,
-    BellRing,
-    Calendar,
+    Bookmark,
     Camera,
-    Check,
-    CheckCircle2,
+    CheckCircle,
     ChevronDown,
+    ChevronLeft,
     ChevronRight,
     Clock,
-    Copy,
-    ExternalLink,
-    Eye,
-    Flag,
-    Image as ImageIcon,
-    Info,
+    Cpu,
+    ImageIcon,
     Loader2,
-    MapPin,
-    MessageSquare,
-    Phone,
-    Search,
-    ShieldAlert,
-    ShieldCheck,
-    Sparkles,
-    Timer,
-    Truck,
+    Radio,
+    Send,
+    Shield,
     User,
-    UserCheck,
-    Wrench,
-    X,
     XCircle,
-    Zap,
-    RefreshCw,
 } from 'lucide-react';
 import { type LucideIcon } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatDistanceToNow } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { useCallback, useEffect, useState } from 'react';
 
-// ============================================================================
-// TYPE DEFINITIONS
-// Payload fields used throughout this component are documented inline.
-// ============================================================================
-
-interface ToolUsage {
-    tool_name?: string;
-    raw_tool_name?: string;
-    status_label?: string;
-    called_at?: string;
-    duration_ms?: number;
-    result_summary?: string;
-    media_urls?: string[];
-    details?: {
-        images_analyzed?: number;
-        analyses?: {
-            camera?: string;
-            analysis?: string;
-            analysis_preview?: string;
-        }[];
-    };
-}
-
-interface TimelineStep {
-    step: number;
-    name: string;
-    title: string;
-    description: string;
-    started_at?: string | null;
-    completed_at?: string | null;
-    duration_ms?: number | null;
-    summary: string;
-    summary_details?: { label: string; value: string }[];
-    tools_used: ToolUsage[];
-}
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface PayloadSummaryItem {
     label: string;
     value: string;
 }
 
-interface AssessmentEvidenceItem {
-    label: string;
-    value: string | Record<string, unknown>;
-}
-
-interface VisionAnalysisStructured {
-    alert_level?: 'NORMAL' | 'ATENCION' | 'ALERTA' | 'CRITICO';
-    scene_description?: string;
-    security_indicators?: {
-        driver_state?: string;
-        anomalous_interaction?: string;
-        road_conditions?: string;
-        vehicle_state?: string;
-    };
-    decision_evidence?: {
-        emergency_signals?: string[];
-        false_positive_signals?: string[];
-        inconclusive_elements?: string[];
-    };
-    recommendation?: {
-        action?: 'INTERVENIR' | 'MONITOREAR' | 'DESCARTAR';
-        reason?: string;
-    };
-    image_quality?: {
-        is_usable?: boolean;
-        issues?: string[];
-    };
-}
-
 interface MediaInsight {
     camera?: string;
     analysis?: string;
     analysis_preview?: string;
-    analysis_structured?: VisionAnalysisStructured;
-    alert_level?: string;
-    recommendation?: { action?: string; reason?: string };
-    scene_description?: string;
     url?: string | null;
     download_url?: string | null;
-    source?: 'media_insights' | 'camera_evidence' | 'tool_output';
 }
 
 interface AssessmentView {
     verdict?: string | null;
     likelihood?: string | null;
     reasoning?: string | null;
-    evidence?: AssessmentEvidenceItem[];
+    evidence?: { label: string; value: string | Record<string, unknown> }[];
 }
 
-/**
- * Full AI Assessment from ai_assessment column.
- * Fields: verdict, likelihood, confidence, reasoning, supporting_evidence,
- * risk_escalation, recommended_actions, requires_monitoring, next_check_minutes, monitoring_reason
- */
-interface AIAssessment {
-    verdict?: string | null;
-    likelihood?: string | null;
-    confidence?: number | string | null;
-    reasoning?: string | null;
-    supporting_evidence?: {
-        camera?: {
-            visual_summary?: string;
-            media_urls?: string[];
-        };
-        data_consistency?: {
-            has_conflict?: boolean;
-            conflicts?: string[];
-        };
-        vehicle?: string;
-        info?: string;
-        safety?: string;
-    };
-    risk_escalation?: 'monitor' | 'warn' | 'notify' | 'escalate' | 'urgent' | 'call' | 'emergency' | null;
-    recommended_actions?: string[];
-    requires_monitoring?: boolean;
-    next_check_minutes?: number;
-    monitoring_reason?: string;
-    dedupe_key?: string;
-}
-
-/**
- * Notification Decision from notification_decision column.
- * Fields: should_notify, escalation_level, channels_to_use, recipients, message_text, reason
- */
 interface NotificationDecision {
     should_notify?: boolean;
-    escalation_level?: string;
     channels_to_use?: string[];
     recipients?: { name?: string; phone?: string; type?: string }[];
-    message_text?: string;
     reason?: string;
+    /** Texto amigable para el usuario (backend reemplaza jerga técnica) */
+    reason_display?: string | null;
 }
 
-/**
- * Notification Execution results from notification_execution column.
- */
 interface NotificationExecution {
     attempted?: boolean;
     results?: { channel?: string; success?: boolean; error?: string }[];
     throttled?: boolean;
-    throttle_reason?: string;
-    timestamp_utc?: string;
 }
 
-/**
- * Call Response from panic button callback.
- */
-interface CallResponse {
-    digits?: string;
-    response_type?: 'confirmed' | 'denied' | 'no_response';
-    responded_at?: string;
-    caller_phone?: string;
-}
-
-/**
- * Alert Context from alert_context column (triage output).
- * Fields: alert_type, alert_kind, alert_category, event_time_utc, time_window,
- * required_tools, investigation_plan, triage_notes, investigation_strategy,
- * proactive_flag, notification_contacts, location_description
- */
-interface AlertContext {
-    alert_type?: string;
-    alert_kind?: string;
-    alert_category?: string;
-    event_time_utc?: string;
-    time_window?: {
-        start_utc?: string;
-        end_utc?: string;
-        analysis_minutes?: number;
-    };
-    required_tools?: string[];
-    investigation_plan?: string[];
-    triage_notes?: string;
-    investigation_strategy?: string;
-    proactive_flag?: boolean;
-    notification_contacts?: {
-        primary?: { name?: string; phone?: string };
-        fallback?: { name?: string; phone?: string };
-        operator?: { name?: string; phone?: string };
-        monitoring_team?: { name?: string; phone?: string };
-        supervisor?: { name?: string; phone?: string };
-        missing_contacts?: boolean;
-        contact_source?: string;
-    };
-    location_description?: string;
-    // Nuevos campos traducidos por Laravel
-    behavior_label?: string;
-    behavior_label_translated?: string;
-}
-
-interface InvestigationHistoryEntry {
-    investigation_number?: number;
-    queried_at?: string;
-    time_window?: {
-        start?: string | null;
-        end?: string | null;
-        minutes_covered?: number;
-    };
-    findings?: {
-        new_safety_events?: number;
-        new_camera_items?: number;
-        has_vehicle_stats?: boolean;
-    };
-    safety_events_details?: Array<{
-        behavior?: string;
-        severity?: string;
-        time?: string | null;
-    }>;
-    reason?: string;
-    timestamp?: string;
-    count?: number;
-}
-
-interface InvestigationMetadata {
-    count: number;
-    last_check?: string | null;
-    last_check_at?: string | null;
-    next_check_minutes?: number | null;
-    next_check_available_at?: string | null;
-    history: InvestigationHistoryEntry[];
-    max_investigations: number;
-}
-
-interface SamsaraEventPayload {
+interface CompanyUser {
     id: number;
-    samsara_event_id?: string | null;
-    event_type?: string | null;
-    event_description?: string | null;
-    display_event_type?: string | null;
+    name: string;
+}
+
+interface EventPayload {
+    id: number;
     severity: string;
     severity_label?: string | null;
-    ai_status: string;
-    ai_status_label?: string | null;
-    vehicle_name?: string | null;
-    vehicle_id?: string | null;
-    driver_name?: string | null;
-    driver_id?: string | null;
-    occurred_at?: string | null;
-    // Raw AI Assessment with all fields
-    ai_assessment?: AIAssessment | null;
-    // Formatted view for display
-    ai_assessment_view?: AssessmentView | null;
-    ai_message?: string | null;
-    ai_actions: {
-        agents: TimelineStep[];
-        total_duration_ms: number;
-        total_tools_called: number;
-        camera_analysis?: {
-            analyses: Array<{
-                local_url?: string;
-                samsara_url?: string;
-                input?: string;
-                scene_description?: string;
-                alert_level?: string;
-                analysis_structured?: VisionAnalysisStructured;
-                recommendation?: { action?: string; reason?: string };
-            }>;
-        };
-    };
+    verdict_badge?: { verdict: string; likelihood?: string | null; urgency: string; color: string } | null;
+    display_event_type?: string | null;
+    ai_assessment?: { confidence?: number | string | null } | null;
+    ack_status?: string | null;
+    ack_due_at?: string | null;
+    acked_at?: string | null;
+    resolve_due_at?: string | null;
+    attention_state?: string | null;
+    owner_user_id?: number | null;
+    owner_name?: string | null;
+    owner_contact_name?: string | null;
+    human_status?: HumanStatus;
     payload_summary: PayloadSummaryItem[];
-    timeline: TimelineStep[];
     media_insights: MediaInsight[];
-    event_icon?: string | null;
-    investigation_actions?: {
-        label: string;
-        icon: string;
-        items: { name: string; summary: string; details?: unknown }[];
-    }[];
-    investigation_metadata?: InvestigationMetadata;
-    verdict_badge?: {
-        verdict: string;
-        likelihood?: string | null;
-        urgency: 'high' | 'medium' | 'low' | 'unknown';
-        color: string;
-    };
-    // Raw payload from Samsara
-    raw_payload?: {
-        data?: {
-            conditions?: { description?: string; details?: unknown }[];
-        };
-        incidentUrl?: string;
-    };
-    // Alert context from triage
-    alert_context?: AlertContext | null;
-    // Notification decision
-    notification_decision?: NotificationDecision | null;
-    // Notification execution results
-    notification_execution?: NotificationExecution | null;
-    // Panic callback status
-    notification_status?: string | null;
-    notification_status_label?: string | null;
-    call_response?: CallResponse | null;
-    notification_channels?: string[] | null;
-    notification_sent_at?: string | null;
-    // Operational fields
-    dedupe_key?: string | null;
-    risk_escalation?: string | null;
-    proactive_flag?: boolean;
-    // T3: Fuente única desde tablas normalizadas (no leer de ai_assessment/alert_context para display)
+    raw_payload?: Record<string, unknown> | null;
+    ai_assessment_view?: AssessmentView | null;
     recommended_actions?: string[];
     investigation_steps?: string[];
-    // Human review fields
-    human_status?: HumanStatus;
-    human_status_label?: string | null;
-    reviewed_by?: { id: number; name: string } | null;
-    reviewed_at?: string | null;
-    reviewed_at_human?: string | null;
-    needs_attention?: boolean;
-    urgency_level?: 'high' | 'medium' | 'low';
-    comments_count?: number;
+    investigation_metadata?: { count: number; last_check?: string; history?: unknown[] };
+    notification_decision?: NotificationDecision | null;
+    notification_execution?: NotificationExecution | null;
+    notification_channels?: string[] | null;
+    unified_timeline?: UnifiedTimelineEntry[];
+    timeline?: unknown[];
+    ai_message?: string | null;
+    ai_actions?: {
+        total_duration_ms?: number;
+        total_tools_called?: number;
+        camera_analysis?: {
+            analyses?: Array<{
+                input?: string | null;
+                camera?: string | null;
+                analysis?: string | null;
+                scene_description?: string | null;
+                samsara_url?: string | null;
+                url?: string | null;
+                recommendation?: { action?: string; reason?: string };
+            }>;
+            media_urls?: string[];
+        };
+    };
 }
 
 interface ShowProps {
-    event: SamsaraEventPayload;
+    event: EventPayload;
     breadcrumbs?: BreadcrumbItem[];
+    companyUsers?: CompanyUser[];
 }
 
-// ============================================================================
-// CONSTANTS & HELPERS
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const ALERTS_INDEX_URL = '/samsara/alerts';
-const getAlertShowUrl = (id: number) => `/samsara/alerts/${id}`;
 
-const severityConfig: Record<string, { bg: string; text: string; border: string; icon: LucideIcon }> = {
-    info: {
-        bg: 'bg-info/10',
-        text: 'text-info',
-        border: 'border-info/30',
-        icon: AlertCircle,
+const severityConfig: Record<string, { dot: string; bar: string; gradient: string; glow: string; text: string }> = {
+    critical: {
+        dot: 'bg-red-500',
+        bar: 'bg-gradient-to-r from-red-500 to-red-400',
+        gradient: 'from-red-500/6 via-red-500/3 to-transparent',
+        glow: 'shadow-[0_0_20px_rgba(248,113,113,0.15)]',
+        text: 'text-red-400',
     },
     warning: {
-        bg: 'bg-warning/10',
-        text: 'text-warning',
-        border: 'border-warning/30',
-        icon: AlertTriangle,
+        dot: 'bg-amber-500',
+        bar: 'bg-gradient-to-r from-amber-500 to-amber-400',
+        gradient: 'from-amber-500/6 via-amber-500/3 to-transparent',
+        glow: 'shadow-[0_0_20px_rgba(251,191,36,0.12)]',
+        text: 'text-amber-400',
     },
-    critical: {
-        bg: 'bg-destructive/10',
-        text: 'text-destructive',
-        border: 'border-destructive/30',
-        icon: ShieldAlert,
-    },
-};
-
-const verdictConfig: Record<string, { bg: string; border: string; text: string; icon: LucideIcon }> = {
-    low: {
-        bg: 'bg-success/10',
-        border: 'border-success/30',
-        text: 'text-success',
-        icon: ShieldCheck,
-    },
-    medium: {
-        bg: 'bg-warning/10',
-        border: 'border-warning/30',
-        text: 'text-warning',
-        icon: AlertTriangle,
-    },
-    high: {
-        bg: 'bg-destructive/10',
-        border: 'border-destructive/30',
-        text: 'text-destructive',
-        icon: XCircle,
-    },
-    unknown: {
-        bg: 'bg-muted/50',
-        border: 'border-border',
-        text: 'text-muted-foreground',
-        icon: Search,
+    info: {
+        dot: 'bg-sky-500',
+        bar: 'bg-gradient-to-r from-sky-500 to-teal-400',
+        gradient: 'from-sky-500/6 via-sky-500/3 to-transparent',
+        glow: 'shadow-[0_0_20px_rgba(56,189,248,0.12)]',
+        text: 'text-sky-400',
     },
 };
 
-const riskEscalationConfig: Record<string, { label: string; color: string; icon: LucideIcon }> = {
-    monitor: { label: 'Monitorear', color: 'bg-muted text-muted-foreground', icon: Eye },
-    warn: { label: 'Advertir', color: 'bg-warning/10 text-warning', icon: AlertTriangle },
-    notify: { label: 'Notificar', color: 'bg-info/10 text-info', icon: Bell },
-    escalate: { label: 'Escalar', color: 'bg-warning/10 text-warning', icon: BellRing },
-    urgent: { label: 'Urgente', color: 'bg-destructive/10 text-destructive', icon: ShieldAlert },
-    call: { label: 'Llamar', color: 'bg-destructive/10 text-destructive', icon: Phone },
-    emergency: { label: 'Emergencia', color: 'bg-destructive/20 text-destructive', icon: ShieldAlert },
+const timelineTypeConfig: Record<UnifiedTimelineEntry['type'], { color: string; icon: LucideIcon }> = {
+    signal: { color: 'bg-sky-500/90', icon: Radio },
+    ai: { color: 'bg-violet-500/90', icon: Cpu },
+    notification: { color: 'bg-emerald-500/90', icon: Send },
+    notification_status: { color: 'bg-slate-500/80', icon: Clock },
+    activity: { color: 'bg-amber-500/90', icon: User },
+    domain_event: { color: 'bg-slate-500/80', icon: Bookmark },
 };
 
-const getAgentIcon = (agentName: string): LucideIcon => {
-    switch (agentName) {
-        case 'ingestion_agent':
-        case 'triage_agent':
-            return Zap;
-        case 'panic_investigator':
-        case 'investigator_agent':
-            return Search;
-        case 'final_agent':
-            return MessageSquare;
-        case 'notification_decision_agent':
-            return Sparkles;
-        default:
-            return Wrench;
-    }
-};
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-const formatShortDateTime = (value?: string | null, timezone?: string) => {
-    if (!value) return 'Sin determinar';
-    // JavaScript handles ISO8601 with timezone offset correctly
-    return new Intl.DateTimeFormat('es-MX', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: timezone,
-    }).format(new Date(value));
-};
-
-const formatDuration = (ms?: number | null): string => {
-    if (!ms) return '';
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-};
-
-/**
- * Safely renders a value that might be a string or an object.
- */
-const renderSafeValue = (value: string | Record<string, unknown> | null | undefined): string => {
-    if (value === null || value === undefined) return 'Sin información';
-    if (typeof value === 'string') return value;
-    if (typeof value === 'object') {
-        if ('name' in value && typeof value.name === 'string') return value.name;
-        try { return JSON.stringify(value); } catch { return 'Datos complejos'; }
-    }
-    return String(value);
-};
-
-// ============================================================================
-// COPY TO CLIPBOARD UTILITY
-// ============================================================================
-
-function CopyButton({ value, label }: { value: string; label?: string }) {
-    const [copied, setCopied] = useState(false);
-
-    const handleCopy = useCallback(async () => {
-        try {
-            await navigator.clipboard.writeText(value);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch {
-            // Fallback for older browsers
-            const textArea = document.createElement('textarea');
-            textArea.value = value;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        }
-    }, [value]);
-
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleCopy}
-                    className="h-6 w-6 p-0 hover:bg-muted"
-                >
-                    {copied ? (
-                        <Check className="size-3 text-success" />
-                    ) : (
-                        <Copy className="size-3 text-muted-foreground" />
-                    )}
-                </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-                {copied ? 'Copiado' : label ?? 'Copiar'}
-            </TooltipContent>
-        </Tooltip>
-    );
-}
-
-// ============================================================================
-// DECISION BAR COMPONENT (Sticky top bar)
-// Shows: Severity, AI status, Human status, Risk escalation, Review requirement
-// ============================================================================
-
-// ============================================================================
-// ASK COPILOT BUTTON (T5: Contextual Copilot)
-// Creates a copilot session pre-loaded with event context.
-// ============================================================================
-
-function AskCopilotButton({ event }: { event: SamsaraEventPayload }) {
-    const [isCreating, setIsCreating] = useState(false);
-
-    const handleClick = async () => {
-        setIsCreating(true);
-        try {
-            const csrfToken =
-                document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ??
-                decodeURIComponent(
-                    document.cookie
-                        .split('; ')
-                        .find((row) => row.startsWith('XSRF-TOKEN='))
-                        ?.split('=')[1] ?? ''
-                );
-
-            const response = await fetch(copilotSend.url(), {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': csrfToken,
-                    'X-XSRF-TOKEN': csrfToken,
-                    Accept: 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-                body: JSON.stringify({
-                    message: `Estoy revisando la alerta de "${event.event_description ?? event.display_event_type ?? 'evento desconocido'}" del vehículo ${event.vehicle_name ?? 'desconocido'}${event.driver_name ? ` (conductor: ${event.driver_name})` : ''}. ¿Qué puedes decirme sobre lo que pasó antes y después del evento?`,
-                    context_event_id: event.id,
-                }),
-            });
-
-            if (!response.ok) {
-                throw new Error('Error al crear sesión de copilot');
-            }
-
-            const data = await response.json();
-
-            if (data.thread_id) {
-                router.visit(`/copilot/${data.thread_id}`);
-            }
-        } catch (error) {
-            console.error('[AskCopilot] Error:', error);
-            setIsCreating(false);
-        }
+function getCsrfHeaders(): Record<string, string> {
+    const token =
+        document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.getAttribute('content') ||
+        document.querySelector<HTMLMetaElement>('meta[name="X-CSRF-TOKEN"]')?.getAttribute('content') ||
+        decodeURIComponent(
+            document.cookie
+                .split('; ')
+                .find((row) => row.startsWith('XSRF-TOKEN='))
+                ?.split('=')[1] ?? ''
+        );
+    return {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': token,
+        'X-XSRF-TOKEN': token,
+        Accept: 'application/json',
     };
-
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleClick}
-                    disabled={isCreating}
-                    className="gap-1.5 text-primary hover:text-primary hover:bg-primary/10"
-                >
-                    {isCreating ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                        <MessageSquare className="size-3.5" />
-                    )}
-                    <span className="hidden sm:inline">
-                        {isCreating ? 'Abriendo...' : 'Preguntar al Copilot'}
-                    </span>
-                </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-                <p>Preguntar sobre este evento en el Copilot</p>
-            </TooltipContent>
-        </Tooltip>
-    );
 }
 
-interface DecisionBarProps {
-    event: SamsaraEventPayload;
-    reviewRequired: boolean;
+function formatRelative(iso?: string | null): string {
+    if (!iso) return '\u2014';
+    try {
+        return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: es });
+    } catch {
+        return iso;
+    }
 }
 
-function DecisionBar({ event, reviewRequired }: DecisionBarProps) {
-    const { auth } = usePage<SharedData>().props;
-    const isSuperAdmin = auth?.user?.role === 'super_admin';
-    const [isReprocessing, setIsReprocessing] = useState(false);
+function slaColor(acked: boolean, dueAt?: string | null): string {
+    if (acked) return 'text-emerald-400';
+    if (!dueAt) return 'text-muted-foreground';
+    const due = new Date(dueAt).getTime();
+    const now = Date.now();
+    if (due <= now) return 'text-red-400';
+    return 'text-amber-400';
+}
 
-    const severityStyle = severityConfig[event.severity] ?? severityConfig.info;
-    const SeverityIcon = severityStyle.icon;
-    
-    const riskEscalation = event.ai_assessment?.risk_escalation ?? event.risk_escalation;
-    const riskConfig = riskEscalation ? riskEscalationConfig[riskEscalation] : null;
-    const RiskIcon = riskConfig?.icon ?? Eye;
+function formatConfidence(raw?: number | string | null): string | null {
+    if (raw == null) return null;
+    if (typeof raw === 'number') return `${Math.round(raw * 100)}%`;
+    return String(raw);
+}
 
-    // Notification status
-    const notificationSent = event.notification_execution?.attempted === true;
-    const notificationThrottled = event.notification_execution?.throttled === true;
+/** Effective media list: from media_insights or derived from ai_actions.camera_analysis when backend sends preloaded data. */
+function getEffectiveMediaInsights(event: EventPayload): MediaInsight[] {
+    if (event.media_insights?.length) return event.media_insights;
+    const cam = event.ai_actions?.camera_analysis;
+    if (!cam?.analyses?.length && !cam?.media_urls?.length) return [];
+    const analyses = cam.analyses ?? [];
+    const mediaUrls = cam.media_urls ?? [];
+    return analyses.length > 0
+        ? analyses.map((a, i) => {
+              const url = mediaUrls[i] ?? a.samsara_url ?? a.url ?? null;
+              let preview: string | null = a.scene_description ?? a.recommendation?.reason ?? null;
+              if (!preview && typeof a.analysis === 'string' && a.analysis.length < 300) preview = a.analysis;
+              return {
+                  camera: a.input ?? a.camera ?? `Imagen ${i + 1}`,
+                  analysis: preview ?? undefined,
+                  analysis_preview: preview ?? undefined,
+                  url: url ?? undefined,
+                  download_url: url ?? undefined,
+              };
+          })
+        : mediaUrls.map((url, i) => ({
+              camera: `Imagen ${i + 1}`,
+              analysis: undefined,
+              analysis_preview: undefined,
+              url,
+              download_url: url,
+          }));
+}
 
-    // Reprocess handler (only for super_admin)
-    const handleReprocess = async () => {
-        if (!confirm('¿Estás seguro de que quieres reprocesar esta alerta? Se borrará el análisis actual y se volverá a procesar desde cero.')) {
-            return;
-        }
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
 
-        setIsReprocessing(true);
-        try {
-            const response = await fetch(`/api/events/${event.id}/reprocess`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-XSRF-TOKEN': decodeURIComponent(
-                        document.cookie
-                            .split('; ')
-                            .find((row) => row.startsWith('XSRF-TOKEN='))
-                            ?.split('=')[1] ?? ''
-                    ),
-                },
-                credentials: 'same-origin',
-            });
-
-            const data = await response.json();
-
-            if (data.success) {
-                // Reload the page to show updated status
-                router.reload();
-            } else {
-                alert(data.message || 'Error al reprocesar la alerta');
-            }
-        } catch (error) {
-            console.error('Error reprocessing alert:', error);
-            alert('Error al reprocesar la alerta');
-        } finally {
-            setIsReprocessing(false);
-        }
-    };
-
+function MetricChip({ label, value, accent }: { label: string; value: string; accent?: string }) {
     return (
-        <div className="sticky top-0 z-40 -mx-4 mb-4 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                {/* Left: Status badges */}
-                <div className="flex flex-wrap items-center gap-2">
-                    {/* Severity Badge */}
-                    <Badge className={`${severityStyle.bg} ${severityStyle.text} gap-1 px-2.5 py-1`}>
-                        <SeverityIcon className="size-3.5" />
-                        {event.severity_label ?? 'Info'}
-                    </Badge>
-
-                    {/* AI Status Badge */}
-                    <Badge
-                        className={`px-2.5 py-1 ${
-                            event.ai_status === 'processing'
-                                ? 'bg-info/10 text-info animate-pulse'
-                                : event.ai_status === 'investigating'
-                                    ? 'bg-warning/10 text-warning animate-pulse'
-                                    : event.ai_status === 'completed'
-                                        ? 'bg-success/10 text-success'
-                                        : event.ai_status === 'failed'
-                                            ? 'bg-destructive/10 text-destructive'
-                                            : 'bg-muted text-muted-foreground'
-                        }`}
-                    >
-                        {event.ai_status === 'processing' && <Loader2 className="size-3 animate-spin mr-1" />}
-                        {event.ai_status === 'investigating' && <Search className="size-3 mr-1" />}
-                        {event.ai_status === 'completed' && <CheckCircle2 className="size-3 mr-1" />}
-                        {event.ai_status_label ?? 'Pendiente'}
-                    </Badge>
-
-                    {/* Human Status Badge */}
-                    {event.human_status && event.human_status !== 'pending' && (
-                        <Badge className="bg-info/10 text-info gap-1 px-2.5 py-1">
-                            <UserCheck className="size-3" />
-                            {event.human_status_label}
-                        </Badge>
-                    )}
-
-                    {/* Risk Escalation Badge */}
-                    {riskConfig && (
-                        <Badge className={`${riskConfig.color} gap-1 px-2.5 py-1`}>
-                            <RiskIcon className="size-3" />
-                            {riskConfig.label}
-                        </Badge>
-                    )}
-
-                    {/* Notification Status */}
-                    {notificationSent && !event.notification_status && (
-                        <Badge className="bg-success/10 text-success gap-1 px-2.5 py-1">
-                            <Bell className="size-3" />
-                            Notificado
-                        </Badge>
-                    )}
-                    {notificationThrottled && (
-                        <Badge className="bg-muted text-muted-foreground gap-1 px-2.5 py-1">
-                            <Clock className="size-3" />
-                            Throttled
-                        </Badge>
-                    )}
-                    {/* Panic Callback Status */}
-                    {event.notification_status === 'panic_confirmed' && (
-                        <Badge className="bg-destructive/15 text-destructive border border-destructive/30 gap-1 px-2.5 py-1">
-                            <AlertTriangle className="size-3" />
-                            Pánico Confirmado
-                        </Badge>
-                    )}
-                    {event.notification_status === 'false_alarm' && (
-                        <Badge className="bg-success/10 text-success gap-1 px-2.5 py-1">
-                            <CheckCircle2 className="size-3" />
-                            Falsa Alarma
-                        </Badge>
-                    )}
-                    {event.notification_status === 'operator_no_response' && (
-                        <Badge className="bg-warning/10 text-warning gap-1 px-2.5 py-1">
-                            <Phone className="size-3" />
-                            Sin Respuesta
-                        </Badge>
-                    )}
-                    {event.notification_status === 'escalated' && (
-                        <Badge className="bg-destructive/10 text-destructive gap-1 px-2.5 py-1">
-                            <BellRing className="size-3" />
-                            Escalado
-                        </Badge>
-                    )}
-                </div>
-
-                {/* Right: Review requirement + Actions + Back button */}
-                <div className="flex items-center gap-2">
-                    {/* Review Requirement Badge */}
-                    <Badge
-                        className={`px-2.5 py-1 ${
-                            reviewRequired
-                                ? 'bg-destructive/15 text-destructive border border-destructive/30'
-                                : 'bg-muted text-muted-foreground'
-                        }`}
-                    >
-                        {reviewRequired ? (
-                            <>
-                                <Flag className="size-3 mr-1" />
-                                Revisión requerida
-                            </>
-                        ) : (
-                            <>
-                                <Check className="size-3 mr-1" />
-                                Revisión opcional
-                            </>
-                        )}
-                    </Badge>
-
-                    {/* Ask Copilot about this event (T5) */}
-                    <AskCopilotButton event={event} />
-
-                    {/* Reprocess Button (Super Admin Only) */}
-                    {isSuperAdmin && (
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={handleReprocess}
-                                    disabled={isReprocessing || event.ai_status === 'processing'}
-                                    className="gap-1.5 text-warning hover:text-warning hover:bg-warning/10"
-                                >
-                                    {isReprocessing ? (
-                                        <Loader2 className="size-3.5 animate-spin" />
-                                    ) : (
-                                        <RefreshCw className="size-3.5" />
-                                    )}
-                                    <span className="hidden sm:inline">
-                                        {isReprocessing ? 'Enviando...' : 'Reprocesar'}
-                                    </span>
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>Volver a procesar esta alerta con AI</p>
-                            </TooltipContent>
-                        </Tooltip>
-                    )}
-
-                    <Button variant="outline" size="sm" asChild className="gap-1.5">
-                        <Link href={ALERTS_INDEX_URL}>
-                            <ArrowLeft className="size-3.5" />
-                            <span className="hidden sm:inline">Regresar</span>
-                        </Link>
-                    </Button>
-                </div>
-            </div>
+        <div className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/25 px-2.5 py-1">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">{label}</span>
+            <span className={`font-mono text-[11px] font-semibold ${accent ?? 'text-foreground'}`}>{value}</span>
         </div>
     );
 }
 
-// ============================================================================
-// PANIC CALLBACK STATUS CARD COMPONENT
-// Shows: callback status for panic button events (confirmed, false alarm, no response)
-// ============================================================================
-
-interface CallbackStatusCardProps {
-    event: SamsaraEventPayload;
-}
-
-function CallbackStatusCard({ event }: CallbackStatusCardProps) {
-    const { formatDate } = useTimezone();
-    
-    // Only show for events with notification_status (panic callback flow)
-    if (!event.notification_status) return null;
-    
-    const callResponse = event.call_response;
-    const respondedAt = callResponse?.responded_at;
-
-    // Configuración de estados con textos amigables para monitoristas (tokens SAM)
-    const statusConfigs: Record<string, {
-        icon: typeof Bell;
-        title: string;
-        description: string;
-        bgColor: string;
-        iconColor: string;
-        textColor: string;
-    }> = {
-        panic_confirmed: {
-            icon: AlertTriangle,
-            title: 'Emergencia Confirmada',
-            description: 'El operador confirmó que es una emergencia real. Se ha escalado al equipo de monitoreo.',
-            bgColor: 'bg-destructive/10 border-destructive/30',
-            iconColor: 'text-destructive',
-            textColor: 'text-foreground',
-        },
-        false_alarm: {
-            icon: CheckCircle2,
-            title: 'Falsa Alarma',
-            description: 'El operador indicó que fue una activación accidental. No se requiere acción.',
-            bgColor: 'bg-success/10 border-success/30',
-            iconColor: 'text-success',
-            textColor: 'text-foreground',
-        },
-        operator_no_response: {
-            icon: Phone,
-            title: 'Sin Respuesta',
-            description: 'El operador no respondió la llamada. La alerta queda pendiente de verificación.',
-            bgColor: 'bg-warning/10 border-warning/30',
-            iconColor: 'text-warning',
-            textColor: 'text-foreground',
-        },
-        escalated: {
-            icon: BellRing,
-            title: 'Escalada',
-            description: 'La alerta fue escalada al equipo de monitoreo y emergencias.',
-            bgColor: 'bg-destructive/10 border-destructive/30',
-            iconColor: 'text-destructive',
-            textColor: 'text-foreground',
-        },
-        dedupe_blocked: {
-            icon: Bell,
-            title: 'Notificación Omitida',
-            description: 'Ya se envió una notificación similar recientemente. Se evitó duplicar para no saturar.',
-            bgColor: 'bg-muted border-border',
-            iconColor: 'text-muted-foreground',
-            textColor: 'text-foreground',
-        },
-        throttled: {
-            icon: Bell,
-            title: 'Notificación en Espera',
-            description: 'La notificación está en cola debido a límites de envío. Se procesará pronto.',
-            bgColor: 'bg-info/10 border-info/30',
-            iconColor: 'text-info',
-            textColor: 'text-foreground',
-        },
-        pending: {
-            icon: Clock,
-            title: 'Pendiente de Envío',
-            description: 'La notificación está programada y se enviará en breve.',
-            bgColor: 'bg-info/10 border-info/30',
-            iconColor: 'text-info',
-            textColor: 'text-foreground',
-        },
-        sent: {
-            icon: CheckCircle2,
-            title: 'Notificación Enviada',
-            description: 'La notificación se envió correctamente al equipo de monitoreo.',
-            bgColor: 'bg-success/10 border-success/30',
-            iconColor: 'text-success',
-            textColor: 'text-foreground',
-        },
-        failed: {
-            icon: XCircle,
-            title: 'Error de Envío',
-            description: 'Hubo un problema al enviar la notificación. Se reintentará automáticamente.',
-            bgColor: 'bg-destructive/10 border-destructive/30',
-            iconColor: 'text-destructive',
-            textColor: 'text-foreground',
-        },
-        monitoring: {
-            icon: Eye,
-            title: 'En Monitoreo',
-            description: 'La alerta está siendo monitoreada. Se notificará si hay cambios.',
-            bgColor: 'bg-info/10 border-info/30',
-            iconColor: 'text-info',
-            textColor: 'text-foreground',
-        },
-        no_notification: {
-            icon: BellOff,
-            title: 'Sin Notificación Requerida',
-            description: 'El análisis determinó que no es necesario notificar en este momento.',
-            bgColor: 'bg-muted border-border',
-            iconColor: 'text-muted-foreground',
-            textColor: 'text-foreground',
-        },
-    };
-
-    const statusConfig = statusConfigs[event.notification_status] ?? {
-        icon: Bell,
-        title: 'Estado de Notificación',
-        description: event.notification_status_label ?? 'Procesando notificación...',
-        bgColor: 'bg-muted border-border',
-        iconColor: 'text-muted-foreground',
-        textColor: 'text-foreground',
-    };
-
-    const StatusIcon = statusConfig.icon;
+function AlertHero({ event }: { event: EventPayload }) {
+    const sev = severityConfig[event.severity] ?? severityConfig.info;
+    const confidence = formatConfidence(event.ai_assessment?.confidence);
+    const acked = event.ack_status === 'acked';
 
     return (
-        <Card className={`border-2 ${statusConfig.bgColor}`}>
-            <CardHeader className="pb-3">
-                <div className="flex items-center gap-3">
-                    <div className={`rounded-lg p-2 ${statusConfig.bgColor}`}>
-                        <StatusIcon className={`size-5 ${statusConfig.iconColor}`} />
-                    </div>
-                    <div className="flex-1">
-                        <CardTitle className={`text-base ${statusConfig.textColor}`}>
-                            {statusConfig.title}
-                        </CardTitle>
-                        <CardDescription className="text-xs">
-                            Respuesta del operador al callback de pánico
-                        </CardDescription>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-                <p className={`text-sm ${statusConfig.textColor}`}>
-                    {statusConfig.description}
-                </p>
+        <FadeIn>
+            <div className={`relative overflow-hidden rounded-xl border bg-card ${sev.glow}`}>
+                <div className={`absolute inset-0 bg-gradient-to-r ${sev.gradient} pointer-events-none`} />
+                <div className={`h-[3px] ${sev.bar}`} />
 
-                {/* Details Grid */}
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                    {callResponse?.response_type && (
-                        <div className="rounded-lg bg-background/50 p-2.5">
-                            <p className="text-xs text-muted-foreground uppercase mb-1">Respuesta</p>
-                            <p className="font-medium">
-                                {callResponse.response_type === 'confirmed' ? 'Confirmó emergencia' :
-                                 callResponse.response_type === 'denied' ? 'Negó emergencia' :
-                                 'Sin respuesta'}
-                            </p>
-                        </div>
-                    )}
-                    {callResponse?.digits && (
-                        <div className="rounded-lg bg-background/50 p-2.5">
-                            <p className="text-xs text-muted-foreground uppercase mb-1">Tecla presionada</p>
-                            <p className="font-medium font-mono">{callResponse.digits}</p>
-                        </div>
-                    )}
-                    {respondedAt && (
-                        <div className="rounded-lg bg-background/50 p-2.5">
-                            <p className="text-xs text-muted-foreground uppercase mb-1">Hora de respuesta</p>
-                            <p className="font-medium">{formatDate(respondedAt, 'HH:mm:ss')}</p>
-                        </div>
-                    )}
-                    {event.notification_sent_at && (
-                        <div className="rounded-lg bg-background/50 p-2.5">
-                            <p className="text-xs text-muted-foreground uppercase mb-1">Notificación enviada</p>
-                            <p className="font-medium">{formatDate(event.notification_sent_at, 'HH:mm:ss')}</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Channels used */}
-                {event.notification_channels && event.notification_channels.length > 0 && (
-                    <div className="pt-2 border-t">
-                        <p className="text-xs text-muted-foreground uppercase mb-2">Canales utilizados</p>
-                        <div className="flex flex-wrap gap-1.5">
-                            {event.notification_channels.map((channel, idx) => (
-                                <Badge key={idx} variant="outline" className="text-xs">
-                                    {channel === 'call' ? '📞 Llamada' :
-                                     channel === 'whatsapp' || channel === 'whatsapp_template' ? '💬 WhatsApp' :
-                                     channel === 'sms' ? '📱 SMS' : channel}
-                                </Badge>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </CardContent>
-        </Card>
-    );
-}
-
-// ============================================================================
-// NEXT ACTIONS CARD COMPONENT
-// Shows: recommended_actions (from normalized table), notification message, missing contact warnings
-// ============================================================================
-
-interface NextActionsCardProps {
-    event: SamsaraEventPayload;
-}
-
-function NextActionsCard({ event }: NextActionsCardProps) {
-    const recommendedActions = event.recommended_actions ?? [];
-    const notificationMessage = event.notification_decision?.message_text;
-    const notificationContacts = event.alert_context?.notification_contacts;
-    const monitoringReason = event.ai_assessment?.monitoring_reason;
-    const notificationDecisionReason = event.notification_decision?.reason;
-    const notificationChannels = event.notification_decision?.channels_to_use;
-    const escalationLevel = event.notification_decision?.escalation_level;
-
-    const hasContent = recommendedActions.length > 0 || notificationMessage || notificationContacts?.missing_contacts || monitoringReason || notificationDecisionReason;
-
-    if (!hasContent) return null;
-
-    return (
-        <Card className="border-2 border-primary/20 bg-primary/5">
-            <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                    <div className="rounded-lg bg-primary/10 p-2">
-                        <Sparkles className="size-4 text-primary" />
-                    </div>
-                    <div>
-                        <CardTitle className="text-base">Próximos Pasos</CardTitle>
-                        <CardDescription className="text-xs">Acciones recomendadas por la AI</CardDescription>
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-                {/* Recommended Actions */}
-                {recommendedActions.length > 0 && (
-                    <div className="space-y-2">
-                        {recommendedActions.map((action, idx) => (
-                            <div
-                                key={idx}
-                                className="flex items-start gap-2 rounded-lg border bg-background p-3"
+                <div className="relative px-4 py-4 sm:px-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex items-start gap-3">
+                            <Link
+                                href={ALERTS_INDEX_URL}
+                                className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/40 text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
                             >
-                                <div className="rounded-full bg-primary/10 p-1 mt-0.5">
-                                    <ChevronRight className="size-3 text-primary" />
+                                <ArrowLeft className="size-3.5" />
+                            </Link>
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-2.5">
+                                    <span className="relative flex size-2.5 shrink-0">
+                                        <span className={`absolute inline-flex size-full animate-ping rounded-full ${sev.dot} opacity-40`} />
+                                        <span className={`relative inline-flex size-2.5 rounded-full ${sev.dot}`} />
+                                    </span>
+                                    <h1 className="font-display text-lg font-bold tracking-tight sm:text-xl">
+                                        {event.display_event_type ?? 'Alerta'}
+                                    </h1>
+                                    <span className="font-mono text-[11px] text-muted-foreground/60">#{event.id}</span>
                                 </div>
-                                <span className="text-sm">{action}</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* Monitoring Reason */}
-                {monitoringReason && event.ai_status === 'investigating' && (
-                    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3">
-                        <Search className="size-4 text-warning shrink-0 mt-0.5" />
-                        <div>
-                            <p className="text-xs font-medium text-warning uppercase">En monitoreo</p>
-                            <p className="text-sm text-foreground">{monitoringReason}</p>
-                        </div>
-                    </div>
-                )}
-
-                {/* Notification Decision Info */}
-                {notificationDecisionReason && (
-                    <div className="rounded-lg border bg-background p-3">
-                        <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-medium text-muted-foreground uppercase">Decisión de notificación</p>
-                            {escalationLevel && (
-                                <Badge variant="outline" className="text-xs">
-                                    {escalationLevel}
-                                </Badge>
-                            )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">{notificationDecisionReason}</p>
-                        {notificationChannels && notificationChannels.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                                {notificationChannels.map((channel, idx) => (
-                                    <Badge key={idx} variant="secondary" className="text-xs">
-                                        {channel === 'call' ? '📞 Llamada' : 
-                                         channel === 'whatsapp' ? '💬 WhatsApp' : 
-                                         channel === 'sms' ? '📱 SMS' : channel}
-                                    </Badge>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* Notification Message Preview */}
-                {notificationMessage && (
-                    <div className="rounded-lg border bg-background p-3">
-                        <div className="flex items-center justify-between mb-2">
-                            <p className="text-xs font-medium text-muted-foreground uppercase">Mensaje de notificación</p>
-                            <CopyButton value={notificationMessage} label="Copiar mensaje" />
-                        </div>
-                        <p className="text-sm text-muted-foreground italic">"{notificationMessage}"</p>
-                    </div>
-                )}
-
-                {/* Missing Contacts Warning */}
-                {notificationContacts?.missing_contacts && (
-                    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3">
-                        <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
-                        <div>
-                            <p className="text-sm font-medium text-foreground">
-                                Contactos no disponibles
-                            </p>
-                            <p className="text-xs text-warning">
-                                No se encontraron contactos para notificar. Verifique la configuración del vehículo o conductor.
-                            </p>
-                        </div>
-                    </div>
-                )}
-            </CardContent>
-        </Card>
-    );
-}
-
-// ============================================================================
-// CONTEXT CARD COMPONENT
-// Shows: vehicle_name, driver_name, location, occurred_at, tags, external IDs
-// ============================================================================
-
-interface ContextCardProps {
-    event: SamsaraEventPayload;
-}
-
-function ContextCard({ event }: ContextCardProps) {
-    const [showDetails, setShowDetails] = useState(false);
-    const { timezone } = useTimezone();
-
-    // Extract location from alert_context or payload_summary
-    const location = event.alert_context?.location_description 
-        ?? event.payload_summary?.find(p => p.label === 'Ubicación aproximada')?.value
-        ?? null;
-
-    // Extract external IDs and tags from raw_payload if available
-    const rawPayload = event.raw_payload;
-    const externalIds = rawPayload?.data?.conditions?.[0]?.details as { panicButton?: { vehicle?: { externalIds?: Record<string, string> } } } | undefined;
-    const vehicleExternalIds = externalIds?.panicButton?.vehicle?.externalIds;
-
-    // Event time in UTC from alert_context
-    const eventTimeUtc = event.alert_context?.event_time_utc;
-
-    return (
-        <Card>
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <div className="rounded-lg bg-muted p-2">
-                            <Info className="size-4 text-muted-foreground" />
-                        </div>
-                        <CardTitle className="text-base">Contexto</CardTitle>
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowDetails(!showDetails)}
-                        className="gap-1 text-xs"
-                    >
-                        {showDetails ? 'Menos' : 'Más'}
-                        <ChevronDown className={`size-3 transition-transform ${showDetails ? 'rotate-180' : ''}`} />
-                    </Button>
-                </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-                {/* Primary Info Grid */}
-                <div className="grid gap-3 sm:grid-cols-2">
-                    {/* Vehicle */}
-                    <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-                        <Truck className="size-4 text-muted-foreground shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-muted-foreground uppercase">Vehículo</p>
-                            <div className="flex items-center gap-1">
-                                <p className="text-sm font-medium truncate">
-                                    {event.vehicle_name ?? 'Sin identificar'}
-                                </p>
-                                {event.vehicle_id && (
-                                    <CopyButton value={event.vehicle_id} label="Copiar ID vehículo" />
+                                {event.verdict_badge && (
+                                    <p className="mt-1 text-sm text-muted-foreground">
+                                        {event.verdict_badge.verdict}
+                                        {event.verdict_badge.likelihood ? ` \u00b7 ${event.verdict_badge.likelihood}` : ''}
+                                    </p>
                                 )}
                             </div>
                         </div>
-                        {!event.vehicle_name && (
-                            <Badge variant="outline" className="text-xs text-warning border-warning/30">
-                                Faltante
+
+                        <div className="flex shrink-0 items-center gap-2">
+                            <Badge variant={event.severity === 'critical' ? 'critical' : event.severity === 'warning' ? 'warning' : 'info'}>
+                                {event.severity_label ?? event.severity}
+                            </Badge>
+                            {event.attention_state === 'closed' && (
+                                <Badge variant="secondary" className="border border-border/60">Cerrada</Badge>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="mt-3.5 flex flex-wrap gap-1.5">
+                        {event.display_event_type && (
+                            <MetricChip label="Tipo" value={event.display_event_type} />
+                        )}
+                        {confidence && (
+                            <MetricChip label="Confianza" value={confidence} accent={sev.text} />
+                        )}
+                        <MetricChip
+                            label="Confirmación"
+                            value={acked ? 'Confirmado' : 'Pendiente'}
+                            accent={acked ? 'text-emerald-400' : 'text-muted-foreground'}
+                        />
+                        <MetricChip
+                            label="Responsable"
+                            value={event.owner_name ?? event.owner_contact_name ?? 'Sin asignar'}
+                        />
+                    </div>
+                </div>
+            </div>
+        </FadeIn>
+    );
+}
+
+function IntelligencePanel({ event, companyUsers }: { event: EventPayload; companyUsers: CompanyUser[] }) {
+    const sev = severityConfig[event.severity] ?? severityConfig.info;
+    const verdict = event.verdict_badge;
+    const confidence = formatConfidence(event.ai_assessment?.confidence);
+    const acked = event.ack_status === 'acked';
+    const isClosed = event.attention_state === 'closed';
+    const needsAck = event.attention_state === 'needs_attention' && event.ack_status === 'pending';
+
+    const [isAcking, setIsAcking] = useState(false);
+    const [isAssigning, setIsAssigning] = useState(false);
+    const [isClosing, setIsClosing] = useState(false);
+    const [showCloseDialog, setShowCloseDialog] = useState(false);
+    const [closeReason, setCloseReason] = useState('');
+
+    const handleAck = useCallback(async () => {
+        setIsAcking(true);
+        try {
+            const res = await fetch(`/api/alerts/${event.id}/ack`, {
+                method: 'POST',
+                headers: getCsrfHeaders(),
+                credentials: 'same-origin',
+            });
+            if (res.ok) router.reload();
+        } finally {
+            setIsAcking(false);
+        }
+    }, [event.id]);
+
+    const handleAssign = useCallback(
+        async (userId: string) => {
+            setIsAssigning(true);
+            try {
+                const res = await fetch(`/api/alerts/${event.id}/assign`, {
+                    method: 'POST',
+                    headers: getCsrfHeaders(),
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ user_id: Number(userId) }),
+                });
+                if (res.ok) router.reload();
+            } finally {
+                setIsAssigning(false);
+            }
+        },
+        [event.id]
+    );
+
+    const handleCloseAttention = useCallback(async () => {
+        if (!closeReason.trim()) return;
+        setIsClosing(true);
+        try {
+            const res = await fetch(`/api/alerts/${event.id}/close-attention`, {
+                method: 'POST',
+                headers: getCsrfHeaders(),
+                credentials: 'same-origin',
+                body: JSON.stringify({ reason: closeReason.trim() }),
+            });
+            if (res.ok) {
+                setShowCloseDialog(false);
+                setCloseReason('');
+                router.reload();
+            }
+        } finally {
+            setIsClosing(false);
+        }
+    }, [event.id, closeReason]);
+
+    return (
+        <>
+            <SlideUp delay={0.05}>
+                <div className="overflow-hidden rounded-xl border bg-card">
+                    <div className={`h-[3px] ${sev.bar}`} />
+
+                    {/* Severity + Verdict */}
+                    <div className="px-4 pt-3.5 pb-3 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">
+                                Severidad
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                                <span className={`size-2 rounded-full ${sev.dot}`} />
+                                <span className={`text-sm font-semibold ${sev.text}`}>
+                                    {event.severity_label ?? event.severity}
+                                </span>
+                            </div>
+                        </div>
+                        {verdict && (
+                            <Badge
+                                variant="outline"
+                                className={`w-full justify-center py-1.5 px-2.5 text-[11px] font-medium whitespace-normal break-words min-w-0 overflow-visible ${
+                                    verdict.color === 'red'
+                                        ? 'border-red-500/30 bg-red-500/8 text-red-300'
+                                        : verdict.color === 'amber'
+                                          ? 'border-amber-500/30 bg-amber-500/8 text-amber-300'
+                                          : verdict.color === 'emerald'
+                                            ? 'border-emerald-500/30 bg-emerald-500/8 text-emerald-300'
+                                            : 'border-border bg-muted/30 text-muted-foreground'
+                                }`}
+                            >
+                                {verdict.verdict}
+                                {verdict.likelihood ? ` (${verdict.likelihood})` : ''}
                             </Badge>
                         )}
                     </div>
 
-                    {/* Driver */}
-                    <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-                        <User className="size-4 text-muted-foreground shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-muted-foreground uppercase">Conductor</p>
-                            <div className="flex items-center gap-1">
-                                <p className="text-sm font-medium truncate">
-                                    {event.driver_name ?? 'Sin identificar'}
-                                </p>
-                                {event.driver_id && (
-                                    <CopyButton value={event.driver_id} label="Copiar ID conductor" />
-                                )}
+                    <div className="h-px bg-border/50 mx-4" />
+
+                    {/* Key facts + SLA + Owner — consolidated */}
+                    <div className="px-4 py-3">
+                        <dl className="space-y-2 text-[13px]">
+                            {event.display_event_type && (
+                                <div className="flex items-center justify-between gap-2">
+                                    <dt className="text-muted-foreground">Tipo</dt>
+                                    <dd className="text-right font-medium truncate max-w-[60%]">{event.display_event_type}</dd>
+                                </div>
+                            )}
+                            {confidence && (
+                                <div className="flex items-center justify-between gap-2">
+                                    <dt className="text-muted-foreground">Confianza</dt>
+                                    <dd className="text-right">
+                                        <span className={`font-mono text-xs font-semibold ${sev.text}`}>{confidence}</span>
+                                    </dd>
+                                </div>
+                            )}
+                            <div className="flex items-center justify-between gap-2">
+                                <dt className="text-muted-foreground">Confirmación</dt>
+                                <dd className={`text-right font-mono text-xs font-semibold ${slaColor(acked, event.ack_due_at)}`}>
+                                    {acked ? 'Confirmado' : event.ack_due_at ? formatRelative(event.ack_due_at) : 'Sin SLA'}
+                                </dd>
                             </div>
-                        </div>
-                        {!event.driver_name && (
-                            <Badge variant="outline" className="text-xs text-warning border-warning/30">
-                                Faltante
-                            </Badge>
-                        )}
+                            {event.resolve_due_at && (
+                                <div className="flex items-center justify-between gap-2">
+                                    <dt className="text-muted-foreground">Revalidación</dt>
+                                    <dd className="text-right font-mono text-xs">{formatRelative(event.resolve_due_at)}</dd>
+                                </div>
+                            )}
+                            <div className="flex items-center justify-between gap-2">
+                                <dt className="text-muted-foreground">Responsable</dt>
+                                <dd className="text-right font-medium truncate max-w-[55%]">
+                                    {event.owner_name ?? event.owner_contact_name ?? (
+                                        <span className="text-muted-foreground/50 italic font-normal">Sin asignar</span>
+                                    )}
+                                </dd>
+                            </div>
+                        </dl>
                     </div>
 
-                    {/* Location */}
-                    <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-                        <MapPin className="size-4 text-muted-foreground shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-muted-foreground uppercase">Ubicación</p>
-                            <p className="text-sm font-medium truncate">
-                                {location ?? 'Sin ubicación'}
-                            </p>
-                        </div>
-                    </div>
+                    <div className="h-px bg-border/50 mx-4" />
 
-                    {/* Time */}
-                    <div className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-                        <Calendar className="size-4 text-muted-foreground shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-muted-foreground uppercase">Fecha/Hora</p>
-                            <p className="text-sm font-medium">
-                                {formatShortDateTime(event.occurred_at, timezone)}
-                            </p>
-                            {eventTimeUtc && (
-                                <p className="text-xs text-muted-foreground">
-                                    UTC: {eventTimeUtc}
-                                </p>
+                    {/* Actions */}
+                    <div className="px-4 py-3 space-y-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">
+                            Acciones
+                        </span>
+                        <div className="flex flex-col gap-1.5">
+                            {needsAck && !isClosed && (
+                                <Button
+                                    size="sm"
+                                    className="w-full gap-2 bg-emerald-600 text-white hover:bg-emerald-500"
+                                    onClick={handleAck}
+                                    disabled={isAcking}
+                                >
+                                    {isAcking ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle className="size-3.5" />}
+                                    Confirmar recepción
+                                </Button>
+                            )}
+                            {companyUsers.length > 0 && !isClosed && (
+                                <Select
+                                    value={event.owner_user_id?.toString() ?? ''}
+                                    onValueChange={handleAssign}
+                                    disabled={isAssigning}
+                                >
+                                    <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue placeholder={isAssigning ? 'Asignando...' : 'Asignar responsable'} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {companyUsers.map((u) => (
+                                            <SelectItem key={u.id} value={String(u.id)}>
+                                                {u.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                            <Button size="sm" variant="outline" className="w-full justify-start gap-2 text-xs text-muted-foreground" disabled>
+                                <Shield className="size-3" />
+                                Escalar (pronto)
+                            </Button>
+                            {!isClosed && (
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="w-full justify-start gap-2 text-xs text-muted-foreground/70 hover:text-red-400"
+                                    onClick={() => setShowCloseDialog(true)}
+                                >
+                                    <XCircle className="size-3" />
+                                    Cerrar atención
+                                </Button>
                             )}
                         </div>
                     </div>
                 </div>
+            </SlideUp>
 
-                {/* Behavior Label Badge */}
-                {event.alert_context?.behavior_label_translated && (
-                    <div className="pt-2">
-                        <Badge className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 gap-1">
-                            <Zap className="size-3" />
-                            {event.alert_context.behavior_label_translated}
-                        </Badge>
-                    </div>
-                )}
-
-                {/* Triage Notes (from AI) */}
-                {event.alert_context?.triage_notes && (
-<div className="rounded-lg border border-info/30 bg-info/10 p-3">
-                            <div className="flex items-start gap-2">
-                            <Info className="size-4 text-info shrink-0 mt-0.5" />
-                                <div>
-                                <p className="text-xs font-medium text-info uppercase">Notas del triaje AI</p>
-                                <p className="text-sm text-foreground mt-1">{event.alert_context.triage_notes}</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Expandable Details */}
-                {showDetails && (
-                    <div className="space-y-3 pt-2 border-t">
-                        {/* Event Description */}
-                        <div className="rounded-lg border bg-muted/30 p-3">
-                            <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Descripción</p>
-                            <p className="text-sm">{event.event_description ?? 'Sin descripción'}</p>
-                        </div>
-
-                        {/* Samsara Event ID */}
-                        {event.samsara_event_id && (
-                            <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
-                                <div>
-                                    <p className="text-xs font-medium text-muted-foreground uppercase">Samsara Event ID</p>
-                                    <p className="text-sm font-mono">{event.samsara_event_id}</p>
-                                </div>
-                                <CopyButton value={event.samsara_event_id} label="Copiar Event ID" />
-                            </div>
-                        )}
-
-                        {/* Dedupe Key */}
-                        {event.dedupe_key && (
-                            <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
-                                <div>
-                                    <p className="text-xs font-medium text-muted-foreground uppercase">Dedupe Key</p>
-                                    <p className="text-sm font-mono text-xs">{event.dedupe_key}</p>
-                                </div>
-                                <CopyButton value={event.dedupe_key} label="Copiar Dedupe Key" />
-                            </div>
-                        )}
-
-                        {/* Incident URL */}
-                        {rawPayload?.incidentUrl && (
-                            <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-medium text-muted-foreground uppercase">Incident URL</p>
-                                    <p className="text-sm font-mono truncate text-xs">{rawPayload.incidentUrl}</p>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <CopyButton value={rawPayload.incidentUrl} label="Copiar URL" />
-                                    <Button variant="ghost" size="sm" asChild className="h-6 w-6 p-0">
-                                        <a href={rawPayload.incidentUrl} target="_blank" rel="noopener noreferrer">
-                                            <ExternalLink className="size-3 text-muted-foreground" />
-                                        </a>
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* External IDs */}
-                        {vehicleExternalIds && Object.keys(vehicleExternalIds).length > 0 && (
-                            <div className="rounded-lg border bg-muted/30 p-3">
-                                <p className="text-xs font-medium text-muted-foreground uppercase mb-2">IDs Externos</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {Object.entries(vehicleExternalIds).map(([key, value]) => (
-                                        <div key={key} className="flex items-center gap-1">
-                                            <Badge variant="secondary" className="text-xs font-mono">
-                                                {key}: {value}
-                                            </Badge>
-                                            <CopyButton value={value} label={`Copiar ${key}`} />
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </CardContent>
-        </Card>
+            <Dialog open={showCloseDialog} onOpenChange={setShowCloseDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Cerrar atención</DialogTitle>
+                        <DialogDescription>
+                            Indica el motivo por el que se cierra la atención de esta alerta.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Textarea
+                        placeholder="Motivo del cierre..."
+                        value={closeReason}
+                        onChange={(e) => setCloseReason(e.target.value)}
+                        rows={3}
+                    />
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowCloseDialog(false)} disabled={isClosing}>
+                            Cancelar
+                        </Button>
+                        <Button onClick={handleCloseAttention} disabled={!closeReason.trim() || isClosing}>
+                            {isClosing ? <Loader2 className="size-4 animate-spin" /> : null}
+                            Cerrar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }
 
-// ============================================================================
-// AI VERDICT CARD COMPONENT
-// Shows: verdict, likelihood, reasoning summary
-// ============================================================================
+function UnifiedTimeline({ entries }: { entries: UnifiedTimelineEntry[] }) {
+    return (
+        <StaggerContainer className="relative">
+            {entries.map((entry, i) => {
+                const config = timelineTypeConfig[entry.type];
+                const Icon = config.icon;
+                const isLast = i === entries.length - 1;
 
-interface AIVerdictCardProps {
-    event: SamsaraEventPayload;
+                return (
+                    <StaggerItem key={i}>
+                        <div className="group relative flex gap-3 rounded-md py-2.5 pr-2 transition-colors hover:bg-muted/25">
+                            {!isLast && (
+                                <div className="absolute left-[24px] top-[36px] bottom-0 w-px bg-border/40" />
+                            )}
+
+                            <div
+                                className={`relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full ${config.color} text-white ring-2 ring-card transition-transform duration-150 group-hover:scale-110`}
+                            >
+                                <Icon className="size-3" />
+                            </div>
+
+                            <div className="flex-1 min-w-0 overflow-hidden pt-px">
+                                <p className="font-display text-[13px] font-semibold leading-snug break-words">
+                                    {entry.title}
+                                </p>
+                                {entry.description && (
+                                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground break-words line-clamp-3">
+                                        {entry.description}
+                                    </p>
+                                )}
+                                <p className="mt-1 font-mono text-[10px] text-muted-foreground/50">
+                                    {formatRelative(entry.timestamp)} &middot; {entry.actor}
+                                </p>
+                            </div>
+                        </div>
+                    </StaggerItem>
+                );
+            })}
+        </StaggerContainer>
+    );
 }
 
-function AIVerdictCard({ event }: AIVerdictCardProps) {
-    if (!event.verdict_badge || event.ai_status !== 'completed') return null;
+function FallbackTimeline({ event }: { event: EventPayload }) {
+    return (
+        <div className="space-y-3 px-3">
+            {event.ai_message && (
+                <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-violet-400 mb-2">Mensaje AI</p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{event.ai_message}</p>
+                </div>
+            )}
+            {event.timeline && Array.isArray(event.timeline) && event.timeline.length > 0 && (
+                <div className="space-y-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Pipeline</p>
+                    <ol className="list-none space-y-2">
+                        {event.timeline.map((step: unknown, i: number) => {
+                            const s = step as { title?: string; name?: string };
+                            return (
+                                <li key={i} className="flex items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2 text-sm">
+                                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-violet-500/15 font-mono text-[10px] font-bold text-violet-400">
+                                        {i + 1}
+                                    </span>
+                                    {s.title ?? s.name ?? `Paso ${i + 1}`}
+                                </li>
+                            );
+                        })}
+                    </ol>
+                </div>
+            )}
+        </div>
+    );
+}
 
-    const verdictStyle = verdictConfig[event.verdict_badge.urgency ?? 'unknown'];
-    const VerdictIcon = verdictStyle.icon;
+// ---------------------------------------------------------------------------
+// Media storytelling: strip below hero + lightbox
+// ---------------------------------------------------------------------------
+
+function MediaLightbox({
+    media,
+    currentIndex,
+    onClose,
+    onPrev,
+    onNext,
+}: {
+    media: MediaInsight[];
+    currentIndex: number;
+    onClose: () => void;
+    onPrev: () => void;
+    onNext: () => void;
+}) {
+    const item = media[currentIndex];
+    const src = item?.download_url ?? item?.url ?? null;
+    const hasMultiple = media.length > 1;
+
+    useEffect(() => {
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+            if (hasMultiple && e.key === 'ArrowLeft') onPrev();
+            if (hasMultiple && e.key === 'ArrowRight') onNext();
+        };
+        window.addEventListener('keydown', handleKey);
+        return () => window.removeEventListener('keydown', handleKey);
+    }, [onClose, onPrev, onNext, hasMultiple]);
 
     return (
-        <Card className={`border-2 ${verdictStyle.border} ${verdictStyle.bg}`}>
-            <CardContent className="p-6">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                    <div className="shrink-0 rounded-xl bg-white/50 dark:bg-black/20 p-3">
-                        <VerdictIcon className={`size-8 ${verdictStyle.text}`} />
-                    </div>
-                    <div className="flex-1 space-y-2">
-                        <div>
-                            <p className={`text-xs font-semibold uppercase tracking-wide ${verdictStyle.text} opacity-75`}>
-                                Veredicto AI
-                            </p>
-                            <h2 className={`text-xl sm:text-2xl font-bold ${verdictStyle.text}`}>
-                                {event.verdict_badge.verdict}
-                            </h2>
-                            {event.verdict_badge.likelihood && (
-                                <p className={`text-sm mt-0.5 ${verdictStyle.text} opacity-80`}>
-                                    Probabilidad: {event.verdict_badge.likelihood}
-                                </p>
-                            )}
+        <Dialog open onOpenChange={() => onClose()}>
+            <DialogContent
+                className="max-w-[95vw] w-full max-h-[95vh] p-0 gap-0 border-0 bg-black/95 overflow-hidden"
+                onPointerDownOutside={onClose}
+                onEscapeKeyDown={onClose}
+            >
+                <div className="relative flex items-center justify-center min-h-[70vh] w-full">
+                    {src ? (
+                        <img
+                            src={src}
+                            alt={item?.camera ?? `Evidencia ${currentIndex + 1}`}
+                            className="max-h-[85vh] w-auto object-contain"
+                        />
+                    ) : (
+                        <div className="flex flex-col items-center gap-3 text-white/60">
+                            <ImageIcon className="size-14" />
+                            <span>Imagen no disponible</span>
                         </div>
-                        {event.ai_assessment_view?.reasoning && (
-                            <p className={`text-sm leading-relaxed ${verdictStyle.text} opacity-90`}>
-                                {event.ai_assessment_view.reasoning}
-                            </p>
-                        )}
-                    </div>
-                    {event.ai_message && (
-                        <CopyButton value={event.ai_message} label="Copiar mensaje AI" />
+                    )}
+                    {hasMultiple && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={onPrev}
+                                className="absolute left-2 top-1/2 -translate-y-1/2 flex size-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                                aria-label="Anterior"
+                            >
+                                <ChevronLeft className="size-6" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onNext}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 flex size-10 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors"
+                                aria-label="Siguiente"
+                            >
+                                <ChevronRight className="size-6" />
+                            </button>
+                        </>
                     )}
                 </div>
-            </CardContent>
-        </Card>
-    );
-}
-
-// ============================================================================
-// CAMERA LABEL HELPER
-// ============================================================================
-
-/**
- * Obtiene un label legible para el tipo de cámara
- */
-function getCameraLabel(camera?: string, fallbackIndex?: number): string {
-    if (!camera || camera === 'unknown') {
-        return fallbackIndex !== undefined ? `Cámara ${fallbackIndex + 1}` : 'Cámara de evidencia';
-    }
-    
-    const lower = camera.toLowerCase();
-    if (lower.includes('driver') || lower.includes('interior')) {
-        return 'Interior (conductor)';
-    }
-    if (lower.includes('road') || lower.includes('front') || lower.includes('exterior')) {
-        return 'Exterior (frontal)';
-    }
-    if (lower.includes('rear') || lower.includes('back')) {
-        return 'Trasera';
-    }
-    
-    // Si tiene formato de dashcam pero no reconocido
-    if (camera.includes('dashcam') || camera.includes('Dashcam')) {
-        return camera
-            .replace('dashcam', '')
-            .replace('Dashcam', '')
-            .replace('Facing', '')
-            .replace('facing', '')
-            .trim() || 'Dashcam';
-    }
-    
-    return camera;
-}
-
-// ============================================================================
-// UNIFIED EVIDENCE GALLERY COMPONENT
-// Merges images from: media_insights, camera.media_urls, tool media_urls
-// ============================================================================
-
-interface UnifiedMediaItem {
-    url: string;
-    camera?: string;
-    analysis?: string;
-    analysis_structured?: VisionAnalysisStructured;
-    alert_level?: string;
-    recommendation?: { action?: string; reason?: string };
-    source: 'media_insights' | 'camera_evidence' | 'tool_output' | 'camera_analysis';
-}
-
-interface EvidenceGalleryProps {
-    event: SamsaraEventPayload;
-    onSelectImage: (item: UnifiedMediaItem) => void;
-}
-
-function EvidenceGallery({ event, onSelectImage }: EvidenceGalleryProps) {
-    // Merge all image sources and deduplicate by URL
-    // Priority: media_insights (persisted) > tool_output (persisted) > camera_evidence (S3 temp URLs)
-    const allMedia = useMemo<UnifiedMediaItem[]>(() => {
-        const urlSet = new Set<string>();
-        const items: UnifiedMediaItem[] = [];
-
-        // Source 1: media_insights from event (already processed and persisted)
-        event.media_insights
-            .filter(m => m.download_url)
-            .forEach(m => {
-                if (!urlSet.has(m.download_url!)) {
-                    urlSet.add(m.download_url!);
-                    items.push({
-                        url: m.download_url!,
-                        camera: m.camera,
-                        analysis: m.analysis,
-                        analysis_structured: m.analysis_structured,
-                        alert_level: m.alert_level,
-                        recommendation: m.recommendation,
-                        source: 'media_insights',
-                    });
-                }
-            });
-
-        // Source 2: camera_analysis from ai_actions.camera_analysis (NEW - preferred)
-        // This is where preloaded and analyzed images are stored with local URLs
-        const cameraAnalysis = event.ai_actions?.camera_analysis;
-        if (cameraAnalysis?.analyses) {
-            cameraAnalysis.analyses.forEach((analysis: { 
-                local_url?: string; 
-                samsara_url?: string; 
-                input?: string; 
-                scene_description?: string; 
-                alert_level?: string;
-                analysis_structured?: VisionAnalysisStructured;
-                recommendation?: { action?: string; reason?: string };
-            }, idx: number) => {
-                // Prefer local_url over samsara_url
-                const url = analysis.local_url || analysis.samsara_url;
-                if (url && !urlSet.has(url)) {
-                    urlSet.add(url);
-                    items.push({
-                        url,
-                        camera: analysis.input || `Cámara ${idx + 1}`,
-                        analysis: analysis.scene_description || analysis.alert_level,
-                        analysis_structured: analysis.analysis_structured,
-                        alert_level: analysis.alert_level,
-                        recommendation: analysis.recommendation,
-                        source: 'camera_analysis',
-                    });
-                }
-            });
-        }
-        
-        // Source 3: tool media_urls from ai_actions.agents[].tools_used[].media_urls (legacy)
-        event.ai_actions.agents?.forEach(agent => {
-            agent.tools_used?.forEach(tool => {
-                (tool.media_urls ?? []).forEach((url, idx) => {
-                    if (!urlSet.has(url)) {
-                        urlSet.add(url);
-                        items.push({
-                            url,
-                            camera: `${tool.tool_name ?? 'Tool'} - ${idx + 1}`,
-                            analysis: tool.result_summary,
-                            source: 'tool_output',
-                        });
-                    }
-                });
-            });
-        });
-
-        // Source 4: camera.media_urls from ai_assessment.supporting_evidence
-        // ONLY add these if we don't already have images from other sources
-        // These are temporary S3 URLs that expire, so prefer persisted URLs
-        if (items.length === 0) {
-            const cameraUrls = event.ai_assessment?.supporting_evidence?.camera?.media_urls ?? [];
-            cameraUrls.forEach((url, idx) => {
-                // Skip S3 URLs if we already have persisted images
-                if (!urlSet.has(url)) {
-                    urlSet.add(url);
-                    items.push({
-                        url,
-                        camera: `Cámara ${idx + 1}`,
-                        source: 'camera_evidence',
-                    });
-                }
-            });
-        }
-
-        return items;
-    }, [event.media_insights, event.ai_assessment, event.ai_actions]);
-
-    if (allMedia.length === 0) return null;
-
-    const sourceLabels: Record<string, string> = {
-        media_insights: 'Procesado',
-        camera_evidence: 'Cámara',
-        tool_output: 'Herramienta',
-        camera_analysis: 'Analizado',
-    };
-
-    return (
-        <section>
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-primary/10 p-2">
-                        <Camera className="size-5 text-primary" />
-                    </div>
-                    <div>
-                        <h2 className="text-lg font-semibold">Evidencia Visual</h2>
-                        <p className="text-sm text-muted-foreground">
-                            {allMedia.length} imagen{allMedia.length !== 1 ? 'es' : ''} capturada{allMedia.length !== 1 ? 's' : ''}
+                <div className="px-4 py-3 bg-black/60 border-t border-white/10">
+                    <p className="text-sm font-semibold text-white">{item?.camera ?? `Cámara ${currentIndex + 1}`}</p>
+                    {item?.analysis && (
+                        <p className="mt-1 text-xs text-white/80 leading-relaxed line-clamp-2">{item.analysis}</p>
+                    )}
+                    {hasMultiple && (
+                        <p className="mt-2 text-[11px] text-white/50">
+                            {currentIndex + 1} / {media.length}
                         </p>
-                    </div>
+                    )}
                 </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {allMedia.map((item, idx) => {
-                    const cameraLabel = getCameraLabel(item.camera, idx);
-                    return (
-                        <button
-                            key={`${item.url}-${idx}`}
-                            onClick={() => onSelectImage(item)}
-                            className="group relative aspect-video cursor-pointer overflow-hidden rounded-xl border bg-muted text-left transition-all hover:ring-2 hover:ring-primary hover:ring-offset-2"
-                        >
-                            <img
-                                src={item.url}
-                                alt={cameraLabel}
-                                className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                                loading="lazy"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                            <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <div className="flex items-center justify-between">
-                                    <Badge className="bg-black/60 text-white backdrop-blur-sm text-xs">
-                                        <Camera className="size-3 mr-1" />
-                                        {cameraLabel}
-                                    </Badge>
-                                    <Badge variant="outline" className="bg-black/40 text-white/80 border-white/30 text-xs">
-                                        {sourceLabels[item.source]}
-                                    </Badge>
-                                </div>
-                            </div>
-                            {/* Always visible camera label */}
-                            <div className="absolute top-2 left-2">
-                                <Badge className="bg-black/50 text-white backdrop-blur-sm text-xs">
-                                    <Camera className="size-3 mr-1" />
-                                    {cameraLabel}
-                                </Badge>
-                            </div>
-                        </button>
-                    );
-                })}
-            </div>
-        </section>
-    );
-}
-
-// ============================================================================
-// IMAGE LIGHTBOX MODAL
-// ============================================================================
-
-interface ImageLightboxProps {
-    image: UnifiedMediaItem | null;
-    onClose: () => void;
-}
-
-function ImageLightbox({ image, onClose }: ImageLightboxProps) {
-    const alertLevelConfig: Record<string, { bg: string; text: string; label: string; border: string }> = {
-        'NORMAL': { bg: 'bg-success/10', text: 'text-success', label: 'Normal', border: 'border-success/30' },
-        'ATENCION': { bg: 'bg-warning/10', text: 'text-warning', label: 'Atención', border: 'border-warning/30' },
-        'ALERTA': { bg: 'bg-warning/10', text: 'text-warning', label: 'Alerta', border: 'border-warning/30' },
-        'CRITICO': { bg: 'bg-destructive/10', text: 'text-destructive', label: 'Crítico', border: 'border-destructive/30' },
-        'INDETERMINADO': { bg: 'bg-muted', text: 'text-muted-foreground', label: 'Indeterminado', border: 'border-border' },
-    };
-
-    const recommendationConfig: Record<string, { bg: string; text: string; icon: LucideIcon; border: string }> = {
-        'INTERVENIR': { bg: 'bg-destructive/15', text: 'text-destructive', icon: ShieldAlert, border: 'border-destructive/40' },
-        'MONITOREAR': { bg: 'bg-warning/15', text: 'text-warning', icon: Eye, border: 'border-warning/40' },
-        'DESCARTAR': { bg: 'bg-success/15', text: 'text-success', icon: Check, border: 'border-success/40' },
-    };
-
-    const structured = image?.analysis_structured;
-    const alertConfig = structured?.alert_level ? alertLevelConfig[structured.alert_level] : null;
-    const recConfig = structured?.recommendation?.action ? recommendationConfig[structured.recommendation.action] : null;
-    const RecIcon = recConfig?.icon ?? Eye;
-    
-    const cameraLabel = image?.camera ? getCameraLabel(image.camera) : 'Evidencia visual';
-
-    return (
-        <Dialog open={!!image} onOpenChange={() => onClose()}>
-            <DialogContent className="max-w-[95vw] w-full lg:max-w-7xl p-0 overflow-hidden h-[95vh] max-h-[95vh] bg-black/95 border-none">
-                {/* Close button */}
-                <button
-                    onClick={onClose}
-                    className="absolute right-4 top-4 z-50 rounded-full bg-black/60 p-2 text-white/80 hover:bg-black/80 hover:text-white transition-colors"
-                >
-                    <X className="size-5" />
-                </button>
-                
-                {image && (
-                    <div className="flex flex-col lg:flex-row h-full">
-                        {/* Image Section - Takes most of the space */}
-                        <div className="relative flex-1 flex items-center justify-center bg-black min-h-[40vh] lg:min-h-full">
-                            <img
-                                src={image.url}
-                                alt={cameraLabel}
-                                className="max-w-full max-h-[60vh] lg:max-h-[90vh] object-contain"
-                            />
-                            
-                            {/* Camera label overlay on image */}
-                            <div className="absolute top-4 left-4">
-                                <Badge className="bg-black/70 text-white backdrop-blur-sm text-sm px-3 py-1.5">
-                                    <Camera className="size-4 mr-2" />
-                                    {cameraLabel}
-                                </Badge>
-                            </div>
-                            
-                            {/* Alert level badge */}
-                            {alertConfig && (
-                                <div className="absolute top-4 right-16">
-                                    <Badge className={`${alertConfig.bg} ${alertConfig.text} border ${alertConfig.border} text-sm px-3 py-1.5 backdrop-blur-sm`}>
-                                        {alertConfig.label}
-                                    </Badge>
-                                </div>
-                            )}
-                        </div>
-                        
-                        {/* Analysis Panel - Right side on desktop, bottom on mobile */}
-                        <div className="w-full lg:w-[420px] bg-background border-t lg:border-t-0 lg:border-l overflow-y-auto max-h-[35vh] lg:max-h-full">
-                            <div className="p-5 space-y-5">
-                                {/* Header */}
-                                <div>
-                                    <h3 className="text-lg font-semibold flex items-center gap-2">
-                                        <Sparkles className="size-5 text-primary" />
-                                        Análisis de Vision AI
-                                    </h3>
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                        Evaluación automática de la imagen capturada
-                                    </p>
-                                </div>
-                                
-                                <Separator />
-                                
-                                {/* Recommendation Banner - Prominent */}
-                                {recConfig && structured?.recommendation && (
-                                    <div className={`rounded-xl p-4 ${recConfig.bg} border ${recConfig.border}`}>
-                                        <div className="flex items-start gap-3">
-                                            <div className={`rounded-full p-2 ${recConfig.bg}`}>
-                                                <RecIcon className={`size-6 ${recConfig.text}`} />
-                                            </div>
-                                            <div className="flex-1">
-                                                <p className={`text-lg font-bold ${recConfig.text}`}>
-                                                    {structured.recommendation.action}
-                                                </p>
-                                                {structured.recommendation.reason && (
-                                                    <p className={`text-sm mt-1 ${recConfig.text} opacity-90`}>
-                                                        {structured.recommendation.reason}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Scene Description */}
-                                {structured?.scene_description && (
-                                    <div className="rounded-lg border bg-muted/30 p-4">
-                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                                            Descripción de la escena
-                                        </p>
-                                        <p className="text-sm leading-relaxed">{structured.scene_description}</p>
-                                    </div>
-                                )}
-
-                                {/* Security Indicators */}
-                                {structured?.security_indicators && (
-                                    <div>
-                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                                            Indicadores de seguridad
-                                        </p>
-                                        <div className="grid gap-2">
-                                            {structured.security_indicators.vehicle_state && structured.security_indicators.vehicle_state !== 'indeterminado' && (
-                                                <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
-                                                    <Truck className="size-5 text-muted-foreground shrink-0" />
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">Estado del vehículo</p>
-                                                        <p className="text-sm font-medium capitalize">{structured.security_indicators.vehicle_state}</p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {structured.security_indicators.driver_state && 
-                                             structured.security_indicators.driver_state !== 'null - cámara exterior' && 
-                                             structured.security_indicators.driver_state !== 'indeterminado' && (
-                                                <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
-                                                    <User className="size-5 text-muted-foreground shrink-0" />
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">Estado del conductor</p>
-                                                        <p className="text-sm font-medium">{structured.security_indicators.driver_state}</p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {structured.security_indicators.road_conditions && 
-                                             structured.security_indicators.road_conditions !== 'null - cámara interior' &&
-                                             structured.security_indicators.road_conditions !== 'indeterminado' && (
-                                                <div className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3">
-                                                    <MapPin className="size-5 text-muted-foreground shrink-0" />
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground">Condiciones del camino</p>
-                                                        <p className="text-sm font-medium">{structured.security_indicators.road_conditions}</p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Decision Evidence */}
-                                {structured?.decision_evidence && (
-                                    <div className="space-y-3">
-                                        {structured.decision_evidence.emergency_signals && structured.decision_evidence.emergency_signals.length > 0 && (
-                                            <div className="rounded-xl border-2 border-destructive/40 bg-destructive/10 p-4">
-                                                <p className="text-xs font-bold text-destructive uppercase tracking-wide mb-2 flex items-center gap-2">
-                                                    <ShieldAlert className="size-4" />
-                                                    Señales de emergencia
-                                                </p>
-                                                <ul className="text-sm text-foreground space-y-1.5">
-                                                    {structured.decision_evidence.emergency_signals.map((signal, idx) => (
-                                                        <li key={idx} className="flex items-start gap-2">
-                                                            <span className="text-destructive mt-0.5">•</span>
-                                                            {signal}
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-                                        {structured.decision_evidence.false_positive_signals && structured.decision_evidence.false_positive_signals.length > 0 && (
-                                            <div className="rounded-xl border border-success/30 bg-success/10 p-4">
-                                                <p className="text-xs font-bold text-success uppercase tracking-wide mb-2 flex items-center gap-2">
-                                                    <Check className="size-4" />
-                                                    Señales de falso positivo
-                                                </p>
-                                                <ul className="text-sm text-foreground space-y-1.5">
-                                                    {structured.decision_evidence.false_positive_signals.map((signal, idx) => (
-                                                        <li key={idx} className="flex items-start gap-2">
-                                                            <span className="text-success mt-0.5">•</span>
-                                                            {signal}
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-                                        {structured.decision_evidence.inconclusive_elements && structured.decision_evidence.inconclusive_elements.length > 0 && (
-                                            <div className="rounded-xl border border-border bg-muted p-4">
-                                                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
-                                                    <Info className="size-4" />
-                                                    Elementos inconclusos
-                                                </p>
-                                                <ul className="text-sm text-foreground space-y-1.5">
-                                                    {structured.decision_evidence.inconclusive_elements.map((element, idx) => (
-                                                        <li key={idx} className="flex items-start gap-2">
-                                                            <span className="text-muted-foreground mt-0.5">•</span>
-                                                            {element}
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Image Quality Issues */}
-                                {structured?.image_quality?.issues && structured.image_quality.issues.length > 0 && (
-                                    <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
-                                        <p className="text-xs font-semibold text-warning uppercase tracking-wide mb-1.5 flex items-center gap-2">
-                                            <AlertTriangle className="size-3.5" />
-                                            Problemas de imagen
-                                        </p>
-                                        <p className="text-sm text-foreground capitalize">
-                                            {structured.image_quality.issues.join(', ')}
-                                        </p>
-                                    </div>
-                                )}
-
-                                {/* Fallback: Raw Analysis Text */}
-                                {!structured && image.analysis && (
-                                    <div className="rounded-lg border bg-muted/30 p-4">
-                                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                                            Análisis AI
-                                        </p>
-                                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{image.analysis}</p>
-                                    </div>
-                                )}
-                                
-                                {/* No analysis available */}
-                                {!structured && !image.analysis && (
-                                    <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-center">
-                                        <Camera className="size-8 text-muted-foreground mx-auto mb-2" />
-                                        <p className="text-sm text-muted-foreground">
-                                            No hay análisis detallado disponible para esta imagen
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
             </DialogContent>
         </Dialog>
     );
 }
 
-// ============================================================================
-// AI REASONING & DATA QUALITY SECTION
-// Shows: confidence, data_consistency, conflicts, missing data chips
-// ============================================================================
-
-interface AIReasoningCardProps {
-    event: SamsaraEventPayload;
-}
-
-function AIReasoningCard({ event }: AIReasoningCardProps) {
-    const assessment = event.ai_assessment;
-    if (!assessment && !event.ai_assessment_view) return null;
-
-    const dataConsistency = assessment?.supporting_evidence?.data_consistency;
-    const hasConflict = dataConsistency?.has_conflict === true;
-    const conflicts = dataConsistency?.conflicts ?? [];
-
-    // Evidence from ai_assessment_view
-    const evidence = event.ai_assessment_view?.evidence ?? [];
-
-    // Determine what data is missing
-    const missingData: string[] = [];
-    if (!event.driver_name) missingData.push('Conductor');
-    if (!event.vehicle_name) missingData.push('Vehículo');
-    if (!assessment?.supporting_evidence?.vehicle) missingData.push('Stats vehículo');
-    if (!assessment?.supporting_evidence?.safety) missingData.push('Eventos seguridad');
-
-    const confidence = assessment?.confidence;
-    const confidenceValue = typeof confidence === 'number' 
-        ? confidence 
-        : typeof confidence === 'string' 
-            ? parseFloat(confidence) 
-            : null;
+function AlertMediaStrip({ media, onMediaClick }: { media: MediaInsight[]; onMediaClick: (index: number) => void }) {
+    if (!media?.length) return null;
 
     return (
-        <Card>
-            <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                    <div className="rounded-lg bg-muted p-2">
-                        <Sparkles className="size-4 text-muted-foreground" />
+        <SlideUp delay={0.08}>
+            <section className="rounded-xl border border-border/60 bg-card overflow-hidden" aria-label="Evidencia visual">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-muted/20">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--sam-accent-teal)]/15 text-[var(--sam-accent-teal)]">
+                        <Camera className="size-4" />
                     </div>
                     <div>
-                        <CardTitle className="text-base">Análisis y Calidad de Datos</CardTitle>
-                        <CardDescription className="text-xs">Razonamiento de la AI y consistencia</CardDescription>
+                        <h2 className="font-display text-sm font-semibold tracking-tight text-foreground">
+                            Evidencia visual
+                        </h2>
+                        <p className="text-[11px] text-muted-foreground">
+                            Material de cámaras analizado por el pipeline
+                        </p>
                     </div>
                 </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                {/* Confidence Score */}
-                {confidenceValue !== null && !isNaN(confidenceValue) && (
-                    <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-muted-foreground">Confianza:</span>
-                        <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                            <div 
-                                className={`h-full transition-all ${
-                                    confidenceValue >= 0.7 
-                                        ? 'bg-success' 
-                                        : confidenceValue >= 0.4 
-                                            ? 'bg-warning' 
-                                            : 'bg-destructive'
-                                }`}
-                                style={{ width: `${Math.min(100, confidenceValue * 100)}%` }}
-                            />
-                        </div>
-                        <span className="text-sm font-mono">{(confidenceValue * 100).toFixed(0)}%</span>
-                    </div>
-                )}
-
-                {/* Data Conflicts Warning */}
-                {hasConflict && (
-                    <div className="rounded-lg border border-warning/30 bg-warning/10 p-3">
-                        <div className="flex items-start gap-2">
-                            <AlertTriangle className="size-4 text-warning shrink-0 mt-0.5" />
-                            <div>
-                                <p className="text-sm font-medium text-foreground">
-                                    Conflicto de datos detectado
-                                </p>
-                                {conflicts.length > 0 && (
-                                    <ul className="mt-1 space-y-1">
-                                        {conflicts.map((conflict, idx) => (
-                                            <li key={idx} className="text-xs text-warning">
-                                                • {conflict}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Missing Data Chips */}
-                {missingData.length > 0 && (
-                    <div>
-                        <p className="text-xs font-medium text-muted-foreground uppercase mb-2">Datos faltantes</p>
-                        <div className="flex flex-wrap gap-1.5">
-                            {missingData.map(item => (
-                                <Badge 
-                                    key={item} 
-                                    variant="outline" 
-                                    className="text-xs text-warning border-warning/30 bg-warning/10"
-                                >
-                                    {item}
-                                </Badge>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Supporting Evidence */}
-                {evidence.length > 0 && (
-                    <div className="space-y-2">
-                        <p className="text-xs font-medium text-muted-foreground uppercase">Evidencia recopilada</p>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                            {evidence.map((item, idx) => (
-                                <div key={idx} className="rounded-lg border bg-muted/30 p-3">
-                                    <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-                                    <p className="text-sm mt-0.5 line-clamp-3">
-                                        {renderSafeValue(item.value)}
-                                    </p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Camera Visual Summary */}
-                {assessment?.supporting_evidence?.camera?.visual_summary && (
-                    <div className="rounded-lg border bg-muted/30 p-3">
-                        <p className="text-xs font-medium text-muted-foreground uppercase mb-1">Resumen visual de cámaras</p>
-                        <p className="text-sm">{assessment.supporting_evidence.camera.visual_summary}</p>
-                    </div>
-                )}
-            </CardContent>
-        </Card>
+                <div className="p-4">
+                    <StaggerContainer className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-border hover:scrollbar-thumb-border/80">
+                        {media.map((m, i) => {
+                            const src = m.download_url ?? m.url;
+                            return (
+                                <StaggerItem key={i}>
+                                    <button
+                                        type="button"
+                                        onClick={() => onMediaClick(i)}
+                                        className="group flex-shrink-0 w-[min(280px,85vw)] text-left rounded-lg border border-border/50 bg-muted/10 overflow-hidden transition-all duration-200 hover:border-[var(--sam-accent-teal)]/40 hover:shadow-[var(--sam-shadow-md)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sam-accent-teal)]/50"
+                                    >
+                                        <div className="relative aspect-video bg-muted/30">
+                                            {src ? (
+                                                <img
+                                                    src={src}
+                                                    alt={m.camera ?? `Evidencia ${i + 1}`}
+                                                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                                                />
+                                            ) : (
+                                                <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                                                    <ImageIcon className="size-10" />
+                                                </div>
+                                            )}
+                                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2">
+                                                <span className="text-xs font-medium text-white">
+                                                    {m.camera ?? `Cámara ${i + 1}`}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        {m.analysis_preview ?? m.analysis ? (
+                                            <div className="p-3">
+                                                <p className="text-[12px] text-muted-foreground line-clamp-2 leading-snug">
+                                                    {m.analysis_preview ?? m.analysis}
+                                                </p>
+                                            </div>
+                                        ) : null}
+                                    </button>
+                                </StaggerItem>
+                            );
+                        })}
+                    </StaggerContainer>
+                </div>
+            </section>
+        </SlideUp>
     );
 }
 
-// ============================================================================
-// AI EXECUTION TIMELINE COMPONENT
-// Shows: agents, durations, tools used with collapsible details
-// ============================================================================
+type TabId = 'evidencia' | 'ai' | 'notificaciones' | 'actividad';
 
-interface AITimelineProps {
-    event: SamsaraEventPayload;
-}
+const TAB_CONFIG: { id: TabId; label: string; icon: LucideIcon }[] = [
+    { id: 'evidencia', label: 'Evidencia', icon: Radio },
+    { id: 'ai', label: 'AI', icon: Cpu },
+    { id: 'notificaciones', label: 'Notif.', icon: Bell },
+    { id: 'actividad', label: 'Actividad', icon: Clock },
+];
 
-function AITimeline({ event }: AITimelineProps) {
-    const [expandedSteps, setExpandedSteps] = useState<number[]>([]);
-
-    const toggleStep = (step: number) => {
-        setExpandedSteps(prev => 
-            prev.includes(step) ? prev.filter(s => s !== step) : [...prev, step]
-        );
-    };
-
-    const { agents, total_duration_ms, total_tools_called } = event.ai_actions;
-
-    if (agents.length === 0) return null;
+function DetailPanel({ event, companyUsers }: { event: EventPayload; companyUsers: CompanyUser[] }) {
+    const [activeTab, setActiveTab] = useState<TabId>('evidencia');
+    const [rawExpanded, setRawExpanded] = useState(false);
 
     return (
-        <Card>
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <div className="rounded-lg bg-muted p-2">
-                            <Timer className="size-4 text-muted-foreground" />
-                        </div>
-                        <div>
-                            <CardTitle className="text-base">Timeline de Ejecución</CardTitle>
-                            <CardDescription className="text-xs">Agentes AI y herramientas utilizadas</CardDescription>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs">
-                            {formatDuration(total_duration_ms)}
-                        </Badge>
-                        {total_tools_called > 0 && (
-                            <Badge variant="secondary" className="text-xs">
-                                {total_tools_called} herramientas
-                            </Badge>
-                        )}
-                    </div>
-                </div>
-            </CardHeader>
-            <CardContent>
-                <div className="relative space-y-3 pl-6">
-                    {/* Timeline line */}
-                    <div className="absolute left-2 top-2 bottom-2 w-0.5 bg-border" />
-
-                    {agents.map((agent) => {
-                        const AgentIcon = getAgentIcon(agent.name);
-                        const isExpanded = expandedSteps.includes(agent.step);
-                        const hasTools = agent.tools_used.length > 0;
-
-                        return (
-                            <div key={`${agent.step}-${agent.name}`} className="relative">
-                                {/* Timeline dot */}
-                                <div className="absolute -left-4 top-3 size-3 rounded-full bg-primary ring-4 ring-background" />
-
-                                <div 
-                                    className={`rounded-lg border transition-colors ${
-                                        isExpanded ? 'bg-muted/50 border-primary/30' : 'bg-background hover:bg-muted/30'
+        <SlideUp delay={0.15}>
+            <div className="overflow-hidden rounded-xl border bg-card">
+                {/* Segmented tab control */}
+                <div className="border-b border-border/60 px-3 pt-3 pb-2.5">
+                    <div className="flex rounded-md bg-muted/40 p-0.5">
+                        {TAB_CONFIG.map((tab) => {
+                            const Icon = tab.icon;
+                            const isActive = activeTab === tab.id;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`flex flex-1 items-center justify-center gap-1 rounded px-1.5 py-1.5 text-[11px] font-medium transition-all duration-200 ${
+                                        isActive
+                                            ? 'bg-card text-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
                                     }`}
                                 >
-                                    <button
-                                        onClick={() => hasTools && toggleStep(agent.step)}
-                                        className="w-full p-3 text-left"
-                                        disabled={!hasTools}
-                                    >
-                                        <div className="flex items-start gap-3">
-                                            <div className="rounded-full bg-primary/10 p-1.5 text-primary shrink-0">
-                                                <AgentIcon className="size-3.5" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <p className="text-sm font-medium">{agent.title}</p>
-                                                    <div className="flex items-center gap-2">
-                                                        {agent.duration_ms && (
-                                                            <Badge variant="outline" className="text-xs shrink-0">
-                                                                {formatDuration(agent.duration_ms)}
-                                                            </Badge>
-                                                        )}
-                                                        {hasTools && (
-                                                            <ChevronDown 
-                                                                className={`size-4 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                                            />
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                    {agent.description}
-                                                </p>
-                                                {agent.summary && agent.summary !== 'Sin información generada para este paso.' && (
-                                                    <p className="text-xs text-foreground/80 mt-1 line-clamp-2">
-                                                        {agent.summary}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </button>
-
-                                    {/* Expanded Tools */}
-                                    {isExpanded && hasTools && (
-                                        <div className="px-3 pb-3 pt-1 border-t space-y-2">
-                                            {agent.tools_used.map((tool, toolIdx) => (
-                                                <div 
-                                                    key={`${tool.tool_name}-${toolIdx}`}
-                                                    className="flex items-start gap-2 rounded-md bg-background p-2 text-xs"
-                                                >
-                                                    <Wrench className="size-3 text-muted-foreground shrink-0 mt-0.5" />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <span className="font-medium">{tool.tool_name}</span>
-                                                            {tool.duration_ms && (
-                                                                <span className="text-muted-foreground">
-                                                                    {formatDuration(tool.duration_ms)}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        {tool.result_summary && (
-                                                            <p className="text-muted-foreground mt-0.5 line-clamp-2">
-                                                                {tool.result_summary}
-                                                            </p>
-                                                        )}
-                                                        {tool.media_urls && tool.media_urls.length > 0 && (
-                                                            <div className="flex items-center gap-1 mt-1">
-                                                                <ImageIcon className="size-3 text-muted-foreground" />
-                                                                <span className="text-muted-foreground">
-                                                                    {tool.media_urls.length} imagen{tool.media_urls.length !== 1 ? 'es' : ''}
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
+                                    <Icon className="size-3" />
+                                    <span className="hidden sm:inline">{tab.label}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
-            </CardContent>
-        </Card>
+
+                {/* Tab content */}
+                <div className="max-h-[calc(100vh-280px)] overflow-y-auto px-4 py-3">
+                    {activeTab === 'evidencia' && (
+                        <EvidenceTab
+                            event={event}
+                            rawExpanded={rawExpanded}
+                            onToggleRaw={() => setRawExpanded(!rawExpanded)}
+                        />
+                    )}
+                    {activeTab === 'ai' && <AITab event={event} />}
+                    {activeTab === 'notificaciones' && <NotificationsTab event={event} />}
+                    {activeTab === 'actividad' && (
+                        <ReviewPanel
+                            eventId={event.id}
+                            currentStatus={event.human_status ?? 'pending'}
+                            aiTimeline={
+                                (event.timeline ?? []).map((t) => {
+                                    const s = t as Record<string, unknown>;
+                                    return {
+                                        step: (s.step as number) ?? 0,
+                                        name: (s.name as string) ?? '',
+                                        title: (s.title as string) ?? '',
+                                        description: (s.description as string) ?? '',
+                                        summary: (s.summary as string) ?? '',
+                                        tools_used: (s.tools_used as { tool_name?: string; status_label?: string; duration_ms?: number }[]) ?? [],
+                                    };
+                                })
+                            }
+                            aiTotalDuration={event.ai_actions?.total_duration_ms}
+                            aiTotalTools={event.ai_actions?.total_tools_called}
+                        />
+                    )}
+                </div>
+            </div>
+        </SlideUp>
     );
 }
 
-// ============================================================================
-// PROCESSING STATE CARD
-// ============================================================================
-
-interface ProcessingCardProps {
-    simulatedTools: string[];
-}
-
-function ProcessingCard({ simulatedTools }: ProcessingCardProps) {
-    const allTools = [
-        'Obteniendo estadísticas del vehículo...',
-        'Consultando información del vehículo...',
-        'Identificando conductor asignado...',
-        'Revisando eventos de seguridad...',
-        'Analizando imágenes de cámaras con IA...',
-        'Generando veredicto final...'
-    ];
-
+function EvidenceTab({
+    event,
+    rawExpanded,
+    onToggleRaw,
+}: {
+    event: EventPayload;
+    rawExpanded: boolean;
+    onToggleRaw: () => void;
+}) {
     return (
-        <Card className="border-2 border-sky-500/30 bg-sky-50/50 dark:bg-sky-950/20">
-            <CardHeader className="pb-3">
-                <div className="flex items-center gap-3">
-                    <Loader2 className="size-5 animate-spin text-sky-600 dark:text-sky-400" />
-                    <div className="flex-1">
-                        <CardTitle className="text-sky-900 dark:text-sky-100">
-                            Procesando evento...
-                        </CardTitle>
-                        <CardDescription className="text-sky-700 dark:text-sky-300">
-                            La AI está analizando el evento. Aproximadamente 25 segundos.
-                        </CardDescription>
-                    </div>
-                    <Badge className="bg-sky-500 text-white animate-pulse">En progreso</Badge>
-                </div>
-            </CardHeader>
-            <CardContent>
-                <div className="space-y-2">
-                    {simulatedTools.map((tool, idx) => (
-                        <div key={idx} className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30">
-                            <CheckCircle2 className="size-4 shrink-0 text-success" />
-                            <span className="text-sky-900 dark:text-sky-100">{tool}</span>
-                        </div>
-                    ))}
-                    {simulatedTools.length < allTools.length && (
-                        <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-white/50 p-2 text-sm dark:border-sky-800 dark:bg-sky-950/30">
-                            <Loader2 className="size-4 shrink-0 animate-spin text-sky-500" />
-                            <span className="text-sky-700 dark:text-sky-300">
-                                {allTools[simulatedTools.length]}
-                            </span>
-                        </div>
+        <div className="space-y-5">
+            {event.payload_summary?.length > 0 && (
+                <section className="space-y-3">
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">
+                        Datos del evento
+                    </h4>
+                    <ul className="space-y-3">
+                        {event.payload_summary.map((item, i) => (
+                            <li key={i} className="rounded-lg border border-border/50 bg-muted/10 px-4 py-3">
+                                <p className="text-[11px] font-medium text-muted-foreground mb-1.5">{item.label}</p>
+                                <p className="text-[13px] leading-relaxed text-foreground">{item.value}</p>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+
+            {event.raw_payload && (
+                <section>
+                    <button
+                        type="button"
+                        onClick={onToggleRaw}
+                        className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        <ChevronDown className={`size-3 transition-transform duration-200 ${rawExpanded ? 'rotate-180' : ''}`} />
+                        Ver payload técnico
+                    </button>
+                    {rawExpanded && (
+                        <pre className="mt-2 rounded-lg border border-border/50 bg-muted/20 p-4 font-mono text-[11px] leading-relaxed overflow-auto max-h-52">
+                            {JSON.stringify(event.raw_payload, null, 2)}
+                        </pre>
                     )}
-                </div>
-            </CardContent>
-        </Card>
+                </section>
+            )}
+        </div>
     );
 }
 
-// ============================================================================
-// INVESTIGATING STATE CARD
-// ============================================================================
-
-interface InvestigatingCardProps {
-    event: SamsaraEventPayload;
-    nextInvestigationCountdownText: string | null;
-    isRevalidationImminent: boolean;
-}
-
-function InvestigatingCard({ event, nextInvestigationCountdownText, isRevalidationImminent }: InvestigatingCardProps) {
-    const metadata = event.investigation_metadata;
-    const { formatDateTime } = useTimezone();
-    const [showHistory, setShowHistory] = useState(false);
-    
-    if (!metadata) return null;
-
-    const hasHistory = metadata.history && metadata.history.length > 0;
+function AITab({ event }: { event: EventPayload }) {
+    const view = event.ai_assessment_view;
 
     return (
-        <Card className="border-2 border-warning/30 bg-warning/10">
-            <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <div className="rounded-full bg-warning/20 p-2">
-                            {isRevalidationImminent ? (
-                                <Loader2 className="size-4 animate-spin text-warning" />
-                            ) : (
-                                <Search className="size-4 text-warning" />
-                            )}
-                        </div>
-                        <div>
-                            <CardTitle className="text-foreground text-base">
-                                {isRevalidationImminent ? 'Ejecutando re-validación...' : 'Evento bajo investigación'}
-                            </CardTitle>
-                            <CardDescription className="text-warning text-xs">
-                                {isRevalidationImminent 
-                                    ? 'La AI está analizando nueva información'
-                                    : 'La AI continúa monitoreando este evento'}
-                            </CardDescription>
-                        </div>
-                    </div>
-                    <Badge className={`${isRevalidationImminent ? 'animate-pulse' : ''} bg-warning text-warning-foreground`}>
-                        {metadata.count} de {metadata.max_investigations}
-                    </Badge>
-                </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                    {metadata.last_check && (
-                        <div className="rounded-lg border border-warning/30 bg-background/50 p-3">
-                            <p className="text-xs font-semibold uppercase text-warning">Última verificación</p>
-                            <p className="text-sm font-medium text-foreground">{metadata.last_check}</p>
-                        </div>
-                    )}
-                    {!isRevalidationImminent && nextInvestigationCountdownText && (
-                        <div className="rounded-lg border border-warning/30 bg-background/50 p-3">
-                            <p className="text-xs font-semibold uppercase text-warning">Próxima verificación</p>
-                            <p className="text-sm font-medium text-foreground">{nextInvestigationCountdownText}</p>
-                        </div>
-                    )}
-                    {isRevalidationImminent && (
-                        <div className="rounded-lg border border-warning bg-warning/20 p-3">
-                            <p className="text-xs font-semibold uppercase text-warning">Estado</p>
-                            <p className="text-sm font-medium text-foreground flex items-center gap-2">
-                                <span className="relative flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75" />
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-warning" />
-                                </span>
-                                Analizando...
-                            </p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Investigation History Toggle */}
-                {hasHistory && (
-                    <div className="pt-2">
-                        <button
-                            type="button"
-                            onClick={() => setShowHistory(!showHistory)}
-                            className="flex items-center gap-2 text-sm text-warning hover:text-foreground transition-colors"
-                        >
-                            <Clock className="size-4" />
-                            <span>Historial de investigaciones ({metadata.history.length})</span>
-                            <ChevronDown className={`size-4 transition-transform ${showHistory ? 'rotate-180' : ''}`} />
-                        </button>
-
-                        {showHistory && (
-                            <div className="mt-3 space-y-3">
-                                {metadata.history.map((entry, index) => (
-                                    <div 
-                                        key={index} 
-                                        className="rounded-lg border border-warning/30 bg-background/70 p-3"
-                                    >
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-xs font-bold text-warning">
-                                                Investigación #{entry.investigation_number || entry.count || index + 1}
-                                            </span>
-                                            {(entry.queried_at || entry.timestamp) && (
-                                                <span className="text-xs text-warning">
-                                                    {formatDateTime(entry.queried_at || entry.timestamp)}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {/* Time Window */}
-                                        {entry.time_window && (
-                                            <div className="text-xs text-muted-foreground mb-2">
-                                                <span className="font-medium">Ventana analizada:</span>{' '}
-                                                {entry.time_window.minutes_covered} minutos
-                                            </div>
-                                        )}
-
-                                        {/* Findings */}
-                                        {entry.findings && (
-                                            <div className="flex flex-wrap gap-2 mb-2">
-                                                {(entry.findings.new_safety_events ?? 0) > 0 && (
-                                                    <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">
-                                                        {entry.findings.new_safety_events} safety events
-                                                    </Badge>
-                                                )}
-                                                {(entry.findings.new_camera_items ?? 0) > 0 && (
-                                                    <Badge variant="outline" className="text-xs bg-info/10 text-info border-info/30">
-                                                        {entry.findings.new_camera_items} imágenes
-                                                    </Badge>
-                                                )}
-                                                {entry.findings.has_vehicle_stats && (
-                                                    <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
-                                                        Stats actualizadas
-                                                    </Badge>
-                                                )}
-                                                {(entry.findings.new_safety_events ?? 0) === 0 && 
-                                                 (entry.findings.new_camera_items ?? 0) === 0 && 
-                                                 !entry.findings.has_vehicle_stats && (
-                                                    <Badge variant="outline" className="text-xs bg-muted text-muted-foreground border-border">
-                                                        Sin nuevos datos
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {/* Safety Events Details */}
-                                        {entry.safety_events_details && entry.safety_events_details.length > 0 && (
-                                            <div className="text-xs text-warning mt-2">
-                                                <span className="font-medium">Eventos detectados:</span>
-                                                <ul className="mt-1 space-y-1 pl-3">
-                                                    {entry.safety_events_details.map((evt, i) => (
-                                                        <li key={i} className="flex items-center gap-2">
-                                                            <span className={`size-1.5 rounded-full ${
-                                                                evt.severity === 'critical' ? 'bg-destructive' : 
-                                                                evt.severity === 'severe' ? 'bg-warning' : 'bg-warning'
-                                                            }`} />
-                                                            <span>{evt.behavior || 'Evento'}</span>
-                                                            <span className="text-warning">({evt.severity})</span>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-
-                                        {/* Reason */}
-                                        {entry.reason && (
-                                            <div className="text-xs text-warning mt-2 italic">
-                                                "{entry.reason}"
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
+        <div className="space-y-4">
+            {view && (
+                <section>
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80 mb-2">
+                        Evaluación
+                    </h4>
+                    <div className="space-y-3">
+                        {view.verdict && (
+                            <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+                                <span className="text-[10px] font-semibold uppercase tracking-widest text-violet-400">Veredicto</span>
+                                <p className="mt-1 text-sm font-semibold">{view.verdict}</p>
                             </div>
                         )}
-                    </div>
-                )}
-            </CardContent>
-        </Card>
-    );
-}
-
-// ============================================================================
-// INVESTIGATION HISTORY CARD (for completed events)
-// ============================================================================
-
-interface InvestigationHistoryCardProps {
-    event: SamsaraEventPayload;
-}
-
-function InvestigationHistoryCard({ event }: InvestigationHistoryCardProps) {
-    const metadata = event.investigation_metadata;
-    const { formatDateTime } = useTimezone();
-    const [showHistory, setShowHistory] = useState(false);
-
-    // Only show if there's investigation history and the event is completed
-    if (!metadata || !metadata.history || metadata.history.length === 0) return null;
-    if (event.ai_status === 'investigating') return null; // Shown in InvestigatingCard
-
-    return (
-        <Card className="border border-border">
-            <CardHeader className="pb-3">
-                <button
-                    type="button"
-                    onClick={() => setShowHistory(!showHistory)}
-                    className="flex items-center justify-between w-full"
-                >
-                    <div className="flex items-center gap-2">
-                        <div className="rounded-full bg-muted p-2">
-                            <Clock className="size-4 text-muted-foreground" />
-                        </div>
-                        <div className="text-left">
-                            <CardTitle className="text-base">
-                                Historial de Investigaciones
-                            </CardTitle>
-                            <CardDescription className="text-xs">
-                                {metadata.count} investigacion{metadata.count !== 1 ? 'es' : ''} realizadas
-                            </CardDescription>
-                        </div>
-                    </div>
-                    <ChevronDown className={`size-5 text-muted-foreground transition-transform ${showHistory ? 'rotate-180' : ''}`} />
-                </button>
-            </CardHeader>
-            
-            {showHistory && (
-                <CardContent className="pt-0">
-                    <div className="space-y-3">
-                        {metadata.history.map((entry, index) => (
-                            <div 
-                                key={index} 
-                                className="rounded-lg border border-border bg-muted/50 p-3"
-                            >
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-xs font-bold text-foreground">
-                                        Investigación #{entry.investigation_number || entry.count || index + 1}
-                                    </span>
-                                    {(entry.queried_at || entry.timestamp) && (
-                                        <span className="text-xs text-muted-foreground">
-                                            {formatDateTime(entry.queried_at || entry.timestamp)}
-                                        </span>
-                                    )}
-                                </div>
-
-                                {/* Time Window */}
-                                {entry.time_window && (
-                                    <div className="text-xs text-muted-foreground mb-2">
-                                        <span className="font-medium">Ventana analizada:</span>{' '}
-                                        {entry.time_window.minutes_covered} minutos
-                                    </div>
-                                )}
-
-                                {/* Findings */}
-                                {entry.findings && (
-                                    <div className="flex flex-wrap gap-2 mb-2">
-                                        {(entry.findings.new_safety_events ?? 0) > 0 && (
-                                            <Badge variant="outline" className="text-xs bg-destructive/10 text-destructive border-destructive/30">
-                                                {entry.findings.new_safety_events} safety events
-                                            </Badge>
-                                        )}
-                                        {(entry.findings.new_camera_items ?? 0) > 0 && (
-                                            <Badge variant="outline" className="text-xs bg-info/10 text-info border-info/30">
-                                                {entry.findings.new_camera_items} imágenes
-                                            </Badge>
-                                        )}
-                                        {entry.findings.has_vehicle_stats && (
-                                            <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
-                                                Stats actualizadas
-                                            </Badge>
-                                        )}
-                                        {(entry.findings.new_safety_events ?? 0) === 0 && 
-                                         (entry.findings.new_camera_items ?? 0) === 0 && 
-                                         !entry.findings.has_vehicle_stats && (
-                                            <Badge variant="outline" className="text-xs">
-                                                Sin nuevos datos
-                                            </Badge>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Safety Events Details */}
-                                {entry.safety_events_details && entry.safety_events_details.length > 0 && (
-                                    <div className="text-xs text-muted-foreground mt-2">
-                                        <span className="font-medium">Eventos detectados:</span>
-                                        <ul className="mt-1 space-y-1 pl-3">
-                                            {entry.safety_events_details.map((evt, i) => (
-                                                <li key={i} className="flex items-center gap-2">
-                                                    <span className={`size-1.5 rounded-full ${
-                                                        evt.severity === 'critical' ? 'bg-destructive' : 
-                                                        evt.severity === 'severe' ? 'bg-warning' : 'bg-warning'
-                                                    }`} />
-                                                    <span>{evt.behavior || 'Evento'}</span>
-                                                    <span className="text-muted-foreground">({evt.severity})</span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-
-                                {/* Reason */}
-                                {entry.reason && (
-                                    <div className="text-xs text-muted-foreground mt-2 italic">
-                                        "{entry.reason}"
-                                    </div>
-                                )}
+                        {view.likelihood && (
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="text-muted-foreground">Probabilidad</span>
+                                <span className="font-mono font-semibold">{view.likelihood}</span>
                             </div>
-                        ))}
+                        )}
+                        {view.reasoning && (
+                            <div className="rounded-lg bg-muted/30 p-3">
+                                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Razonamiento</span>
+                                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{view.reasoning}</p>
+                            </div>
+                        )}
+                        {view.evidence?.length ? (
+                            <div className="space-y-3">
+                                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">Evidencia</span>
+                                <ul className="space-y-3">
+                                    {view.evidence.map((e, i) => {
+                                        const valueText = typeof e.value === 'string' ? e.value : JSON.stringify(e.value);
+                                        return (
+                                            <li key={i} className="rounded-lg border border-border/50 bg-muted/10 px-4 py-3">
+                                                <p className="text-[11px] font-medium text-muted-foreground mb-1.5">{e.label}</p>
+                                                <p className="text-[13px] leading-relaxed text-foreground">{valueText}</p>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </div>
+                        ) : null}
                     </div>
-                </CardContent>
+                </section>
             )}
-        </Card>
+
+            {event.recommended_actions?.length ? (
+                <section>
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80 mb-2">
+                        Acciones recomendadas
+                    </h4>
+                    <ul className="space-y-1.5">
+                        {event.recommended_actions.map((a, i) => (
+                            <li key={i} className="flex items-start gap-2.5 text-sm">
+                                <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-emerald-500/60" />
+                                <span className="leading-relaxed">{a}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            ) : null}
+
+            {event.investigation_steps?.length ? (
+                <section>
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80 mb-2">
+                        Pasos de investigación
+                    </h4>
+                    <ol className="space-y-1.5">
+                        {event.investigation_steps.map((s, i) => (
+                            <li key={i} className="flex items-start gap-2.5 text-sm">
+                                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-bold text-muted-foreground">
+                                    {i + 1}
+                                </span>
+                                <span className="leading-relaxed pt-0.5">{s}</span>
+                            </li>
+                        ))}
+                    </ol>
+                </section>
+            ) : null}
+
+            {event.investigation_metadata && (
+                <div className="rounded-lg bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground">
+                    Revisiones: {event.investigation_metadata.count}
+                    {event.investigation_metadata.last_check && ` \u00b7 Última: ${event.investigation_metadata.last_check}`}
+                </div>
+            )}
+        </div>
     );
 }
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
+function NotificationsTab({ event }: { event: EventPayload }) {
+    return (
+        <div className="space-y-4">
+            {event.notification_decision && (
+                <section>
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80 mb-2">
+                        Decisión
+                    </h4>
+                    <div className="space-y-2.5 text-sm">
+                        {event.notification_decision.should_notify !== undefined && (
+                            <div className="flex items-center gap-2">
+                                <span className={`size-2 rounded-full ${event.notification_decision.should_notify ? 'bg-emerald-500' : 'bg-slate-500'}`} />
+                                <span>
+                                    Notificar: <strong>{event.notification_decision.should_notify ? 'Sí' : 'No'}</strong>
+                                </span>
+                            </div>
+                        )}
+                        {event.notification_decision.channels_to_use?.length ? (
+                            <div className="flex flex-wrap gap-1.5">
+                                {event.notification_decision.channels_to_use.map((ch, i) => (
+                                    <Badge key={i} variant="secondary" className="text-[11px]">
+                                        {ch}
+                                    </Badge>
+                                ))}
+                            </div>
+                        ) : null}
+                        {(event.notification_decision.reason_display ?? event.notification_decision.reason) && (
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                {event.notification_decision.reason_display ?? event.notification_decision.reason}
+                            </p>
+                        )}
+                        {event.notification_decision.recipients?.length ? (
+                            <div className="space-y-1">
+                                <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Destinatarios</span>
+                                <ul className="space-y-1">
+                                    {event.notification_decision.recipients.map((r, i) => (
+                                        <li key={i} className="flex items-center gap-2 rounded border bg-muted/20 px-2.5 py-1.5 text-xs">
+                                            <User className="size-3 text-muted-foreground" />
+                                            {r.name ?? r.phone ?? '\u2014'}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : null}
+                    </div>
+                </section>
+            )}
 
-export default function SamsaraAlertShow({ event, breadcrumbs }: ShowProps) {
-    const [isPolling, setIsPolling] = useState(false);
-    const [previousStatus, setPreviousStatus] = useState(event.ai_status);
-    const [simulatedTools, setSimulatedTools] = useState<string[]>([]);
-    const [nextInvestigationEtaMs, setNextInvestigationEtaMs] = useState<number | null>(null);
-    const [selectedImage, setSelectedImage] = useState<UnifiedMediaItem | null>(null);
-    useTimezone(); // hook for timezone context; format helpers used in child components
+            {event.notification_execution?.results?.length ? (
+                <section>
+                    <h4 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80 mb-2">
+                        Ejecución
+                    </h4>
+                    <div className="overflow-hidden rounded-lg border">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="border-b bg-muted/30">
+                                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Canal</th>
+                                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Estado</th>
+                                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Error</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/40">
+                                {event.notification_execution.results.map((r, i) => (
+                                    <tr key={i} className="transition-colors hover:bg-muted/20">
+                                        <td className="px-3 py-2 font-medium">{r.channel ?? '\u2014'}</td>
+                                        <td className="px-3 py-2">
+                                            <span className={`inline-flex items-center gap-1.5 ${r.success ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                <span className={`size-1.5 rounded-full ${r.success ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                                                {r.success ? 'OK' : 'Fallido'}
+                                            </span>
+                                        </td>
+                                        <td className="px-3 py-2 text-muted-foreground max-w-[140px] truncate">{r.error ?? '\u2014'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            ) : null}
 
-    const isProcessing = event.ai_status === 'processing';
-    const isInvestigating = event.ai_status === 'investigating';
-    const isCompleted = event.ai_status === 'completed';
-    const eventLabel = event.display_event_type ?? 'Alerta procesada por AI';
+            {event.notification_channels?.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                    <span className="text-xs text-muted-foreground mr-1">Canales usados:</span>
+                    {event.notification_channels.map((ch, i) => (
+                        <Badge key={i} variant="outline" className="text-[11px]">
+                            {ch}
+                        </Badge>
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    );
+}
 
-    /**
-     * REVIEW REQUIRED LOGIC
-     * Computed from existing payload fields:
-     * - event.severity === 'critical'
-     * - event.ai_assessment?.risk_escalation in ['notify', 'escalate', 'urgent', 'call', 'emergency']
-     * - event.needs_attention === true
-     * - event.urgency_level === 'high'
-     * - event.notification_decision?.should_notify === true
-     */
-    const reviewRequired = useMemo(() => {
-        if (event.severity === 'critical') return true;
-        
-        const riskEscalation = event.ai_assessment?.risk_escalation ?? event.risk_escalation;
-        if (riskEscalation && ['notify', 'escalate', 'urgent', 'call', 'emergency'].includes(riskEscalation)) {
-            return true;
-        }
-        
-        if (event.needs_attention === true) return true;
-        if (event.urgency_level === 'high') return true;
-        if (event.notification_decision?.should_notify === true) return true;
-        
-        return false;
-    }, [event]);
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export default function SamsaraAlertShow({ event, breadcrumbs, companyUsers = [] }: ShowProps) {
+    const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
     const computedBreadcrumbs: BreadcrumbItem[] = breadcrumbs?.length
         ? breadcrumbs
         : [
-            { title: 'Alertas Samsara', href: ALERTS_INDEX_URL },
-            { title: eventLabel, href: getAlertShowUrl(event.id) },
-        ];
+              { title: 'Alertas Samsara', href: ALERTS_INDEX_URL },
+              { title: event.display_event_type ?? 'Alerta', href: '#' },
+          ];
 
-    // Polling effect for processing/investigating states
-    useEffect(() => {
-        const shouldPoll = isProcessing || isInvestigating;
-        let pollingInterval: ReturnType<typeof setInterval> | undefined;
-        let toolInterval: ReturnType<typeof setInterval> | undefined;
+    const hasUnifiedTimeline = Array.isArray(event.unified_timeline) && event.unified_timeline.length > 0;
+    const mediaInsights = getEffectiveMediaInsights(event);
+    const hasMedia = mediaInsights.length > 0;
 
-        if (shouldPoll) {
-            setIsPolling(true);
+    const handleMediaPrev = useCallback(() => {
+        setLightboxIndex((i) => (i === null ? null : i === 0 ? mediaInsights.length - 1 : i - 1));
+    }, [mediaInsights.length]);
 
-            if (isProcessing) {
-                setSimulatedTools([]);
-                const tools = [
-                    'Obteniendo estadísticas del vehículo...',
-                    'Consultando información del vehículo...',
-                    'Identificando conductor asignado...',
-                    'Revisando eventos de seguridad...',
-                    'Analizando imágenes de cámaras con IA...',
-                    'Generando veredicto final...'
-                ];
-
-                let currentToolIndex = 0;
-                toolInterval = setInterval(() => {
-                    if (currentToolIndex < tools.length) {
-                        setSimulatedTools(prev => [...prev, tools[currentToolIndex]]);
-                        currentToolIndex++;
-                    } else if (toolInterval) {
-                        clearInterval(toolInterval);
-                    }
-                }, 5000);
-            } else {
-                setSimulatedTools([]);
-            }
-
-            pollingInterval = setInterval(() => {
-                router.reload({ only: ['event'] });
-            }, 3000);
-        } else {
-            setIsPolling(false);
-            setSimulatedTools([]);
-        }
-
-        if ((previousStatus === 'processing' || previousStatus === 'investigating') &&
-            event.ai_status === 'completed') {
-            if (typeof window !== 'undefined' && 'Notification' in window) {
-                if (Notification.permission === 'granted') {
-                    new Notification('Análisis completado', {
-                        body: `El evento "${eventLabel}" ha sido procesado por la AI`,
-                        icon: '/favicon.ico',
-                    });
-                }
-            }
-        }
-
-        setPreviousStatus(event.ai_status);
-
-        return () => {
-            if (pollingInterval) clearInterval(pollingInterval);
-            if (toolInterval) clearInterval(toolInterval);
-        };
-    }, [event.ai_status, event.id, eventLabel, isInvestigating, isProcessing, previousStatus]);
-
-    // Countdown for next investigation
-    useEffect(() => {
-        if (!isInvestigating) {
-            setNextInvestigationEtaMs(null);
-            return;
-        }
-
-        const nextCheckAt = event.investigation_metadata?.next_check_available_at;
-        if (!nextCheckAt) {
-            setNextInvestigationEtaMs(null);
-            return;
-        }
-
-        const targetTime = new Date(nextCheckAt).getTime();
-        if (!Number.isFinite(targetTime)) {
-            setNextInvestigationEtaMs(null);
-            return;
-        }
-
-        const tick = () => {
-            const diff = targetTime - Date.now();
-            setNextInvestigationEtaMs(diff <= 0 ? 0 : diff);
-        };
-
-        tick();
-        const timer = setInterval(tick, 1000);
-
-        return () => clearInterval(timer);
-    }, [event.investigation_metadata?.next_check_available_at, isInvestigating]);
-
-    const isRevalidationImminent = nextInvestigationEtaMs !== null && nextInvestigationEtaMs === 0;
-    
-    const nextInvestigationCountdownText = useMemo(() => {
-        if (!isInvestigating) return null;
-
-        if (nextInvestigationEtaMs === null) {
-            const fallbackMinutes = event.investigation_metadata?.next_check_minutes;
-            return fallbackMinutes ? `En ${fallbackMinutes} minutos` : null;
-        }
-
-        if (nextInvestigationEtaMs === 0) return null;
-
-        const totalSeconds = Math.ceil(nextInvestigationEtaMs / 1000);
-        if (totalSeconds >= 60) {
-            const minutes = Math.floor(totalSeconds / 60);
-            const seconds = totalSeconds % 60;
-            return `En ${minutes}m ${seconds.toString().padStart(2, '0')}s`;
-        }
-
-        return `En ${totalSeconds} segundos`;
-    }, [event.investigation_metadata?.next_check_minutes, isInvestigating, nextInvestigationEtaMs]);
+    const handleMediaNext = useCallback(() => {
+        setLightboxIndex((i) => (i === null ? null : (i + 1) % mediaInsights.length));
+    }, [mediaInsights.length]);
 
     return (
         <AppLayout breadcrumbs={computedBreadcrumbs}>
-            <Head title={`Detalle ${eventLabel}`} />
+            <Head title={event.display_event_type ?? 'Alerta Samsara'} />
 
-            <div className="flex flex-1 flex-col gap-6 p-4 max-w-7xl mx-auto">
-                {/* ============================================================
-                    DECISION BAR (Sticky)
-                    Uses: severity, ai_status, human_status, risk_escalation,
-                    notification_execution, needs_attention, urgency_level,
-                    notification_decision.should_notify
-                ============================================================ */}
-                <DecisionBar event={event} reviewRequired={reviewRequired} />
+            <div className="flex flex-1 flex-col gap-4 p-4 sm:p-6">
+                <AlertHero event={event} />
 
-                {/* ============================================================
-                    MAIN CONTENT GRID
-                    Left column: Main content
-                    Right column: Review panel (on larger screens)
-                ============================================================ */}
-                <div className="grid gap-6 lg:grid-cols-3">
-                    {/* Main Content Column */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Processing State Card */}
-                        {isProcessing && isPolling && (
-                            <ProcessingCard simulatedTools={simulatedTools} />
-                        )}
+                {hasMedia && (
+                    <AlertMediaStrip
+                        media={mediaInsights}
+                        onMediaClick={(i) => setLightboxIndex(i)}
+                    />
+                )}
 
-                        {/* Investigating State Card */}
-                        {isInvestigating && (
-                            <InvestigatingCard 
-                                event={event}
-                                nextInvestigationCountdownText={nextInvestigationCountdownText}
-                                isRevalidationImminent={isRevalidationImminent}
-                            />
-                        )}
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr_340px]">
+                    {/* Left — Intelligence + Actions */}
+                    <aside className="lg:sticky lg:top-20 lg:self-start order-2 lg:order-1 min-w-0">
+                        <IntelligencePanel event={event} companyUsers={companyUsers} />
+                    </aside>
 
-                        {/* Investigation History Card - For completed events that had investigations */}
-                        {isCompleted && (event.investigation_metadata?.count ?? 0) > 0 && (
-                            <InvestigationHistoryCard event={event} />
-                        )}
+                    {/* Center — Timeline */}
+                    <main className="order-1 lg:order-2 min-w-0">
+                        <SlideUp delay={0.1}>
+                            <div className="overflow-hidden rounded-xl border bg-card">
+                                <div className="border-b border-border/60 px-4 py-3">
+                                    <h2 className="font-display text-sm font-semibold tracking-tight">
+                                        Línea de tiempo
+                                    </h2>
+                                    <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                                        Eventos en orden cronológico
+                                    </p>
+                                </div>
+                                <div className="px-4 py-1.5">
+                                    {hasUnifiedTimeline ? (
+                                        <UnifiedTimeline entries={event.unified_timeline!} />
+                                    ) : (
+                                        <FallbackTimeline event={event} />
+                                    )}
+                                </div>
+                            </div>
+                        </SlideUp>
+                    </main>
 
-                        {/* AI Verdict Card - Hero section when completed */}
-                        <AIVerdictCard event={event} />
-
-                        {/* Callback Status Card - For panic button events */}
-                        <CallbackStatusCard event={event} />
-
-                        {/* Next Actions Card */}
-                        <NextActionsCard event={event} />
-
-                        {/* Context Card */}
-                        <ContextCard event={event} />
-
-                        {/* Evidence Gallery */}
-                        <EvidenceGallery 
-                            event={event} 
-                            onSelectImage={setSelectedImage}
-                        />
-
-                        {/* AI Reasoning & Data Quality */}
-                        <AIReasoningCard event={event} />
-
-                        {/* AI Execution Timeline */}
-                        <AITimeline event={event} />
-                    </div>
-
-                    {/* Right Column: Review Panel */}
-                    <div className="lg:col-span-1">
-                        <div className="sticky top-20">
-                            <Card className="border-2 border-primary/20">
-                                <CardHeader className="pb-3">
-                                    <div className="flex items-center gap-2">
-                                        <div className="rounded-lg bg-primary/10 p-2">
-                                            <UserCheck className="size-4 text-primary" />
-                                        </div>
-                                        <div>
-                                            <CardTitle className="text-base">Revisión Humana</CardTitle>
-                                            <CardDescription className="text-xs">
-                                                {reviewRequired 
-                                                    ? 'Esta alerta requiere revisión'
-                                                    : 'Revisión opcional'}
-                                            </CardDescription>
-                                        </div>
-                                        {reviewRequired && (
-                                            <Badge className="ml-auto bg-destructive/15 text-destructive border border-destructive/30 text-xs">
-                                                Requerida
-                                            </Badge>
-                                        )}
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <ReviewPanel
-                                        eventId={event.id}
-                                        currentStatus={(event.human_status ?? 'pending') as HumanStatus}
-                                        aiTimeline={event.timeline}
-                                        aiTotalDuration={event.ai_actions.total_duration_ms}
-                                        aiTotalTools={event.ai_actions.total_tools_called}
-                                    />
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </div>
+                    {/* Right — Detail Panel */}
+                    <aside className="lg:sticky lg:top-20 lg:self-start order-3 min-w-0">
+                        <DetailPanel event={event} companyUsers={companyUsers} />
+                    </aside>
                 </div>
-
-                {/* Image Lightbox Modal */}
-                <ImageLightbox 
-                    image={selectedImage} 
-                    onClose={() => setSelectedImage(null)} 
-                />
             </div>
+
+            {lightboxIndex !== null && mediaInsights.length > 0 && (
+                <MediaLightbox
+                    media={mediaInsights}
+                    currentIndex={lightboxIndex}
+                    onClose={() => setLightboxIndex(null)}
+                    onPrev={handleMediaPrev}
+                    onNext={handleMediaNext}
+                />
+            )}
         </AppLayout>
     );
 }

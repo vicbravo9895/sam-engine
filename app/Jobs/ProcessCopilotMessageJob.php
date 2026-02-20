@@ -328,6 +328,34 @@ class ProcessCopilotMessageJob implements ShouldQueue
                 );
             }
 
+            // Emit usage metering events
+            $user = User::find($this->userId);
+            $companyId = $user?->company_id;
+            $messageId = $lastAssistantMessage->id ?? $this->threadId;
+
+            if ($companyId) {
+                RecordUsageEventJob::dispatch(
+                    companyId: $companyId,
+                    meter: 'copilot_messages',
+                    qty: 1,
+                    idempotencyKey: "{$companyId}:copilot_messages:{$this->threadId}:{$messageId}",
+                );
+
+                if (($tokenStats['total_tokens'] ?? 0) > 0) {
+                    RecordUsageEventJob::dispatch(
+                        companyId: $companyId,
+                        meter: 'copilot_tokens',
+                        qty: $tokenStats['total_tokens'],
+                        idempotencyKey: "{$companyId}:copilot_tokens:{$this->threadId}:{$messageId}",
+                        dimensions: [
+                            'model' => $model,
+                            'input_tokens' => $tokenStats['input_tokens'] ?? 0,
+                            'output_tokens' => $tokenStats['output_tokens'] ?? 0,
+                        ],
+                    );
+                }
+            }
+
             Log::info('Copilot message processed successfully', [
                 'thread_id' => $this->threadId,
                 'message_id' => $lastAssistantMessage->id ?? null,

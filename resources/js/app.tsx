@@ -1,7 +1,9 @@
 import '../css/app.css';
 
 import { FlashMessages } from '@/components/flash-messages';
-import { OfflineIndicator, PWAInstallPrompt, PWAUpdatePrompt } from '@/components/pwa';
+import { OfflineIndicator } from '@/components/pwa/offline-indicator';
+import { PWAInstallPrompt } from '@/components/pwa/pwa-install-prompt';
+import { PWAUpdatePrompt } from '@/components/pwa/pwa-update-prompt';
 import { createInertiaApp } from '@inertiajs/react';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { StrictMode } from 'react';

@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Company;
 use App\Models\VehicleStat;
-use App\Samsara\Client\SamsaraClient;
+use App\Samsara\Client\SyncAdapter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -84,7 +84,7 @@ class SyncVehicleStats extends Command
      */
     protected function syncCompanyVehicleStats(Company $company): array
     {
-        $client = new SamsaraClient($company->getSamsaraApiKey());
+        $client = new SyncAdapter($company->getSamsaraApiKey());
         
         // Fetch all vehicle stats with pagination
         $vehicleStats = $client->getAllVehicleStats(self::STAT_TYPES);

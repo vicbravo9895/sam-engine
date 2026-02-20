@@ -2,8 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\ProcessSamsaraEventJob;
-use App\Models\SamsaraEvent;
+use App\Jobs\ProcessAlertJob;
+use App\Models\Alert;
 use Illuminate\Console\Command;
 
 /**
@@ -22,7 +22,7 @@ class ReprocessFailedRevalidations extends Command
      *
      * @var string
      */
-    protected $signature = 'samsara:reprocess-failed-revalidations 
+    protected $signature = 'alerts:reprocess-failed-revalidations 
                             {--dry-run : Solo mostrar las alertas afectadas sin reprocesar}
                             {--company= : Filtrar por company_id específico}
                             {--limit=100 : Límite de alertas a reprocesar}
@@ -43,29 +43,19 @@ class ReprocessFailedRevalidations extends Command
         $this->info('Buscando alertas afectadas por el bug de alert_context...');
         $this->newLine();
 
-        $query = SamsaraEvent::query()
-            // Alertas que tuvieron al menos una investigación
-            ->where('investigation_count', '>', 0)
-            // Que están en uno de estos estados problemáticos
+        $query = Alert::query()
+            ->whereHas('ai', function ($q) {
+                $q->where('investigation_count', '>', 0);
+            })
             ->where(function ($q) {
-                // Caso 1: Status investigating o failed
                 $q->whereIn('ai_status', [
-                    SamsaraEvent::STATUS_INVESTIGATING,
-                    SamsaraEvent::STATUS_FAILED,
+                    Alert::STATUS_INVESTIGATING,
+                    Alert::STATUS_FAILED,
                 ]);
                 
-                // Caso 2: Status completed pero sin assessment válido
-                // (ai_assessment es null, array vacío, o no tiene verdict)
                 $q->orWhere(function ($q2) {
-                    $q2->where('ai_status', SamsaraEvent::STATUS_COMPLETED)
-                       ->where(function ($q3) {
-                           $q3->whereNull('ai_assessment')
-                              // Para JSON en PostgreSQL, usar cast a text para comparar
-                              ->orWhereRaw("ai_assessment::text = '[]'")
-                              ->orWhereRaw("ai_assessment::text = '{}'")
-                              // También buscar los que tienen assessment pero sin verdict
-                              ->orWhereNull('verdict');
-                       });
+                    $q2->where('ai_status', Alert::STATUS_COMPLETED)
+                       ->whereNull('verdict');
                 });
             });
 
@@ -85,27 +75,27 @@ class ReprocessFailedRevalidations extends Command
         $limit = (int) $this->option('limit');
         $query->limit($limit);
 
-        $events = $query->orderBy('occurred_at', 'desc')->get();
+        $alerts = $query->with(['signal', 'ai'])->orderBy('occurred_at', 'desc')->get();
 
-        if ($events->isEmpty()) {
+        if ($alerts->isEmpty()) {
             $this->info('No se encontraron alertas afectadas.');
             return Command::SUCCESS;
         }
 
-        $this->info("Encontradas {$events->count()} alertas afectadas:");
+        $this->info("Encontradas {$alerts->count()} alertas afectadas:");
         $this->newLine();
 
         // Mostrar tabla con las alertas
         $this->table(
             ['ID', 'Company', 'Vehicle', 'Status', 'Inv. Count', 'Error', 'Occurred At'],
-            $events->map(fn ($e) => [
-                $e->id,
-                $e->company_id,
-                $e->vehicle_name,
-                $e->ai_status,
-                $e->investigation_count,
-                str($e->ai_error)->limit(40),
-                $e->occurred_at?->format('Y-m-d H:i'),
+            $alerts->map(fn ($a) => [
+                $a->id,
+                $a->company_id,
+                $a->signal?->vehicle_name,
+                $a->ai_status,
+                $a->ai?->investigation_count ?? 0,
+                str($a->ai?->ai_error)->limit(40),
+                $a->occurred_at?->format('Y-m-d H:i'),
             ])
         );
 
@@ -117,38 +107,39 @@ class ReprocessFailedRevalidations extends Command
         }
 
         $this->newLine();
-        if (!$this->confirm("¿Reprocesar {$events->count()} alertas?")) {
+        if (!$this->confirm("¿Reprocesar {$alerts->count()} alertas?")) {
             $this->info('Operación cancelada.');
             return Command::SUCCESS;
         }
 
         $this->newLine();
-        $bar = $this->output->createProgressBar($events->count());
+        $bar = $this->output->createProgressBar($alerts->count());
         $bar->start();
 
         $processed = 0;
         $errors = [];
 
-        foreach ($events as $event) {
+        foreach ($alerts as $alert) {
             try {
-                // Resetear el evento para reprocesamiento
-                $event->update([
-                    'ai_status' => SamsaraEvent::STATUS_PENDING,
-                    'ai_error' => null,
-                    'investigation_count' => 0,
-                    'last_investigation_at' => null,
-                    'next_check_minutes' => null,
-                    // Mantener el assessment original si existe para referencia
-                    // pero limpiar los campos de error
+                $alert->update([
+                    'ai_status' => Alert::STATUS_PENDING,
                 ]);
 
-                // Despachar el job de procesamiento
-                dispatch(new ProcessSamsaraEventJob($event));
+                if ($alert->ai) {
+                    $alert->ai->update([
+                        'ai_error' => null,
+                        'investigation_count' => 0,
+                        'last_investigation_at' => null,
+                        'next_check_minutes' => null,
+                    ]);
+                }
+
+                dispatch(new ProcessAlertJob($alert));
 
                 $processed++;
             } catch (\Throwable $e) {
                 $errors[] = [
-                    'event_id' => $event->id,
+                    'alert_id' => $alert->id,
                     'error' => $e->getMessage(),
                 ];
             }
@@ -159,13 +150,13 @@ class ReprocessFailedRevalidations extends Command
         $bar->finish();
         $this->newLine(2);
 
-        $this->info("Alertas reprocesadas: {$processed}/{$events->count()}");
+        $this->info("Alertas reprocesadas: {$processed}/{$alerts->count()}");
 
         if (!empty($errors)) {
             $this->newLine();
             $this->error('Errores durante el reprocesamiento:');
             foreach ($errors as $err) {
-                $this->line("  - Event #{$err['event_id']}: {$err['error']}");
+                $this->line("  - Alert #{$err['alert_id']}: {$err['error']}");
             }
         }
 

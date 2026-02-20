@@ -3,9 +3,9 @@
 namespace App\Jobs;
 
 use App\Jobs\Traits\LogsWithTenantContext;
+use App\Models\Alert;
 use App\Models\MediaAsset;
 use App\Models\SafetySignal;
-use App\Models\SamsaraEvent;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -196,7 +196,7 @@ class PersistMediaAssetJob implements ShouldQueue
 
         try {
             match ($asset->category) {
-                MediaAsset::CATEGORY_EVIDENCE => $this->replaceUrlInEventJson($asset),
+                MediaAsset::CATEGORY_EVIDENCE => $this->replaceUrlInAlertJson($asset),
                 MediaAsset::CATEGORY_SIGNAL => $this->replaceUrlInSignalMedia($asset),
                 default => null,
             };
@@ -211,14 +211,19 @@ class PersistMediaAssetJob implements ShouldQueue
     }
 
     /**
-     * Reemplaza la URL original con la URL local en los campos JSON del SamsaraEvent.
+     * Reemplaza la URL original con la URL local en los campos JSON de AlertAi.
      * Usa lock para evitar race conditions con otros jobs concurrentes.
      */
-    private function replaceUrlInEventJson(MediaAsset $asset): void
+    private function replaceUrlInAlertJson(MediaAsset $asset): void
     {
         DB::transaction(function () use ($asset) {
-            $event = SamsaraEvent::lockForUpdate()->find($asset->assetable_id);
-            if (!$event) {
+            $alert = Alert::lockForUpdate()->find($asset->assetable_id);
+            if (!$alert) {
+                return;
+            }
+
+            $alertAi = $alert->ai;
+            if (!$alertAi) {
                 return;
             }
 
@@ -226,8 +231,8 @@ class PersistMediaAssetJob implements ShouldQueue
             $localUrl = $asset->local_url;
             $updated = false;
 
-            foreach (['ai_actions', 'supporting_evidence', 'raw_ai_output'] as $field) {
-                $data = $event->{$field};
+            foreach (['ai_actions', 'supporting_evidence', 'raw_ai_output', 'alert_context', 'ai_assessment'] as $field) {
+                $data = $alertAi->{$field};
                 if (!$data) {
                     continue;
                 }
@@ -236,17 +241,17 @@ class PersistMediaAssetJob implements ShouldQueue
                 $replaced = str_replace($sourceUrl, $localUrl, $json);
 
                 if ($json !== $replaced) {
-                    $event->{$field} = json_decode($replaced, true);
+                    $alertAi->{$field} = json_decode($replaced, true);
                     $updated = true;
                 }
             }
 
             if ($updated) {
-                $event->save();
+                $alertAi->save();
 
                 Log::debug('media_asset.parent_url_replaced', [
                     'asset_id' => $asset->id,
-                    'event_id' => $event->id,
+                    'alert_id' => $alert->id,
                     'category' => $asset->category,
                 ]);
             }

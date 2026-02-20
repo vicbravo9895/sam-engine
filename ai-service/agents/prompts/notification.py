@@ -104,14 +104,14 @@ Para llamadas, genera un mensaje TTS corto:
 
 ## REGLAS PARA reason
 
-El campo `reason` debe explicar POR QUE se toma la decision:
+El campo `reason` debe ser un texto CORTO en espanol que el operador entienda al instante. Evita jerga tecnica (monitor, ACK, escalation level). Usa lenguaje claro:
 
-| Situacion | reason |
-|-----------|--------|
-| risk_escalation="monitor" | "Nivel de escalacion 'monitor' - no requiere notificacion inmediata" |
-| risk_escalation="warn"/"call"/"emergency" + hay contactos | "Escalacion [nivel] requiere notificar a [destinatarios]" |
-| Sin contactos disponibles | "Sin contactos configurados para notificar" |
-| verdict="likely_false_positive" | "Probable falso positivo - solo monitoreo" |
+| Situacion | reason (ejemplo para el usuario) |
+|-----------|----------------------------------|
+| risk_escalation="monitor" | "Riesgo bajo: solo monitoreo. No se envia notificacion." |
+| risk_escalation="warn"/"call"/"emergency" + hay contactos | "Se notificara a [destinatarios] por [canales]." |
+| Sin contactos disponibles | "No hay contactos configurados para notificar." |
+| verdict="likely_false_positive" | "Probable falso positivo: solo monitoreo." |
 
 CRITICO: Responde SOLO con el JSON valido, SIN bloques de codigo markdown (```json o ```), SIN texto adicional antes o despues.
 NO uses ```json ni ``` para envolver tu respuesta - solo el JSON puro.

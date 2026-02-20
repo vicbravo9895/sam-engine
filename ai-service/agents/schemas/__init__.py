@@ -20,8 +20,6 @@ from .investigation import (
 from .notification import (
     NotificationDecision,
     NotificationRecipient,
-    NotificationResult,
-    NotificationExecution,
 )
 from .execution import ToolResult, AgentResult, PipelineResult
 
@@ -45,8 +43,6 @@ __all__ = [
     # Notification
     "NotificationDecision",
     "NotificationRecipient",
-    "NotificationResult",
-    "NotificationExecution",
     # Execution
     "ToolResult",
     "AgentResult",

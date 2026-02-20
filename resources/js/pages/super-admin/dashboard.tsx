@@ -1,5 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { AnimatedCounter, StaggerContainer, StaggerItem } from '@/components/motion';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
@@ -115,7 +116,7 @@ export default function SuperAdminDashboard() {
             <div className="flex h-full flex-1 flex-col gap-6 p-4 sm:p-6">
                 {/* Header */}
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                    <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
                         Panel de Super Administrador
                     </h1>
                     <p className="text-muted-foreground">
@@ -124,72 +125,100 @@ export default function SuperAdminDashboard() {
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Empresas</CardTitle>
-                            <Building2 className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{stats.companies.total}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="text-success">{stats.companies.active} activas</span>
-                                <span>•</span>
-                                <span className="flex items-center gap-1">
-                                    <Key className="size-3" />
-                                    {stats.companies.with_samsara} con Samsara
-                                </span>
-                            </div>
-                        </CardContent>
-                    </Card>
+                <StaggerContainer className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <StaggerItem>
+                        <Card className="relative overflow-hidden">
+                            <Building2 className="absolute -right-2 -top-2 size-24 text-muted-foreground/10" />
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Empresas
+                                </CardTitle>
+                                <Building2 className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold">
+                                    <AnimatedCounter value={stats.companies.total} />
+                                </div>
+                                <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
+                                    <span className="text-success">{stats.companies.active} activas</span>
+                                    <span>•</span>
+                                    <span className="flex items-center gap-1">
+                                        <Key className="size-3" />
+                                        {stats.companies.with_samsara} con Samsara
+                                    </span>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </StaggerItem>
 
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Usuarios</CardTitle>
-                            <Users className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{stats.users.total}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="flex items-center gap-1 text-success">
-                                    <UserCheck className="size-3" />
-                                    {stats.users.active} activos
-                                </span>
-                                <span>•</span>
-                                <span>{stats.users.admins} admins</span>
-                            </div>
-                        </CardContent>
-                    </Card>
+                    <StaggerItem>
+                        <Card className="relative overflow-hidden">
+                            <Users className="absolute -right-2 -top-2 size-24 text-muted-foreground/10" />
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Usuarios
+                                </CardTitle>
+                                <Users className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold">
+                                    <AnimatedCounter value={stats.users.total} />
+                                </div>
+                                <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
+                                    <span className="flex items-center gap-1 text-success">
+                                        <UserCheck className="size-3" />
+                                        {stats.users.active} activos
+                                    </span>
+                                    <span>•</span>
+                                    <span>{stats.users.admins} admins</span>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </StaggerItem>
 
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Vehículos</CardTitle>
-                            <Truck className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{stats.vehicles.total}</div>
-                            <p className="text-muted-foreground mt-1 text-xs">
-                                Total sincronizados
-                            </p>
-                        </CardContent>
-                    </Card>
+                    <StaggerItem>
+                        <Card className="relative overflow-hidden">
+                            <Truck className="absolute -right-2 -top-2 size-24 text-muted-foreground/10" />
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Vehículos
+                                </CardTitle>
+                                <Truck className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold">
+                                    <AnimatedCounter value={stats.vehicles.total} />
+                                </div>
+                                <p className="text-muted-foreground mt-1 text-xs">
+                                    Total sincronizados
+                                </p>
+                            </CardContent>
+                        </Card>
+                    </StaggerItem>
 
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Conversaciones</CardTitle>
-                            <MessageSquare className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{stats.conversations.total}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="flex items-center gap-1 text-info">
-                                    <Activity className="size-3" />
-                                    {stats.conversations.today} hoy
-                                </span>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
+                    <StaggerItem>
+                        <Card className="relative overflow-hidden">
+                            <MessageSquare className="absolute -right-2 -top-2 size-24 text-muted-foreground/10" />
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                                <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Conversaciones
+                                </CardTitle>
+                                <MessageSquare className="text-muted-foreground size-5" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold">
+                                    <AnimatedCounter value={stats.conversations.total} />
+                                </div>
+                                <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
+                                    <span className="flex items-center gap-1 text-info">
+                                        <Activity className="size-3" />
+                                        {stats.conversations.today} hoy
+                                    </span>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </StaggerItem>
+                </StaggerContainer>
 
                 {/* Quick Actions */}
                 <div className="grid gap-4 md:grid-cols-2">
@@ -247,15 +276,18 @@ export default function SuperAdminDashboard() {
                         <CardContent>
                             <div className="space-y-4">
                                 {recentCompanies.length === 0 ? (
-                                    <p className="text-muted-foreground py-4 text-center text-sm">
-                                        No hay empresas registradas
-                                    </p>
+                                    <div className="flex flex-col items-center justify-center py-12">
+                                        <Building2 className="mb-3 size-16 text-muted-foreground/20" />
+                                        <p className="font-display font-semibold text-muted-foreground">
+                                            No hay empresas registradas
+                                        </p>
+                                    </div>
                                 ) : (
                                     recentCompanies.map((company) => (
                                         <Link
                                             key={company.id}
                                             href={`/super-admin/companies/${company.id}/edit`}
-                                            className="hover:bg-muted/50 flex items-center justify-between rounded-lg p-2 transition-colors"
+                                            className="hover:bg-muted/50 flex items-center justify-between rounded-xl p-2 transition-colors"
                                         >
                                             <div className="flex items-center gap-3">
                                                 <div className="bg-primary/10 flex size-10 items-center justify-center rounded-full">
@@ -303,7 +335,7 @@ export default function SuperAdminDashboard() {
                                         <Link
                                             key={user.id}
                                             href={`/super-admin/users/${user.id}/edit`}
-                                            className="hover:bg-muted/50 flex items-center justify-between rounded-lg p-2 transition-colors"
+                                            className="hover:bg-muted/50 flex items-center justify-between rounded-xl p-2 transition-colors"
                                         >
                                             <div className="flex items-center gap-3">
                                                 <div className="bg-primary/10 flex size-10 items-center justify-center rounded-full">
@@ -331,6 +363,7 @@ export default function SuperAdminDashboard() {
                     <h2 className="mb-4 text-lg font-semibold">Métricas de Adopción</h2>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                         {/* Pipeline Performance */}
+                        <div>
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between pb-2">
                                 <CardTitle className="text-sm font-medium">Pipeline AI</CardTitle>
@@ -358,26 +391,30 @@ export default function SuperAdminDashboard() {
                                         <span className="text-muted-foreground">Eventos hoy</span>
                                         <span className="font-medium">{adoptionMetrics.pipeline.events_today}</span>
                                     </div>
-                                    {adoptionMetrics.pipeline.failed_last_7_days > 0 && (
+                                    {adoptionMetrics.pipeline.failed_last_7_days > 0 ? (
                                         <div className="flex justify-between text-destructive">
                                             <span>Fallidos (7d)</span>
                                             <span className="font-medium">{adoptionMetrics.pipeline.failed_last_7_days}</span>
                                         </div>
-                                    )}
-                                    {adoptionMetrics.pipeline.pending_webhooks > 0 && (
+                                    ) : null}
+                                    {adoptionMetrics.pipeline.pending_webhooks > 0 ? (
                                         <div className="flex justify-between text-warning">
                                             <span>Webhooks pendientes</span>
                                             <span className="font-medium">{adoptionMetrics.pipeline.pending_webhooks}</span>
                                         </div>
-                                    )}
+                                    ) : null}
                                 </div>
                             </CardContent>
                         </Card>
+                        </div>
 
                         {/* Human Review */}
+                        <div>
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between pb-2">
-                                <CardTitle className="text-sm font-medium">Revisión Humana</CardTitle>
+                                <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Revisión Humana
+                                </CardTitle>
                                 <Eye className="text-muted-foreground size-5" />
                             </CardHeader>
                             <CardContent>
@@ -411,11 +448,15 @@ export default function SuperAdminDashboard() {
                                 </div>
                             </CardContent>
                         </Card>
+                        </div>
 
                         {/* Copilot Usage */}
+                        <div>
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between pb-2">
-                                <CardTitle className="text-sm font-medium">Copilot</CardTitle>
+                                <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Copilot
+                                </CardTitle>
                                 <Bot className="text-muted-foreground size-5" />
                             </CardHeader>
                             <CardContent>
@@ -441,11 +482,15 @@ export default function SuperAdminDashboard() {
                                 </div>
                             </CardContent>
                         </Card>
+                        </div>
 
                         {/* Onboarding */}
+                        <div>
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between pb-2">
-                                <CardTitle className="text-sm font-medium">Onboarding</CardTitle>
+                                <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Onboarding
+                                </CardTitle>
                                 <Clock className="text-muted-foreground size-5" />
                             </CardHeader>
                             <CardContent>
@@ -465,6 +510,7 @@ export default function SuperAdminDashboard() {
                                 </div>
                             </CardContent>
                         </Card>
+                        </div>
                     </div>
                 </div>
             </div>

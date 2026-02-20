@@ -8,7 +8,7 @@ use App\Jobs\PersistMediaAssetJob;
 use App\Models\Company;
 use App\Models\MediaAsset;
 use App\Models\SafetySignal;
-use App\Samsara\Client\SamsaraClient;
+use App\Samsara\Client\SyncAdapter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -214,7 +214,7 @@ class SafetyEventsStreamDaemon extends Command
         ];
 
         // Create Samsara client with company's API key
-        $client = new SamsaraClient($company->getSamsaraApiKey());
+        $client = new SyncAdapter($company->getSamsaraApiKey());
 
         // Get cursor for pagination (null = start fresh)
         $cursor = $company->safety_stream_cursor;
@@ -387,6 +387,10 @@ class SafetyEventsStreamDaemon extends Command
         if ($existing) {
             // Update existing event
             $existing->updateFromStreamEvent($eventData);
+            // Persist any new media that arrived in the update (e.g. media added after event creation)
+            if ($downloadMedia && !empty($existing->refresh()->media_urls)) {
+                $this->downloadSignalMedia($existing);
+            }
             Log::debug('SafetyEventsStreamDaemon: Updated existing event', [
                 'company_id' => $companyId,
                 'samsara_event_id' => $samsaraEventId,
@@ -408,6 +412,8 @@ class SafetyEventsStreamDaemon extends Command
             'behavior' => $eventData['behaviorLabels'][0]['label'] ?? null,
             'occurred_at' => $eventData['time'] ?? $eventData['createdAtTime'] ?? null,
         ]);
+
+        
         
         // Download media immediately if enabled
         if ($downloadMedia && $signal && !empty($signal->media_urls)) {

@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\CalculateEventMetricsJob;
+use App\Jobs\CheckAttentionSlaJob;
 use App\Jobs\GenerateShiftSummaryJob;
 use App\Jobs\ProcessPendingWebhooksJob;
 use App\Models\Company;
@@ -105,3 +106,15 @@ Schedule::command('media:migrate-to-s3 --delete --update-urls')
     ->withoutOverlapping()
     ->runInBackground()
     ->appendOutputTo(storage_path('logs/media-s3-migration.log'));
+
+// Attention Engine: check for overdue SLA events and auto-escalate every minute
+Schedule::job(new CheckAttentionSlaJob())
+    ->name('check-attention-sla')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+// Usage metering: aggregate usage_events into daily summaries (for in-house pricing later)
+Schedule::command('sam:aggregate-usage')
+    ->dailyAt('02:30')
+    ->name('aggregate-usage')
+    ->withoutOverlapping();

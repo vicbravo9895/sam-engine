@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Incidents;
 
+use App\Models\Alert;
 use App\Models\Company;
 use App\Models\Incident;
 use App\Models\SafetySignal;
-use App\Models\SamsaraEvent;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
 
@@ -22,9 +22,6 @@ use Illuminate\Support\Facades\Log;
  */
 class IncidentCreationGate
 {
-    /**
-     * Time window (in minutes) to search for related SafetySignals.
-     */
     private const SIGNAL_SEARCH_WINDOW_MINUTES = 5;
 
     public function __construct(
@@ -32,46 +29,46 @@ class IncidentCreationGate
     ) {}
 
     /**
-     * Create an incident from a webhook, with dedupe by samsara_event_id.
+     * Create an incident from an Alert, with dedupe by samsara_event_id on the signal.
      * 
      * Also searches for related SafetySignals in a time window and links them
      * as supporting evidence.
-     * 
-     * Returns null if duplicate, or the created/existing incident.
      */
-    public function createFromWebhook(SamsaraEvent $event, array $assessment = []): ?Incident
+    public function createFromAlert(Alert $alert, array $assessment = []): ?Incident
     {
-        // Check if an incident already exists for this samsara_event_id
-        $existing = Incident::where('company_id', $event->company_id)
-            ->where('samsara_event_id', $event->samsara_event_id)
-            ->first();
-        
-        if ($existing) {
-            Log::info('Incident already exists for samsara_event_id', [
-                'existing_incident_id' => $existing->id,
-                'samsara_event_id' => $event->samsara_event_id,
-            ]);
-            return $existing;
+        $alert->loadMissing('signal');
+        $samsaraEventId = $alert->signal?->samsara_event_id;
+
+        if ($samsaraEventId) {
+            $existing = Incident::where('company_id', $alert->company_id)
+                ->where('samsara_event_id', $samsaraEventId)
+                ->first();
+
+            if ($existing) {
+                Log::info('Incident already exists for samsara_event_id', [
+                    'existing_incident_id' => $existing->id,
+                    'samsara_event_id' => $samsaraEventId,
+                ]);
+                return $existing;
+            }
         }
-        
+
         try {
-            $incident = $this->incidentService->createFromWebhook($event, $assessment);
+            $incident = $this->incidentService->createFromAlert($alert, $assessment);
             
-            // Link related SafetySignals as supporting evidence
             if ($incident) {
-                $this->linkRelatedSignals($incident, $event);
+                $this->linkRelatedSignals($incident, $alert);
             }
             
             return $incident;
         } catch (QueryException $e) {
-            // Handle race condition: unique constraint violation
-            if ($this->isUniqueConstraintViolation($e)) {
+            if ($this->isUniqueConstraintViolation($e) && $samsaraEventId) {
                 Log::info('Race condition handled: incident already created', [
-                    'samsara_event_id' => $event->samsara_event_id,
+                    'samsara_event_id' => $samsaraEventId,
                 ]);
                 
-                return Incident::where('company_id', $event->company_id)
-                    ->where('samsara_event_id', $event->samsara_event_id)
+                return Incident::where('company_id', $alert->company_id)
+                    ->where('samsara_event_id', $samsaraEventId)
                     ->first();
             }
             
@@ -81,31 +78,29 @@ class IncidentCreationGate
 
     /**
      * Search for and link related SafetySignals to an incident.
-     * 
-     * Searches for signals from the same vehicle/driver within a time window
-     * around the event occurrence.
      */
-    protected function linkRelatedSignals(Incident $incident, SamsaraEvent $event): void
+    protected function linkRelatedSignals(Incident $incident, Alert $alert): void
     {
-        if (!$event->occurred_at) {
+        if (!$alert->occurred_at) {
             return;
         }
 
-        $windowMinutes = self::SIGNAL_SEARCH_WINDOW_MINUTES;
-        $startTime = $event->occurred_at->copy()->subMinutes($windowMinutes);
-        $endTime = $event->occurred_at->copy()->addMinutes($windowMinutes);
+        $signal = $alert->signal;
+        $vehicleId = $signal?->vehicle_id;
+        $driverId = $signal?->driver_id;
 
-        // Build query for related signals
-        $query = SafetySignal::where('company_id', $event->company_id)
+        $windowMinutes = self::SIGNAL_SEARCH_WINDOW_MINUTES;
+        $startTime = $alert->occurred_at->copy()->subMinutes($windowMinutes);
+        $endTime = $alert->occurred_at->copy()->addMinutes($windowMinutes);
+
+        $query = SafetySignal::where('company_id', $alert->company_id)
             ->whereBetween('occurred_at', [$startTime, $endTime]);
 
-        // Search by vehicle_id or driver_id (whichever is available)
-        if ($event->vehicle_id) {
-            $query->where('vehicle_id', $event->vehicle_id);
-        } elseif ($event->driver_id) {
-            $query->where('driver_id', $event->driver_id);
+        if ($vehicleId) {
+            $query->where('vehicle_id', $vehicleId);
+        } elseif ($driverId) {
+            $query->where('driver_id', $driverId);
         } else {
-            // No vehicle or driver to match against
             return;
         }
 
@@ -114,20 +109,19 @@ class IncidentCreationGate
         if ($signals->isEmpty()) {
             Log::debug('No related SafetySignals found for incident', [
                 'incident_id' => $incident->id,
-                'vehicle_id' => $event->vehicle_id,
-                'driver_id' => $event->driver_id,
+                'vehicle_id' => $vehicleId,
+                'driver_id' => $driverId,
                 'time_window' => "±{$windowMinutes} minutes",
             ]);
             return;
         }
 
-        // Link signals as supporting evidence
         $incident->linkSignals($signals, 'supporting');
 
         Log::info('Linked SafetySignals to incident', [
             'incident_id' => $incident->id,
             'signal_count' => $signals->count(),
-            'vehicle_id' => $event->vehicle_id,
+            'vehicle_id' => $vehicleId,
             'time_window' => "±{$windowMinutes} minutes",
         ]);
     }
@@ -144,7 +138,6 @@ class IncidentCreationGate
         ?string $subjectName = null,
         array $metadata = []
     ): ?Incident {
-        // Check if an incident already exists with this dedupe_key
         $existing = Incident::where('company_id', $companyId)
             ->where('dedupe_key', $dedupeKey)
             ->first();
@@ -168,7 +161,6 @@ class IncidentCreationGate
                 $metadata
             );
         } catch (QueryException $e) {
-            // Handle race condition: unique constraint violation
             if ($this->isUniqueConstraintViolation($e)) {
                 Log::info('Race condition handled: incident already created', [
                     'dedupe_key' => $dedupeKey,
@@ -184,63 +176,48 @@ class IncidentCreationGate
     }
 
     /**
-     * Check if this is a good candidate for creating an incident.
-     * 
-     * This evaluates whether the event warrants creating a new incident
-     * based on severity, verdict, and other factors.
+     * Check if an alert is a good candidate for creating an incident.
      */
-    public function shouldCreateIncident(SamsaraEvent $event, array $assessment = []): bool
+    public function shouldCreateIncident(Alert $alert, array $assessment = []): bool
     {
-        // Always create for critical severity
-        if ($event->severity === 'critical') {
+        if ($alert->severity === Alert::SEVERITY_CRITICAL) {
             return true;
         }
         
-        // Create for high-risk verdicts
         $highRiskVerdicts = [
-            SamsaraEvent::VERDICT_REAL_PANIC,
-            SamsaraEvent::VERDICT_CONFIRMED_VIOLATION,
-            SamsaraEvent::VERDICT_RISK_DETECTED,
+            Alert::VERDICT_REAL_PANIC,
+            Alert::VERDICT_CONFIRMED_VIOLATION,
+            Alert::VERDICT_RISK_DETECTED,
         ];
         
-        if (in_array($assessment['verdict'] ?? $event->verdict, $highRiskVerdicts, true)) {
+        if (in_array($assessment['verdict'] ?? $alert->verdict, $highRiskVerdicts, true)) {
             return true;
         }
         
-        // Create for urgent escalations
-        $urgentEscalations = ['call', 'emergency'];
-        if (in_array($assessment['risk_escalation'] ?? $event->risk_escalation, $urgentEscalations, true)) {
+        $urgentEscalations = [Alert::RISK_CALL, Alert::RISK_EMERGENCY];
+        if (in_array($assessment['risk_escalation'] ?? $alert->risk_escalation, $urgentEscalations, true)) {
             return true;
         }
         
-        // Don't create for likely false positives
-        if (($assessment['verdict'] ?? $event->verdict) === SamsaraEvent::VERDICT_LIKELY_FALSE_POSITIVE) {
+        if (($assessment['verdict'] ?? $alert->verdict) === Alert::VERDICT_LIKELY_FALSE_POSITIVE) {
             return false;
         }
         
-        // Don't create for info severity by default
-        if ($event->severity === 'info') {
+        if ($alert->severity === Alert::SEVERITY_INFO) {
             return false;
         }
         
-        // Create for warning severity with medium+ likelihood
-        if ($event->severity === 'warning') {
-            $likelihood = $assessment['likelihood'] ?? $event->likelihood;
-            return in_array($likelihood, ['high', 'medium'], true);
+        if ($alert->severity === Alert::SEVERITY_WARNING) {
+            $likelihood = $assessment['likelihood'] ?? $alert->likelihood;
+            return in_array($likelihood, [Alert::LIKELIHOOD_HIGH, Alert::LIKELIHOOD_MEDIUM], true);
         }
         
         return false;
     }
 
-    /**
-     * Check if exception is a unique constraint violation.
-     */
     protected function isUniqueConstraintViolation(QueryException $e): bool
     {
-        // PostgreSQL unique violation code
         $pgUniqueViolation = '23505';
-        
-        // MySQL duplicate entry code  
         $mysqlDuplicateEntry = 1062;
         
         $errorCode = $e->errorInfo[0] ?? null;

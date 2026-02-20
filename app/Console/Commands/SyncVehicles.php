@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Company;
 use App\Models\Vehicle;
-use App\Samsara\Client\SamsaraClient;
+use App\Samsara\Client\SyncAdapter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -128,8 +128,8 @@ class SyncVehicles extends Command
      */
     protected function syncCompanyVehicles(Company $company): array
     {
-        $client = new SamsaraClient($company->getSamsaraApiKey());
-        $vehicles = $client->getVehicles();
+        $client = new SyncAdapter($company->getSamsaraApiKey());
+        $vehicles = $client->getAllVehicles();
 
         $created = 0;
         $updated = 0;

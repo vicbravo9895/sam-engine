@@ -165,7 +165,7 @@ export function ReviewPanel({
     const fetchComments = useCallback(async () => {
         try {
             setIsLoadingComments(true);
-            const response = await fetch(`/api/events/${eventId}/comments`);
+            const response = await fetch(`/api/alerts/${eventId}/comments`);
             const data = await response.json();
             setComments(data.data);
         } catch {
@@ -179,7 +179,7 @@ export function ReviewPanel({
     const fetchActivities = useCallback(async () => {
         try {
             setIsLoadingActivities(true);
-            const response = await fetch(`/api/events/${eventId}/activities`);
+            const response = await fetch(`/api/alerts/${eventId}/activities`);
             const data = await response.json();
             setActivities(data.data);
         } catch {
@@ -200,7 +200,7 @@ export function ReviewPanel({
 
         try {
             setIsChangingStatus(true);
-            const response = await fetch(`/api/events/${eventId}/status`, {
+            const response = await fetch(`/api/alerts/${eventId}/status`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -236,7 +236,7 @@ export function ReviewPanel({
 
         try {
             setIsSubmitting(true);
-            const response = await fetch(`/api/events/${eventId}/comments`, {
+            const response = await fetch(`/api/alerts/${eventId}/comments`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

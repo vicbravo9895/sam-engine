@@ -112,7 +112,7 @@ export default function CompanyEdit() {
             <div className="flex h-full flex-1 flex-col gap-4 p-4 sm:gap-6 sm:p-6">
                 {/* Header */}
                 <div>
-                    <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+                    <h1 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
                         Configuración de Empresa
                     </h1>
                     <p className="text-muted-foreground text-sm">
@@ -141,7 +141,9 @@ export default function CompanyEdit() {
                                 {/* Name and Legal Name */}
                                 <div className="grid gap-4 sm:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="name">Nombre comercial *</Label>
+                                        <Label htmlFor="name" className="uppercase tracking-wider text-xs">
+                                            Nombre comercial *
+                                        </Label>
                                         <Input
                                             id="name"
                                             value={companyForm.data.name}
@@ -152,11 +154,11 @@ export default function CompanyEdit() {
                                                 companyForm.errors.name ? 'border-destructive' : ''
                                             }
                                         />
-                                        {companyForm.errors.name && (
+                                        {companyForm.errors.name ? (
                                             <p className="text-destructive text-sm">
                                                 {companyForm.errors.name}
                                             </p>
-                                        )}
+                                        ) : null}
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="legal_name">Razón social</Label>
@@ -183,7 +185,9 @@ export default function CompanyEdit() {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="email">Correo electrónico</Label>
+                                        <Label htmlFor="email" className="uppercase tracking-wider text-xs">
+                                            Correo electrónico
+                                        </Label>
                                         <Input
                                             id="email"
                                             type="email"
@@ -198,7 +202,9 @@ export default function CompanyEdit() {
                                 {/* Phone and Timezone */}
                                 <div className="grid gap-4 sm:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="phone">Teléfono</Label>
+                                        <Label htmlFor="phone" className="uppercase tracking-wider text-xs">
+                                            Teléfono
+                                        </Label>
                                         <Input
                                             id="phone"
                                             value={companyForm.data.phone}
@@ -208,7 +214,10 @@ export default function CompanyEdit() {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="timezone">
+                                        <Label
+                                            htmlFor="timezone"
+                                            className="uppercase tracking-wider text-xs"
+                                        >
                                             <span className="flex items-center gap-2">
                                                 <Clock className="size-4" />
                                                 Zona horaria
@@ -231,11 +240,11 @@ export default function CompanyEdit() {
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                        {companyForm.errors.timezone && (
+                                        {companyForm.errors.timezone ? (
                                             <p className="text-destructive text-sm">
                                                 {companyForm.errors.timezone}
                                             </p>
-                                        )}
+                                        ) : null}
                                         <p className="text-muted-foreground text-xs">
                                             Las fechas y horas se mostrarán en esta zona horaria
                                         </p>
@@ -247,11 +256,13 @@ export default function CompanyEdit() {
                                 {/* Address Section */}
                                 <div className="flex items-center gap-2">
                                     <MapPin className="text-muted-foreground size-4" />
-                                    <h3 className="font-medium">Dirección</h3>
+                                    <h3 className="font-display font-bold tracking-tight">Dirección</h3>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="address">Dirección</Label>
+                                    <Label htmlFor="address" className="uppercase tracking-wider text-xs">
+                                        Dirección
+                                    </Label>
                                     <Input
                                         id="address"
                                         value={companyForm.data.address}
@@ -264,7 +275,9 @@ export default function CompanyEdit() {
 
                                 <div className="grid gap-4 sm:grid-cols-3">
                                     <div className="space-y-2">
-                                        <Label htmlFor="city">Ciudad</Label>
+                                        <Label htmlFor="city" className="uppercase tracking-wider text-xs">
+                                            Ciudad
+                                        </Label>
                                         <Input
                                             id="city"
                                             value={companyForm.data.city}
@@ -274,7 +287,9 @@ export default function CompanyEdit() {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="state">Estado</Label>
+                                        <Label htmlFor="state" className="uppercase tracking-wider text-xs">
+                                            Estado
+                                        </Label>
                                         <Input
                                             id="state"
                                             value={companyForm.data.state}
@@ -284,7 +299,9 @@ export default function CompanyEdit() {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="postal_code">Código Postal</Label>
+                                        <Label htmlFor="postal_code" className="uppercase tracking-wider text-xs">
+                                            Código Postal
+                                        </Label>
                                         <Input
                                             id="postal_code"
                                             value={companyForm.data.postal_code}
@@ -348,7 +365,7 @@ export default function CompanyEdit() {
                         </CardHeader>
                         <CardContent className="space-y-4">
                             {/* Status */}
-                            <div className="flex items-center justify-between rounded-lg border p-4">
+                            <div className="flex items-center justify-between rounded-xl border p-4">
                                 <div className="flex items-center gap-3">
                                     {company.has_samsara_key ? (
                                         <>
@@ -380,7 +397,7 @@ export default function CompanyEdit() {
                                         </>
                                     )}
                                 </div>
-                                {company.has_samsara_key && (
+                                {company.has_samsara_key ? (
                                     <Button
                                         variant="ghost"
                                         size="sm"
@@ -390,13 +407,16 @@ export default function CompanyEdit() {
                                         <Trash2 className="mr-2 size-4" />
                                         Eliminar
                                     </Button>
-                                )}
+                                ) : null}
                             </div>
 
                             {/* API Key Form */}
                             <form onSubmit={handleSamsaraSubmit} className="space-y-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="samsara_api_key">
+                                    <Label
+                                        htmlFor="samsara_api_key"
+                                        className="uppercase tracking-wider text-xs"
+                                    >
                                         {company.has_samsara_key ? 'Nueva API Key' : 'API Key de Samsara'}
                                     </Label>
                                     <div className="relative">
@@ -426,11 +446,11 @@ export default function CompanyEdit() {
                                             )}
                                         </button>
                                     </div>
-                                    {samsaraForm.errors.samsara_api_key && (
+                                    {samsaraForm.errors.samsara_api_key ? (
                                         <p className="text-destructive text-sm">
                                             {samsaraForm.errors.samsara_api_key}
                                         </p>
-                                    )}
+                                    ) : null}
                                     <p className="text-muted-foreground text-sm">
                                         Puedes obtener tu API key desde el{' '}
                                         <a
@@ -458,7 +478,7 @@ export default function CompanyEdit() {
                             </form>
 
                             {/* Security Note */}
-                            <div className="bg-muted/50 rounded-lg p-4">
+                            <div className="bg-muted/50 rounded-xl p-4">
                                 <div className="flex items-start gap-3">
                                     <Shield className="text-muted-foreground mt-0.5 size-5" />
                                     <div>

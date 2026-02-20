@@ -3,9 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Jobs\SendNotificationJob;
+use App\Models\Alert;
 use App\Models\Company;
 use App\Models\Contact;
-use App\Models\SamsaraEvent;
+use App\Models\Signal;
 use App\Services\TwilioService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -103,12 +104,12 @@ class SimulateNotification extends Command
     {
         // Si hay un evento específico, usarlo
         if ($eventId = $this->option('event')) {
-            $event = SamsaraEvent::find($eventId);
-            if (!$event) {
-                $this->error("Evento con ID {$eventId} no encontrado.");
+            $alert = Alert::find($eventId);
+            if (!$alert) {
+                $this->error("Alerta con ID {$eventId} no encontrada.");
                 return null;
             }
-            return $this->buildContextFromEvent($event);
+            return $this->buildContextFromAlert($alert);
         }
 
         // Obtener empresa
@@ -162,19 +163,19 @@ class SimulateNotification extends Command
             'to' => $to,
             'message' => $message,
             'escalation_level' => $this->option('escalation'),
-            'event' => null,
+            'alert' => null,
         ];
     }
 
     /**
      * Construye contexto desde un evento existente.
      */
-    private function buildContextFromEvent(SamsaraEvent $event): array
+    private function buildContextFromAlert(Alert $alert): array
     {
         $to = $this->option('to');
         
         if (!$to) {
-            $contact = Contact::where('company_id', $event->company_id)->first();
+            $contact = Contact::where('company_id', $alert->company_id)->first();
             $to = $contact?->phone;
             
             if (!$to) {
@@ -182,16 +183,16 @@ class SimulateNotification extends Command
             }
         }
 
-        $message = $this->option('message') ?? $event->ai_message ?? $this->testMessages['test'];
+        $message = $this->option('message') ?? $alert->ai_message ?? $this->testMessages['test'];
 
         return [
-            'company_id' => $event->company_id,
-            'company_name' => $event->company?->name ?? 'N/A',
+            'company_id' => $alert->company_id,
+            'company_name' => $alert->company?->name ?? 'N/A',
             'channel' => $this->option('channel'),
             'to' => $to,
             'message' => $message,
             'escalation_level' => $this->option('escalation'),
-            'event' => $event,
+            'alert' => $alert,
         ];
     }
 
@@ -208,7 +209,7 @@ class SimulateNotification extends Command
                 ['Canal', $context['channel']],
                 ['Destino', $context['to']],
                 ['Escalación', $context['escalation_level']],
-                ['Evento', $context['event']?->id ?? 'Ninguno (simulación pura)'],
+                ['Alerta', $context['alert']?->id ?? 'Ninguno (simulación pura)'],
                 ['Mensaje', mb_substr($context['message'], 0, 80) . (mb_strlen($context['message']) > 80 ? '...' : '')],
             ]
         );
@@ -244,14 +245,12 @@ class SimulateNotification extends Command
      */
     private function dispatchNotificationJob(array $context): int
     {
-        // Necesitamos un evento para despachar el job
-        $event = $context['event'];
+        $alert = $context['alert'];
         
-        if (!$event) {
-            // Crear evento temporal para la simulación
-            $this->info('Creando evento temporal para simulación...');
+        if (!$alert) {
+            $this->info('Creando alerta temporal para simulación...');
             
-            $event = SamsaraEvent::create([
+            $signal = Signal::create([
                 'company_id' => $context['company_id'],
                 'event_type' => 'TestNotification',
                 'event_description' => 'Simulación de notificación',
@@ -261,10 +260,18 @@ class SimulateNotification extends Command
                 'severity' => 'info',
                 'occurred_at' => now(),
                 'raw_payload' => ['test' => true, 'simulated' => true],
-                'ai_status' => 'completed',
             ]);
 
-            $this->info("Evento temporal creado: ID {$event->id}");
+            $alert = Alert::create([
+                'company_id' => $context['company_id'],
+                'signal_id' => $signal->id,
+                'event_description' => 'Simulación de notificación',
+                'severity' => 'info',
+                'occurred_at' => now(),
+                'ai_status' => Alert::STATUS_COMPLETED,
+            ]);
+
+            $this->info("Alerta temporal creada: ID {$alert->id}");
         }
 
         // Construir decisión de notificación
@@ -292,8 +299,7 @@ class SimulateNotification extends Command
         $this->line(json_encode($decision, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
         $this->info('');
 
-        // Despachar job
-        SendNotificationJob::dispatch($event, $decision);
+        SendNotificationJob::dispatch($alert, $decision);
 
         $this->info('Job despachado exitosamente.');
         $this->info('');
@@ -303,7 +309,7 @@ class SimulateNotification extends Command
         $this->line('  - Logs: storage/logs/laravel.log');
         $this->line('  - BD: notification_results, notification_decisions');
         $this->info('');
-        $this->info("Evento ID: {$event->id}");
+        $this->info("Alerta ID: {$alert->id}");
 
         return Command::SUCCESS;
     }

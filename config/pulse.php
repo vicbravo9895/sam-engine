@@ -235,10 +235,10 @@ return [
             'sample_rate' => env('PULSE_SLOW_JOBS_SAMPLE_RATE', 1),
             // Thresholds personalizados por tipo de job
             'threshold' => [
-                // ProcessSamsaraEventJob puede tardar hasta 5 minutos
-                '#^App\\\\Jobs\\\\ProcessSamsaraEventJob$#' => 60000,
-                // RevalidateSamsaraEventJob similar
-                '#^App\\\\Jobs\\\\RevalidateSamsaraEventJob$#' => 60000,
+                // ProcessAlertJob puede tardar hasta 5 minutos
+                '#^App\\\\Jobs\\\\ProcessAlertJob$#' => 60000,
+                // RevalidateAlertJob similar
+                '#^App\\\\Jobs\\\\RevalidateAlertJob$#' => 60000,
                 // ProcessCopilotMessageJob puede tardar más por streaming
                 '#^App\\\\Jobs\\\\ProcessCopilotMessageJob$#' => 30000,
                 // SendNotificationJob debería ser rápido

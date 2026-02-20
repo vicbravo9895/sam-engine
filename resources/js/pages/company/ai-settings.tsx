@@ -13,6 +13,7 @@ import {
     BellOff,
     Bot,
     Clock,
+    Layers,
     Loader2,
     MessageSquare,
     Phone,
@@ -26,6 +27,27 @@ import {
 
 // Available interval options in minutes
 const AVAILABLE_INTERVALS = [5, 10, 15, 20, 30, 45, 60, 90, 120] as const;
+
+const ESCALATION_LEVELS = [
+    { key: 'emergency', label: 'Emergencia' },
+    { key: 'call', label: 'Llamada' },
+    { key: 'warn', label: 'Aviso' },
+    { key: 'monitor', label: 'Monitoreo' },
+] as const;
+
+const CHANNEL_OPTIONS = [
+    { value: 'call', label: 'Llamada' },
+    { value: 'whatsapp', label: 'WhatsApp' },
+    { value: 'sms', label: 'SMS' },
+] as const;
+
+const RECIPIENT_OPTIONS = [
+    { value: 'operator', label: 'Operador' },
+    { value: 'monitoring_team', label: 'Monitoreo' },
+    { value: 'supervisor', label: 'Supervisor' },
+    { value: 'emergency', label: 'Emergencia' },
+    { value: 'dispatch', label: 'Despacho' },
+] as const;
 
 interface AiConfig {
     investigation_windows: {
@@ -73,11 +95,29 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Configuración de AI', href: '/company/ai-settings' },
 ];
 
+function normalizeEscalationMatrix(
+    matrix: Record<string, { channels: string[]; recipients: string[] }>
+): Record<string, { channels: string[]; recipients: string[] }> {
+    const keys = ['emergency', 'call', 'warn', 'monitor'];
+    const out: Record<string, { channels: string[]; recipients: string[] }> = {};
+    for (const key of keys) {
+        const entry = matrix[key];
+        const channels = Array.isArray(entry?.channels) ? entry.channels : [];
+        const recipients = Array.isArray(entry?.recipients)
+            ? entry.recipients.map((r) => (r === 'monitoring' ? 'monitoring_team' : r))
+            : [];
+        out[key] = { channels, recipients };
+    }
+    return out;
+}
+
 export default function AiSettings() {
     const { aiConfig, notificationConfig, defaults } = usePage().props as Props;
+    const escalationMatrix = normalizeEscalationMatrix(aiConfig.escalation_matrix ?? {});
 
     // Use nested structure for form data
     const form = useForm({
+        escalation_matrix: escalationMatrix,
         investigation_windows: {
             correlation_window_minutes: aiConfig.investigation_windows.correlation_window_minutes,
             media_window_seconds: aiConfig.investigation_windows.media_window_seconds,
@@ -135,6 +175,28 @@ export default function AiSettings() {
         });
     };
 
+    type MatrixKey = keyof typeof form.data.escalation_matrix;
+    const toggleMatrixChannel = (level: MatrixKey, channel: string) => {
+        const entry = form.data.escalation_matrix[level];
+        const channels = entry.channels.includes(channel)
+            ? entry.channels.filter((c) => c !== channel)
+            : [...entry.channels, channel];
+        form.setData('escalation_matrix', {
+            ...form.data.escalation_matrix,
+            [level]: { ...entry, channels },
+        });
+    };
+    const toggleMatrixRecipient = (level: MatrixKey, recipient: string) => {
+        const entry = form.data.escalation_matrix[level];
+        const recipients = entry.recipients.includes(recipient)
+            ? entry.recipients.filter((r) => r !== recipient)
+            : [...entry.recipients, recipient];
+        form.setData('escalation_matrix', {
+            ...form.data.escalation_matrix,
+            [level]: { ...entry, recipients },
+        });
+    };
+
     // Helper to toggle interval in the list
     const toggleInterval = (interval: number) => {
         const currentIntervals = form.data.monitoring.check_intervals;
@@ -181,7 +243,7 @@ export default function AiSettings() {
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+                        <h1 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
                             Configuración de AI
                         </h1>
                         <p className="text-muted-foreground text-sm">
@@ -215,17 +277,17 @@ export default function AiSettings() {
                         <CardContent className="space-y-6">
                             {/* Safety Events */}
                             <div>
-                                <h4 className="mb-3 flex items-center gap-2 font-medium">
+                                <h4 className="font-display mb-3 flex items-center gap-2 font-bold tracking-tight">
                                     <Clock className="size-4" />
                                     Eventos de Seguridad
                                 </h4>
                                 <div className="grid gap-4 sm:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="safety_before" className="flex items-center justify-between">
+                                        <Label htmlFor="safety_before" className="flex items-center justify-between uppercase tracking-wider text-xs">
                                             <span>Minutos antes</span>
-                                            {isModified('investigation_windows', 'safety_events_before_minutes') && (
+                                            {isModified('investigation_windows', 'safety_events_before_minutes') ? (
                                                 <span className="text-xs text-amber-600">Modificado</span>
-                                            )}
+                                            ) : null}
                                         </Label>
                                         <Input
                                             id="safety_before"
@@ -242,11 +304,11 @@ export default function AiSettings() {
                                         </p>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="safety_after" className="flex items-center justify-between">
+                                        <Label htmlFor="safety_after" className="flex items-center justify-between uppercase tracking-wider text-xs">
                                             <span>Minutos después</span>
-                                            {isModified('investigation_windows', 'safety_events_after_minutes') && (
+                                            {isModified('investigation_windows', 'safety_events_after_minutes') ? (
                                                 <span className="text-xs text-amber-600">Modificado</span>
-                                            )}
+                                            ) : null}
                                         </Label>
                                         <Input
                                             id="safety_after"
@@ -269,17 +331,17 @@ export default function AiSettings() {
 
                             {/* Vehicle Stats */}
                             <div>
-                                <h4 className="mb-3 flex items-center gap-2 font-medium">
+                                <h4 className="font-display mb-3 flex items-center gap-2 font-bold tracking-tight">
                                     <Timer className="size-4" />
                                     Estadísticas del Vehículo
                                 </h4>
                                 <div className="grid gap-4 sm:grid-cols-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="stats_before" className="flex items-center justify-between">
+                                        <Label htmlFor="stats_before" className="flex items-center justify-between uppercase tracking-wider text-xs">
                                             <span>Minutos antes</span>
-                                            {isModified('investigation_windows', 'vehicle_stats_before_minutes') && (
+                                            {isModified('investigation_windows', 'vehicle_stats_before_minutes') ? (
                                                 <span className="text-xs text-amber-600">Modificado</span>
-                                            )}
+                                            ) : null}
                                         </Label>
                                         <Input
                                             id="stats_before"
@@ -296,11 +358,11 @@ export default function AiSettings() {
                                         </p>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="stats_after" className="flex items-center justify-between">
+                                        <Label htmlFor="stats_after" className="flex items-center justify-between uppercase tracking-wider text-xs">
                                             <span>Minutos después</span>
-                                            {isModified('investigation_windows', 'vehicle_stats_after_minutes') && (
+                                            {isModified('investigation_windows', 'vehicle_stats_after_minutes') ? (
                                                 <span className="text-xs text-amber-600">Modificado</span>
-                                            )}
+                                            ) : null}
                                         </Label>
                                         <Input
                                             id="stats_after"
@@ -323,13 +385,13 @@ export default function AiSettings() {
 
                             {/* Camera Media */}
                             <div>
-                                <h4 className="mb-3 font-medium">Imágenes de Cámara</h4>
+                                <h4 className="font-display mb-3 font-bold tracking-tight">Imágenes de Cámara</h4>
                                 <div className="space-y-2">
-                                    <Label htmlFor="camera_window" className="flex items-center justify-between">
+                                    <Label htmlFor="camera_window" className="flex items-center justify-between uppercase tracking-wider text-xs">
                                         <span>Ventana de tiempo (minutos)</span>
-                                        {isModified('investigation_windows', 'camera_media_window_minutes') && (
+                                        {isModified('investigation_windows', 'camera_media_window_minutes') ? (
                                             <span className="text-xs text-amber-600">Modificado</span>
-                                        )}
+                                        ) : null}
                                     </Label>
                                     <Input
                                         id="camera_window"
@@ -368,11 +430,11 @@ export default function AiSettings() {
                         <CardContent className="space-y-6">
                             <div className="grid gap-4 sm:grid-cols-2">
                                 <div className="space-y-2">
-                                    <Label htmlFor="confidence" className="flex items-center justify-between">
+                                    <Label htmlFor="confidence" className="flex items-center justify-between uppercase tracking-wider text-xs">
                                         <span>Umbral de confianza</span>
-                                        {isModified('monitoring', 'confidence_threshold') && (
+                                        {isModified('monitoring', 'confidence_threshold') ? (
                                             <span className="text-xs text-amber-600">Modificado</span>
-                                        )}
+                                        ) : null}
                                     </Label>
                                     <Input
                                         id="confidence"
@@ -390,11 +452,11 @@ export default function AiSettings() {
                                     </p>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="max_reval" className="flex items-center justify-between">
+                                    <Label htmlFor="max_reval" className="flex items-center justify-between uppercase tracking-wider text-xs">
                                         <span>Máximo de revalidaciones</span>
-                                        {isModified('monitoring', 'max_revalidations') && (
+                                        {isModified('monitoring', 'max_revalidations') ? (
                                             <span className="text-xs text-amber-600">Modificado</span>
-                                        )}
+                                        ) : null}
                                     </Label>
                                     <Input
                                         id="max_reval"
@@ -416,11 +478,11 @@ export default function AiSettings() {
 
                             {/* Check Intervals */}
                             <div className="space-y-3">
-                                <Label className="flex items-center justify-between">
+                                <Label className="flex items-center justify-between uppercase tracking-wider text-xs">
                                     <span>Intervalos de revalidación</span>
-                                    {isModified('monitoring', 'check_intervals') && (
+                                    {isModified('monitoring', 'check_intervals') ? (
                                         <span className="text-xs text-amber-600">Modificado</span>
-                                    )}
+                                    ) : null}
                                 </Label>
                                 <p className="text-muted-foreground text-sm">
                                     Selecciona los intervalos disponibles para la revalidación de alertas.
@@ -435,7 +497,7 @@ export default function AiSettings() {
                                         return (
                                             <label
                                                 key={interval}
-                                                className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
+                                                className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 transition-colors ${
                                                     isSelected
                                                         ? 'border-primary bg-primary/5'
                                                         : 'border-border hover:border-primary/50'
@@ -485,7 +547,7 @@ export default function AiSettings() {
 
                             <div className="space-y-4">
                                 {/* SMS */}
-                                <div className="flex items-center justify-between rounded-lg border p-4">
+                                <div className="flex items-center justify-between rounded-xl border p-4">
                                     <div className="flex items-center gap-3">
                                         <MessageSquare className="text-muted-foreground size-5" />
                                         <div>
@@ -502,7 +564,7 @@ export default function AiSettings() {
                                 </div>
 
                                 {/* WhatsApp */}
-                                <div className="flex items-center justify-between rounded-lg border p-4">
+                                <div className="flex items-center justify-between rounded-xl border p-4">
                                     <div className="flex items-center gap-3">
                                         <MessageSquare className="text-muted-foreground size-5" />
                                         <div>
@@ -519,7 +581,7 @@ export default function AiSettings() {
                                 </div>
 
                                 {/* Call */}
-                                <div className="flex items-center justify-between rounded-lg border p-4">
+                                <div className="flex items-center justify-between rounded-xl border p-4">
                                     <div className="flex items-center gap-3">
                                         <Phone className="text-muted-foreground size-5" />
                                         <div>
@@ -536,7 +598,7 @@ export default function AiSettings() {
                                 </div>
 
                                 {/* Email (coming soon) */}
-                                <div className="flex items-center justify-between rounded-lg border p-4 opacity-60">
+                                <div className="flex items-center justify-between rounded-xl border p-4 opacity-60">
                                     <div className="flex items-center gap-3">
                                         <Mail className="text-muted-foreground size-5" />
                                         <div>
@@ -562,15 +624,82 @@ export default function AiSettings() {
                             {/* Warning if all disabled */}
                             {!form.data.channels_enabled.sms &&
                                 !form.data.channels_enabled.whatsapp &&
-                                !form.data.channels_enabled.call && (
-                                    <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+                                !form.data.channels_enabled.call ? (
+                                    <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
                                         <BellOff className="size-5 text-amber-600" />
                                         <p className="text-sm text-amber-800 dark:text-amber-200">
                                             <strong>Atención:</strong> No tienes ningún canal habilitado.
                                             El sistema no podrá enviar notificaciones de alertas.
                                         </p>
                                     </div>
-                                )}
+                                ) : null}
+                        </CardContent>
+                    </Card>
+
+                    {/* Matriz de escalación */}
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center gap-3">
+                                <div className="flex size-12 items-center justify-center rounded-full bg-amber-500/10">
+                                    <Layers className="size-6 text-amber-600" />
+                                </div>
+                                <div>
+                                    <CardTitle>Matriz de escalación</CardTitle>
+                                    <CardDescription>
+                                        Canales y destinatarios por nivel de severidad. Solo se enviarán los canales que definas aquí (y que estén habilitados arriba).
+                                    </CardDescription>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                            {ESCALATION_LEVELS.map(({ key, label }) => {
+                                const entry = form.data.escalation_matrix[key as MatrixKey];
+                                if (!entry) return null;
+                                return (
+                                    <div
+                                        key={key}
+                                        className="rounded-xl border bg-muted/20 p-4 space-y-4"
+                                    >
+                                        <h4 className="font-semibold text-sm">{label}</h4>
+                                        <div className="grid gap-4 sm:grid-cols-2">
+                                            <div>
+                                                <p className="text-muted-foreground mb-2 text-xs uppercase tracking-wider">Canales</p>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {CHANNEL_OPTIONS.map(({ value, label: chLabel }) => (
+                                                        <label
+                                                            key={value}
+                                                            className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+                                                        >
+                                                            <Checkbox
+                                                                checked={entry.channels.includes(value)}
+                                                                onCheckedChange={() => toggleMatrixChannel(key as MatrixKey, value)}
+                                                            />
+                                                            {chLabel}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <p className="text-muted-foreground mb-2 text-xs uppercase tracking-wider">Destinatarios</p>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {RECIPIENT_OPTIONS.map(({ value, label: recLabel }) => (
+                                                        <label
+                                                            key={value}
+                                                            className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+                                                        >
+                                                            <Checkbox
+                                                                checked={entry.recipients.includes(value)}
+                                                                onCheckedChange={() => toggleMatrixRecipient(key as MatrixKey, value)}
+                                                            />
+                                                            {recLabel}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </CardContent>
                     </Card>
 

@@ -43,7 +43,7 @@ return [
     | Default labels that trigger proactive notification (from safety stream)
     |--------------------------------------------------------------------------
     | Cuando un nuevo SafetySignal tiene primary_behavior_label en esta lista
-    | (tras normalizar casing), se crea un SamsaraEvent y se encola el pipeline de IA.
+    | (tras normalizar casing), se crea un Alert y se encola el pipeline de IA.
     | Cada empresa puede sobrescribir via ai_config.safety_stream_notify.labels.
     */
     'default_notify_labels' => [

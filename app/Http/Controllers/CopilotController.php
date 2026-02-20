@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessCopilotMessageJob;
+use App\Models\Alert;
 use App\Models\ChatMessage;
 use App\Models\Conversation;
-use App\Models\SamsaraEvent;
 use App\Models\Driver;
 use App\Models\Tag;
 use App\Models\Vehicle;
@@ -130,18 +130,17 @@ class CopilotController extends Controller
             ], 403);
         }
 
-        // T5: Validate context event belongs to user's company (multi-tenant guard)
         $contextPayload = null;
         if ($contextEventId) {
-            $event = SamsaraEvent::find($contextEventId);
+            $alert = Alert::with('signal')->find($contextEventId);
 
-            if (!$event || $event->company_id !== $user->company_id) {
+            if (!$alert || $alert->company_id !== $user->company_id) {
                 return response()->json([
-                    'error' => 'Evento no encontrado o no pertenece a tu empresa.',
+                    'error' => 'Alerta no encontrada o no pertenece a tu empresa.',
                 ], 403);
             }
 
-            $contextPayload = $this->buildEventContextPayload($event);
+            $contextPayload = $this->buildAlertContextPayload($alert);
         }
         
         // Si no hay thread_id, crear una nueva conversación
@@ -446,33 +445,35 @@ class CopilotController extends Controller
     }
 
     /**
-     * T5: Build the context payload from a SamsaraEvent for the copilot.
+     * Build the context payload from an Alert for the copilot.
      * 
      * This payload is stored in the conversation and injected into the
      * FleetAgent system prompt so the copilot knows the operational context.
      */
-    private function buildEventContextPayload(SamsaraEvent $event): array
+    private function buildAlertContextPayload(Alert $alert): array
     {
-        $alertContext = $event->alert_context ?? [];
+        $signal = $alert->signal;
+        $ai = $alert->ai;
+        $alertContext = $ai?->alert_context ?? [];
 
         return [
-            'event_id' => $event->id,
-            'samsara_event_id' => $event->samsara_event_id,
-            'event_type' => $event->event_type,
-            'event_description' => $event->event_description,
-            'severity' => $event->severity,
-            'vehicle_id' => $event->vehicle_id,
-            'vehicle_name' => $event->vehicle_name,
-            'driver_id' => $event->driver_id,
-            'driver_name' => $event->driver_name,
-            'occurred_at' => $event->occurred_at?->toISOString(),
+            'alert_id' => $alert->id,
+            'samsara_event_id' => $signal?->samsara_event_id,
+            'event_type' => $signal?->event_type,
+            'event_description' => $alert->event_description,
+            'severity' => $alert->severity,
+            'vehicle_id' => $signal?->vehicle_id,
+            'vehicle_name' => $signal?->vehicle_name,
+            'driver_id' => $signal?->driver_id,
+            'driver_name' => $signal?->driver_name,
+            'occurred_at' => $alert->occurred_at?->toISOString(),
             'location_description' => $alertContext['location_description'] ?? null,
-            'alert_kind' => $event->alert_kind ?? ($alertContext['alert_kind'] ?? null),
-            'ai_status' => $event->ai_status,
-            'ai_message' => $event->ai_message,
-            'verdict' => $event->verdict ?? ($event->ai_assessment['verdict'] ?? null),
-            'likelihood' => $event->likelihood ?? ($event->ai_assessment['likelihood'] ?? null),
-            'reasoning' => $event->reasoning ?? ($event->ai_assessment['reasoning'] ?? null),
+            'alert_kind' => $alert->alert_kind ?? ($alertContext['alert_kind'] ?? null),
+            'ai_status' => $alert->ai_status,
+            'ai_message' => $alert->ai_message,
+            'verdict' => $alert->verdict,
+            'likelihood' => $alert->likelihood,
+            'reasoning' => $alert->reasoning,
             'time_window' => $alertContext['time_window'] ?? null,
         ];
     }

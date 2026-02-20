@@ -78,7 +78,7 @@ ai-service/
 ### Flujo de datos
 
 ```
-Samsara Webhook → Laravel → Crea SamsaraEvent → Redis Queue
+Samsara Webhook → Laravel → Crea Signal + Alert → Redis Queue
                                                       ↓
                                                  Worker procesa
                                                       ↓

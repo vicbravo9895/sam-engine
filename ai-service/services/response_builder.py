@@ -371,7 +371,7 @@ class AlertResponseBuilder:
         Extrae los campos relevantes para guardar en Laravel.
         
         Returns:
-            Dict con campos listos para el modelo SamsaraEvent
+            Dict con campos listos para el modelo Alert
         """
         assessment = response.get("assessment", {})
         

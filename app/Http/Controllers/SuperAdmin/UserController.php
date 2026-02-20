@@ -5,7 +5,9 @@ namespace App\Http\Controllers\SuperAdmin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\User;
+use App\Services\DomainEventEmitter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -174,6 +176,9 @@ class UserController extends Controller
             'role.required' => 'El rol es requerido.',
         ]);
 
+        $previousRole = $user->role;
+        $previousCompanyId = $user->company_id;
+
         $user->update([
             'company_id' => $validated['company_id'],
             'name' => $validated['name'],
@@ -186,6 +191,44 @@ class UserController extends Controller
             $user->update([
                 'password' => Hash::make($validated['password']),
             ]);
+        }
+
+        $actorId = Auth::id();
+        $payload = [
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'role' => $validated['role'],
+            'is_active' => $validated['is_active'] ?? true,
+        ];
+
+        if ($previousCompanyId !== (int) $validated['company_id']) {
+            $payload['previous_company_id'] = $previousCompanyId;
+            $payload['new_company_id'] = $validated['company_id'];
+        }
+
+        DomainEventEmitter::emit(
+            companyId: $user->company_id,
+            entityType: 'user',
+            entityId: (string) $user->id,
+            eventType: 'user.updated',
+            payload: $payload,
+            actorType: 'user',
+            actorId: (string) $actorId,
+        );
+
+        if ($previousRole !== $validated['role']) {
+            DomainEventEmitter::emit(
+                companyId: $user->company_id,
+                entityType: 'user',
+                entityId: (string) $user->id,
+                eventType: 'user.role_changed',
+                payload: [
+                    'previous_role' => $previousRole,
+                    'new_role' => $validated['role'],
+                ],
+                actorType: 'user',
+                actorId: (string) $actorId,
+            );
         }
 
         return back()->with('success', 'Usuario actualizado exitosamente.');
@@ -203,6 +246,16 @@ class UserController extends Controller
         $user->update([
             'is_active' => !$user->is_active,
         ]);
+
+        DomainEventEmitter::emit(
+            companyId: $user->company_id,
+            entityType: 'user',
+            entityId: (string) $user->id,
+            eventType: $user->is_active ? 'user.activated' : 'user.deactivated',
+            payload: ['name' => $user->name, 'email' => $user->email],
+            actorType: 'user',
+            actorId: (string) Auth::id(),
+        );
 
         $status = $user->is_active ? 'activado' : 'desactivado';
         return back()->with('success', "Usuario {$status} exitosamente.");

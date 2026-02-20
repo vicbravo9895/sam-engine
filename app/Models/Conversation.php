@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Conversation extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'thread_id', 'user_id', 'company_id', 'title', 'meta',
         'context_event_id', 'context_payload',
@@ -37,9 +39,9 @@ class Conversation extends Model
         return $this->belongsTo(Company::class);
     }
 
-    public function contextEvent(): BelongsTo
+    public function contextAlert(): BelongsTo
     {
-        return $this->belongsTo(SamsaraEvent::class, 'context_event_id');
+        return $this->belongsTo(Alert::class, 'context_event_id');
     }
 
     /**

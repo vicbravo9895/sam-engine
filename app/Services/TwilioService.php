@@ -85,11 +85,12 @@ class TwilioService
             $response = Http::withBasicAuth($this->accountSid, $this->authToken)
                 ->asForm()
                 ->timeout(30)
-                ->post("{$this->baseUrl}/Messages.json", [
+                ->post("{$this->baseUrl}/Messages.json", array_filter([
                     'From' => $this->phoneNumber,
                     'To' => $to,
                     'Body' => $message,
-                ]);
+                    'StatusCallback' => $this->getMessageStatusCallbackUrl(),
+                ]));
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -171,11 +172,12 @@ class TwilioService
             $response = Http::withBasicAuth($this->accountSid, $this->authToken)
                 ->asForm()
                 ->timeout(30)
-                ->post("{$this->baseUrl}/Messages.json", [
+                ->post("{$this->baseUrl}/Messages.json", array_filter([
                     'From' => $this->whatsappNumber,
                     'To' => $whatsappTo,
                     'Body' => $message,
-                ]);
+                    'StatusCallback' => $this->getMessageStatusCallbackUrl(),
+                ]));
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -258,13 +260,13 @@ class TwilioService
         $whatsappTo = str_starts_with($formattedTo, 'whatsapp:') ? $formattedTo : "whatsapp:{$formattedTo}";
 
         try {
-            $payload = [
+            $payload = array_filter([
                 'From' => $this->whatsappNumber,
                 'To' => $whatsappTo,
                 'ContentSid' => $templateSid,
-            ];
+                'StatusCallback' => $this->getMessageStatusCallbackUrl(),
+            ]);
 
-            // Agregar variables si existen
             if (!empty($variables)) {
                 $payload['ContentVariables'] = json_encode($variables);
             }
@@ -875,5 +877,18 @@ TWIML;
         ]);
 
         return $phone;
+    }
+
+    /**
+     * Build the StatusCallback URL for SMS/WhatsApp message status updates.
+     * Returns null when no callback base URL is configured.
+     */
+    private function getMessageStatusCallbackUrl(): ?string
+    {
+        if (empty($this->callbackUrl)) {
+            return null;
+        }
+
+        return "{$this->callbackUrl}/message-status";
     }
 }

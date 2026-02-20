@@ -9,17 +9,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Cliente para interactuar con la API de Samsara.
- * 
- * Se usa principalmente para enriquecer los payloads de webhooks
- * con información adicional de la API (safety events, vehicle info, etc.).
- * 
- * OBJETIVO: Pre-cargar toda la información posible desde Laravel
- * para reducir el tiempo de ejecución del AI Service.
- * 
- * CACHING: Vehicle info and driver assignments are cached to reduce API calls.
- * - vehicle_info: Cached for 1 hour (static data that rarely changes)
- * - driver_assignment: Cached for 5 minutes (more dynamic, changes with shifts)
+ * @deprecated Use App\Samsara\Client\PipelineAdapter instead.
+ * This class is kept temporarily as a fallback during the migration.
  */
 class SamsaraClient
 {
@@ -627,6 +618,8 @@ class SamsaraClient
             'url' => $media['urlInfo']['url'] ?? $media['url'] ?? null,
             'download_url' => $media['urlInfo']['downloadUrl'] ?? $media['downloadUrl'] ?? null,
             'camera_type' => $media['cameraType'] ?? null,
+            'input' => $media['input'] ?? null,
+            'start_time' => $media['startTime'] ?? $media['availableAtTime'] ?? null,
         ];
     }
 

@@ -4,65 +4,62 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Middleware to generate and propagate trace IDs for distributed tracing.
- * 
- * This middleware:
- * 1. Checks for an existing X-Trace-ID header (from upstream services)
- * 2. Generates a new trace ID if none exists
- * 3. Stores it in the app container for access throughout the request
- * 4. Adds it to the response headers for downstream correlation
- * 
- * The trace ID format is: {timestamp}-{random} for easy sorting and uniqueness.
+ * W3C Trace Context middleware for distributed tracing.
+ *
+ * Supports the standard `traceparent` header (version 00):
+ *   00-{trace_id_32hex}-{span_id_16hex}-{flags_2hex}
+ *
+ * Maintains backward compatibility with the legacy `X-Trace-ID` header.
+ * Priority: traceparent > X-Trace-ID > generate new.
+ *
+ * @see https://www.w3.org/TR/trace-context/
  */
 class TraceId
 {
-    /**
-     * Handle an incoming request.
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
-     * @return \Symfony\Component\HttpFoundation\Response
-     */
+    private const TRACEPARENT_REGEX = '/^00-([a-f0-9]{32})-([a-f0-9]{16})-([a-f0-9]{2})$/';
+
     public function handle(Request $request, Closure $next): Response
     {
-        // Get existing trace ID from header or generate new one
-        $traceId = $request->header('X-Trace-ID') ?? $this->generateTraceId();
-        
-        // Store in request header for consistency
-        $request->headers->set('X-Trace-ID', $traceId);
-        
-        // Bind to app container for access in non-request contexts (jobs, etc.)
-        app()->instance('trace_id', $traceId);
-        
-        // Process request
-        $response = $next($request);
-        
-        // Add trace ID to response headers for client correlation
-        $response->headers->set('X-Trace-ID', $traceId);
-        
-        return $response;
-    }
+        $incomingTraceparent = $request->header('traceparent');
+        $incomingTracestate = $request->header('tracestate');
 
-    /**
-     * Generate a unique trace ID.
-     * 
-     * Format: {hex_timestamp}-{random_hex}
-     * Example: 678123ab-a1b2c3d4e5f6
-     * 
-     * Using hex timestamp allows for:
-     * - Chronological sorting
-     * - Compact representation
-     * - Easy identification of request time
-     */
-    private function generateTraceId(): string
-    {
-        $timestamp = dechex((int) (microtime(true) * 1000));
-        $random = Str::random(12);
-        
-        return "{$timestamp}-{$random}";
+        if ($incomingTraceparent && preg_match(self::TRACEPARENT_REGEX, $incomingTraceparent, $matches)) {
+            $traceId = $matches[1];
+            $parentSpanId = $matches[2];
+            $flags = $matches[3];
+        } else {
+            $traceId = bin2hex(random_bytes(16));
+            $parentSpanId = null;
+            $flags = '01';
+        }
+
+        $spanId = bin2hex(random_bytes(8));
+        $traceparent = "00-{$traceId}-{$spanId}-{$flags}";
+
+        $request->headers->set('traceparent', $traceparent);
+
+        if ($incomingTracestate) {
+            $request->headers->set('tracestate', $incomingTracestate);
+        }
+
+        // Legacy header for backward compatibility
+        $request->headers->set('X-Trace-ID', $traceId);
+
+        app()->instance('traceparent', $traceparent);
+        app()->instance('trace_id', $traceId);
+
+        $response = $next($request);
+
+        $response->headers->set('traceparent', $traceparent);
+        $response->headers->set('X-Trace-ID', $traceId);
+
+        if ($incomingTracestate) {
+            $response->headers->set('tracestate', $incomingTracestate);
+        }
+
+        return $response;
     }
 }

@@ -14,43 +14,29 @@ import {
 import { dashboard } from '@/routes';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Activity, AlertTriangle, BarChart3, Bot, Building2, Contact, Handshake, LayoutGrid, Network, Radio, Settings, Shield, Sparkles, Truck, User, Users } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Bell, Bot, Building2, Contact, FileText, Flag, Handshake, LayoutGrid, Network, Radio, Settings, Shield, Sparkles, Truck, User, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
-// ============================================
-// Navigation Groups
-// ============================================
-
-// General - Punto de entrada principal
-const generalNavItems: NavItem[] = [
+const operationsNavItems: NavItem[] = [
     {
-        title: 'Dashboard',
+        title: 'Centro de Comando',
         href: dashboard(),
         icon: LayoutGrid,
     },
-];
-
-// Centro de Control - Herramientas operativas del día a día
-const controlCenterNavItems: NavItem[] = [
     {
         title: 'Alertas',
         href: '/samsara/alerts',
         icon: AlertTriangle,
     },
     {
-        title: 'Casos de Seguimiento',
+        title: 'Incidentes',
         href: '/incidents',
         icon: Activity,
     },
     {
-        title: 'Eventos de Seguridad',
-        href: '/safety-signals',
-        icon: Radio,
-    },
-    {
-        title: 'Análisis',
-        href: '/analytics',
-        icon: BarChart3,
+        title: 'Notificaciones',
+        href: '/notifications',
+        icon: Bell,
     },
     {
         title: 'Copilot',
@@ -59,8 +45,7 @@ const controlCenterNavItems: NavItem[] = [
     },
 ];
 
-// Flota - Gestión de recursos y vehículos
-const fleetNavItems: NavItem[] = [
+const monitoringNavItems: NavItem[] = [
     {
         title: 'Vehículos',
         href: '/fleet-report',
@@ -72,33 +57,14 @@ const fleetNavItems: NavItem[] = [
         icon: User,
     },
     {
-        title: 'Contactos',
-        href: '/contacts',
-        icon: Contact,
-    },
-];
-
-// Super Admin - Gestión global del sistema
-const superAdminNavItems: NavItem[] = [
-    {
-        title: 'Panel',
-        href: '/super-admin',
-        icon: Shield,
+        title: 'Señales',
+        href: '/safety-signals',
+        icon: Radio,
     },
     {
-        title: 'Empresas',
-        href: '/super-admin/companies',
-        icon: Building2,
-    },
-    {
-        title: 'Usuarios',
-        href: '/super-admin/users',
-        icon: Users,
-    },
-    {
-        title: 'Deals',
-        href: '/super-admin/deals',
-        icon: Handshake,
+        title: 'Analítica',
+        href: '/analytics',
+        icon: BarChart3,
     },
 ];
 
@@ -112,7 +78,6 @@ export function AppSidebar() {
     const isManager = userRole === 'manager';
     const canManageUsers = isAdmin || isManager;
 
-    // Build admin nav items dynamically based on role
     const adminNavItems: NavItem[] = [];
     
     if (canManageUsers) {
@@ -122,6 +87,12 @@ export function AppSidebar() {
             icon: Users,
         });
     }
+
+    adminNavItems.push({
+        title: 'Contactos',
+        href: '/contacts',
+        icon: Contact,
+    });
     
     if (isAdmin) {
         adminNavItems.push({
@@ -130,14 +101,37 @@ export function AppSidebar() {
             icon: Settings,
         });
         adminNavItems.push({
+            title: 'Reglas de Detección',
+            href: '/company/detection-rules',
+            icon: Network,
+        });
+        adminNavItems.push({
             title: 'Configuración AI',
             href: '/company/ai-settings',
             icon: Bot,
         });
+    }
+
+    if (isSuperAdmin) {
         adminNavItems.push({
-            title: 'Motor de Reglas de Detección',
-            href: '/company/detection-rules',
-            icon: Network,
+            title: 'Deals',
+            href: '/super-admin/deals',
+            icon: Handshake,
+        });
+        adminNavItems.push({
+            title: 'Uso y Facturación',
+            href: '/super-admin/usage',
+            icon: BarChart3,
+        });
+        adminNavItems.push({
+            title: 'Auditoría',
+            href: '/super-admin/audit',
+            icon: FileText,
+        });
+        adminNavItems.push({
+            title: 'Feature Flags',
+            href: '/super-admin/feature-flags',
+            icon: Flag,
         });
     }
 
@@ -156,25 +150,12 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                {/* General */}
-                <NavMain items={generalNavItems} label="General" />
-                
-                {/* Centro de Control - Operaciones diarias */}
-                <NavMain items={controlCenterNavItems} label="Centro de Control" />
-                
-                {/* Flota - Gestión de recursos */}
-                <NavMain items={fleetNavItems} label="Flota" />
-                
-                {/* Administración - Solo para admin/manager */}
+                <NavMain items={operationsNavItems} label="Operaciones" />
+                <NavMain items={monitoringNavItems} label="Monitoreo" />
                 {adminNavItems.length > 0 && (
-                    <NavMain items={adminNavItems} label="Administración" />
-                )}
-                
-                {/* Super Admin - Gestión global */}
-                {isSuperAdmin && (
                     <>
-                        <SidebarSeparator className="my-2" />
-                        <NavMain items={superAdminNavItems} label="Super Admin" />
+                        <SidebarSeparator className="my-1" />
+                        <NavMain items={adminNavItems} label="Administración" />
                     </>
                 )}
             </SidebarContent>

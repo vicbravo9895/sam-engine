@@ -97,8 +97,8 @@ Sistema de monitoreo y procesamiento inteligente de alertas de flotas usando AI.
 app/
 ├── Http/Controllers/
 │   ├── SamsaraWebhookController.php   # Recibe webhooks de Samsara
-│   ├── SamsaraEventController.php     # API y vistas de eventos
-│   ├── SamsaraEventReviewController.php # Revisión humana de alertas
+│   ├── AlertController.php             # API y vistas de alertas
+│   ├── AlertReviewController.php       # Revisión humana de alertas
 │   ├── CopilotController.php          # Chat con FleetAgent
 │   ├── FleetReportController.php      # Reportes de flota
 │   ├── ContactController.php          # Gestión de contactos
@@ -109,13 +109,18 @@ app/
 │       ├── DashboardController.php
 │       └── UserController.php
 ├── Jobs/
-│   ├── ProcessSamsaraEventJob.php     # Procesa alertas nuevas
-│   ├── RevalidateSamsaraEventJob.php  # Re-evalúa alertas en monitoreo
+│   ├── ProcessAlertJob.php            # Procesa alertas nuevas
+│   ├── RevalidateAlertJob.php         # Re-evalúa alertas en monitoreo
+│   ├── SendNotificationJob.php        # Envía notificaciones (SMS, WhatsApp, llamada)
 │   └── ProcessCopilotMessageJob.php   # Procesa mensajes del copilot
 ├── Models/
-│   ├── SamsaraEvent.php               # Eventos/alertas de Samsara
-│   ├── SamsaraEventActivity.php       # Timeline de actividades
-│   ├── SamsaraEventComment.php        # Comentarios de revisión
+│   ├── Signal.php                     # Evento raw de Samsara (webhook/stream)
+│   ├── Alert.php                      # Alerta procesada por AI
+│   ├── AlertAi.php                    # Datos AI de la alerta (assessment, tokens)
+│   ├── AlertMetrics.php               # Métricas de pipeline por alerta
+│   ├── AlertSource.php                # Origen de la alerta (webhook, stream)
+│   ├── AlertActivity.php              # Timeline de actividades
+│   ├── AlertComment.php               # Comentarios de revisión
 │   ├── User.php                       # Usuarios del sistema
 │   ├── Company.php                    # Multi-tenancy
 │   ├── Contact.php                    # Contactos para notificaciones
@@ -352,14 +357,14 @@ Aquí tienes el estado de T-012021:
 
 ### Procesamiento de Alertas
 1. **Webhook recibido** → `SamsaraWebhookController::handle()`
-2. **Evento creado en BD** → `SamsaraEvent::create()`
+2. **Signal + Alert creados en BD** → `Signal::create()` + `Alert::create()`
 3. **Pre-carga de datos** → Laravel obtiene stats, driver, camera media
-4. **Job encolado** → `ProcessSamsaraEventJob::dispatch()`
+4. **Job encolado** → `ProcessAlertJob::dispatch()`
 5. **Job ejecuta** → Llama a `POST /alerts/ingest` del AI Service
 6. **Pipeline AI ejecuta** → 4 agentes secuenciales
-7. **Resultado guardado** → `SamsaraEvent::markAsCompleted()` o `markAsInvestigating()`
-8. **Notificaciones** → Código determinista ejecuta SMS/WhatsApp/llamadas
-9. **Si requiere monitoreo** → `RevalidateSamsaraEventJob::dispatch()` con delay
+7. **Resultado guardado** → `Alert::markAsCompleted()` o `markAsInvestigating()`, datos AI en `AlertAi`
+8. **Notificaciones** → `SendNotificationJob` ejecuta SMS/WhatsApp/llamadas
+9. **Si requiere monitoreo** → `RevalidateAlertJob::dispatch()` con delay
 
 ### Copilot
 1. **Usuario envía mensaje** → `CopilotController::send()`
@@ -378,7 +383,7 @@ Aquí tienes el estado de T-012021:
 
 ## Pipeline metrics (T1 — instrumentación mínima)
 
-Métricas por evento en `samsara_events` (por `company_id`):
+Métricas por alerta en `alerts` + `alert_metrics` (por `company_id`):
 
 | Métrica | Origen |
 |--------|--------|
@@ -401,26 +406,27 @@ Métricas por evento en `samsara_events` (por `company_id`):
 
 ```sql
 SELECT
-  company_id,
-  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY pipeline_latency_ms) AS p95_latency_ms
-FROM samsara_events
-WHERE pipeline_latency_ms IS NOT NULL
-  AND pipeline_time_ai_finished_at >= CURRENT_DATE
-  AND pipeline_time_ai_finished_at < CURRENT_DATE + INTERVAL '1 day'
-GROUP BY company_id;
+  am.company_id,
+  PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY am.pipeline_latency_ms) AS p95_latency_ms
+FROM alert_metrics am
+WHERE am.pipeline_latency_ms IS NOT NULL
+  AND am.ai_finished_at >= CURRENT_DATE
+  AND am.ai_finished_at < CURRENT_DATE + INTERVAL '1 day'
+GROUP BY am.company_id;
 ```
 
 **Tasa de fallos por tipo de alerta (últimas 24h):**
 
 ```sql
 SELECT
-  event_type,
-  COUNT(*) FILTER (WHERE ai_status = 'failed') AS failed_count,
+  s.event_type,
+  COUNT(*) FILTER (WHERE a.ai_status = 'failed') AS failed_count,
   COUNT(*) AS total_count,
-  ROUND(100.0 * COUNT(*) FILTER (WHERE ai_status = 'failed') / NULLIF(COUNT(*), 0), 2) AS failure_rate_pct
-FROM samsara_events
-WHERE ai_processed_at >= NOW() - INTERVAL '24 hours'
-GROUP BY event_type;
+  ROUND(100.0 * COUNT(*) FILTER (WHERE a.ai_status = 'failed') / NULLIF(COUNT(*), 0), 2) AS failure_rate_pct
+FROM alerts a
+JOIN signals s ON s.id = a.signal_id
+WHERE a.ai_processed_at >= NOW() - INTERVAL '24 hours'
+GROUP BY s.event_type;
 ```
 
 **Última alerta procesada por tenant:**
@@ -428,10 +434,10 @@ GROUP BY event_type;
 ```sql
 SELECT DISTINCT ON (company_id)
   company_id,
-  id AS last_event_id,
+  id AS last_alert_id,
   ai_processed_at AS last_processed_at,
   ai_status
-FROM samsara_events
+FROM alerts
 WHERE ai_status IN ('completed', 'investigating', 'failed')
 ORDER BY company_id, ai_processed_at DESC NULLS LAST;
 ```
@@ -442,7 +448,7 @@ ORDER BY company_id, ai_processed_at DESC NULLS LAST;
 SELECT
   company_id,
   COUNT(*) AS failed_last_24h
-FROM samsara_events
+FROM alerts
 WHERE ai_status = 'failed'
   AND ai_processed_at >= NOW() - INTERVAL '24 hours'
 GROUP BY company_id;
@@ -458,12 +464,12 @@ GROUP BY company_id;
 
 | Dato | Tabla | Lectura | Escritura |
 |------|--------|---------|-----------|
-| Acciones recomendadas | `event_recommended_actions` | UI y API solo vía `getRecommendedActionsArray()` (tabla → fallback JSON) | `ProcessSamsaraEventJob` / `RevalidateSamsaraEventJob` → `saveRecommendedActions()` |
+| Acciones recomendadas | `event_recommended_actions` | UI y API solo vía `getRecommendedActionsArray()` (tabla → fallback JSON) | `ProcessAlertJob` / `RevalidateAlertJob` → `saveRecommendedActions()` |
 | Pasos de investigación | `event_investigation_steps` | API vía `getInvestigationStepsArray()` (tabla → fallback `alert_context.investigation_plan`) | Mismos jobs → `saveInvestigationSteps()` |
 
-- **Backend**: Controlador envía `recommended_actions` e `investigation_steps` en el payload del evento desde las tablas (no desde `ai_assessment` / `alert_context` para display).
+- **Backend**: Controlador envía `recommended_actions` e `investigation_steps` en el payload de la alerta desde las tablas (no desde `ai_assessment` / `alert_context` para display).
 - **Frontend**: `show.tsx` usa solo `event.recommended_actions` (y opcionalmente `event.investigation_steps` si se muestra).
-- **JSON** (`samsara_events.recommended_actions`, `ai_assessment`, `alert_context`) se mantiene como snapshot raw; la UI no lo usa para acciones/pasos.
+- **JSON** (`alert_ai.ai_assessment`, `alert_context`) se mantiene como snapshot raw; la UI no lo usa para acciones/pasos.
 
 **Gate**: Un solo camino de lectura/escritura — búsqueda en repo por `recommended_actions` e `investigation_steps` debe mostrar que la UI lee solo desde el payload enviado por el controlador (origen en tablas). **Test snapshot**: el mismo evento debe renderizarse igual antes y después de T3 (misma lista de acciones y pasos).
 
@@ -502,6 +508,38 @@ cd ai-service && poetry run mypy .
 
 ---
 
+## QA / Replay de webhooks (solo dev)
+
+Para validar el pipeline de alertas (enriquecimiento, AI, notificaciones) sin depender de Samsara en vivo se usa **synthetic event injection**: un simulador que reenvía payloads tipo Samsara al webhook a intervalos configurables.
+
+**Buenas prácticas aplicadas:**
+- **Solo en dev**: el comando `alerts:replay` se ejecuta únicamente si `APP_ENV=local` o `WEBHOOK_SIMULATOR_ENABLED=true`.
+- **Fixtures realistas**: los JSON en `storage/app/fixtures/samsara_webhooks/` se obtienen con `sail artisan webhooks:export-fixtures --force`, que extrae `signals.raw_payload` tal cual (sin anonimizar) para replicar todo el contexto en las pruebas.
+- **IDs únicos por envío**: cada replay usa un `eventId` nuevo para no chocar con la deduplicación.
+- **Vehículo de la empresa**: el payload se rehidrata con un vehículo existente de la empresa elegida para que el webhook enrute bien.
+
+```bash
+# Un webhook cada 2 minutos, perfil botón de pánico
+sail artisan alerts:replay --interval=120 --profile=panic
+
+# Un solo envío, empresa concreta
+sail artisan alerts:replay --once --company=1 --profile=harsh_braking
+
+# Rotar entre todos los perfiles cada 60s, máximo 10 envíos
+sail artisan alerts:replay --interval=60 --profile=mixed --max=10
+```
+
+Opciones: `--interval`, `--profile` (panic, harsh_braking, speeding, mixed, all), `--company`, `--once`, `--max`, `--url`, `--fixture-dir`.  
+Si el comando corre dentro de Sail y la app es `http://laravel.test`, usa `WEBHOOK_SIMULATOR_TARGET_URL=http://laravel.test` en `.env`.
+
+Para **generar fixtures desde datos reales** (dump o señales ya ingestadas):
+
+```bash
+sail artisan webhooks:export-fixtures --force
+```
+
+---
+
 ## Puertos y URLs
 
 | Servicio | Puerto | URL Local |
@@ -512,7 +550,9 @@ cd ai-service && poetry run mypy .
 | PostgreSQL | 5432 | - |
 | Redis | 6379 | - |
 | Langfuse | 3030 | http://localhost:3030 |
+| MinIO API (S3) | 9090 | http://localhost:9090 |
 | MinIO Console | 9091 | http://localhost:9091 |
+| Reverb (WebSocket) | 8080 | ws://localhost:8080 |
 
 ---
 
@@ -525,6 +565,14 @@ DB_CONNECTION=pgsql
 QUEUE_CONNECTION=redis
 SAMSARA_API_KEY=samsara_api_...
 ```
+
+### Dev: Reverb y MinIO al arrancar Sail
+En `compose.yaml`, los servicios Laravel (laravel.test, horizon, reverb) tienen `REDIS_HOST=redis` y `DB_HOST=pgsql` inyectados para que funcionen dentro de Docker aunque en `.env` tengas `127.0.0.1`. Reverb espera a que Redis esté healthy antes de arrancar. MinIO usa un healthcheck compatible con la imagen oficial (sin `mc`) y el volumen `sail-minio-data` persiste los datos entre reinicios.
+
+### Persistir imágenes (evidence, dashcam) en MinIO en dev
+1. En `.env`: `MEDIA_DISK=s3`, y las variables AWS_* con endpoint `http://minio:9000` y `AWS_URL=http://localhost:9090/sam-media` (puerto 9090 en el host).
+2. Credenciales: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` pueden usar `${MINIO_ROOT_USER}` y `${MINIO_ROOT_PASSWORD}`.
+3. El bucket `sam-media` se crea automáticamente en el primer upload. Los archivos quedan en el volumen `sail-minio-data`.
 
 ### AI Service (`ai-service/.env`)
 ```env
@@ -631,30 +679,50 @@ Route::get('mi-pagina', fn() => Inertia::render('mi-pagina'))->name('mi-pagina')
 
 ## Modelo de Datos Principal
 
-### `samsara_events`
+### `signals` (evento raw)
 
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
 | `id` | bigint | PK |
 | `company_id` | bigint | FK a companies (multi-tenant) |
+| `source` | string | Origen: `webhook`, `stream` |
+| `samsara_event_id` | string | ID único de Samsara |
 | `event_type` | string | Tipo de alerta (AlertIncident, etc.) |
 | `event_description` | string | Descripción (Botón de pánico, etc.) |
-| `samsara_event_id` | string | ID único de Samsara |
 | `vehicle_id` | string | ID del vehículo |
 | `vehicle_name` | string | Nombre/placa |
 | `driver_id` | string | ID del conductor |
 | `driver_name` | string | Nombre del conductor |
-| `severity` | enum | info, warning, critical |
+| `severity` | string | info, warning, critical |
 | `occurred_at` | datetime | Timestamp del evento |
-| `raw_payload` | json | Payload completo de Samsara |
+| `payload` | json | Payload completo de Samsara |
+
+### `alerts` (alerta procesada)
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | bigint | PK |
+| `company_id` | bigint | FK a companies (multi-tenant) |
+| `signal_id` | bigint | FK a signals |
+| `severity` | enum | info, warning, critical |
 | `ai_status` | enum | pending, processing, investigating, completed, failed |
-| `ai_assessment` | json | Resultado del investigator |
 | `ai_message` | text | Mensaje generado por final_agent |
+| `ai_processed_at` | datetime | Timestamp de procesamiento AI |
+| `notification_status` | string | Estado de notificaciones |
+| `notification_channels` | json | Canales usados |
+
+### `alert_ai` (datos AI detallados)
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `alert_id` | bigint | FK a alerts |
+| `ai_assessment` | json | Resultado del investigator |
 | `ai_actions` | json | Metadata de ejecución del pipeline |
 | `investigation_count` | int | Número de revalidaciones |
 | `next_check_minutes` | int | Minutos hasta próxima revalidación |
-| `notification_status` | string | Estado de notificaciones |
-| `notification_channels` | json | Canales usados |
+| `investigation_history` | json | Historial de revalidaciones |
+| `total_tokens` | int | Tokens consumidos |
+| `cost_estimate` | decimal | Costo estimado |
 
 ### `conversations` / `chat_messages`
 
@@ -672,7 +740,7 @@ Route::get('mi-pagina', fn() => Inertia::render('mi-pagina'))->name('mi-pagina')
 sail artisan test
 
 # Tests específicos
-sail artisan test --filter=SamsaraEventTest
+sail artisan test --filter=AttentionEngineTest
 
 # Tests AI Service
 cd ai-service && poetry run pytest

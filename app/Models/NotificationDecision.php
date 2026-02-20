@@ -23,7 +23,7 @@ class NotificationDecision extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'samsara_event_id',
+        'alert_id',
         'should_notify',
         'escalation_level',
         'message_text',
@@ -66,9 +66,9 @@ class NotificationDecision extends Model
     /**
      * Event this decision belongs to.
      */
-    public function event(): BelongsTo
+    public function alert(): BelongsTo
     {
-        return $this->belongsTo(SamsaraEvent::class, 'samsara_event_id');
+        return $this->belongsTo(Alert::class);
     }
 
     /**

@@ -17,7 +17,9 @@ from core.structured_logging import (
     setup_logging,
     get_logger,
     set_trace_id,
+    set_traceparent,
     get_trace_id,
+    get_traceparent,
     set_request_context,
 )
 
@@ -74,19 +76,25 @@ async def trace_and_logging_middleware(request: Request, call_next):
     2. Logs request start and completion
     3. Handles exceptions with proper logging
     """
-    # Get or generate trace ID
-    trace_id = request.headers.get("X-Trace-ID")
-    if not trace_id:
-        # Generate new trace ID: {hex_timestamp}-{random}
-        timestamp_hex = hex(int(time.time() * 1000))[2:]
-        trace_id = f"{timestamp_hex}-{uuid.uuid4().hex[:12]}"
-    
-    # Set trace ID in context for all logs in this request
+    # W3C traceparent with fallback to legacy X-Trace-ID
+    traceparent = request.headers.get("traceparent")
+    if traceparent and _is_valid_traceparent(traceparent):
+        trace_id = traceparent.split("-")[1]
+        # Generate a new span-id for this service
+        span_id = uuid.uuid4().hex[:16]
+        flags = traceparent.split("-")[3]
+        traceparent = f"00-{trace_id}-{span_id}-{flags}"
+    else:
+        trace_id = uuid.uuid4().hex
+        span_id = uuid.uuid4().hex[:16]
+        traceparent = f"00-{trace_id}-{span_id}-01"
+
+    set_traceparent(traceparent)
     set_trace_id(trace_id)
-    
-    # Skip logging for health checks
+
     if request.url.path in ["/health", "/stats", "/up"]:
         response = await call_next(request)
+        response.headers["traceparent"] = traceparent
         response.headers["X-Trace-ID"] = trace_id
         return response
     
@@ -121,7 +129,7 @@ async def trace_and_logging_middleware(request: Request, call_next):
             "duration_ms": duration_ms,
         })
         
-        # Add trace ID to response headers
+        response.headers["traceparent"] = traceparent
         response.headers["X-Trace-ID"] = trace_id
         
         return response
@@ -137,7 +145,6 @@ async def trace_and_logging_middleware(request: Request, call_next):
             "error_type": type(e).__name__,
         })
         
-        # Return error response with trace ID
         return JSONResponse(
             status_code=500,
             content={
@@ -145,8 +152,17 @@ async def trace_and_logging_middleware(request: Request, call_next):
                 "message": str(e),
                 "trace_id": trace_id,
             },
-            headers={"X-Trace-ID": trace_id},
+            headers={
+                "traceparent": traceparent,
+                "X-Trace-ID": trace_id,
+            },
         )
+
+
+def _is_valid_traceparent(value: str) -> bool:
+    """Validate W3C traceparent format: 00-{32hex}-{16hex}-{2hex}"""
+    import re
+    return bool(re.match(r"^00-[a-f0-9]{32}-[a-f0-9]{16}-[a-f0-9]{2}$", value))
 
 
 # ============================================================================

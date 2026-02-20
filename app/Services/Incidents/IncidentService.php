@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Incidents;
 
+use App\Models\Alert;
 use App\Models\Incident;
 use App\Models\SafetySignal;
-use App\Models\SamsaraEvent;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -39,31 +39,40 @@ class IncidentService
     }
 
     /**
-     * Create an incident from a webhook-triggered SamsaraEvent.
+     * Create an incident from an Alert (vehicle/driver data from signal).
      */
-    public function createFromWebhook(SamsaraEvent $event, array $assessment = []): Incident
+    public function createFromAlert(Alert $alert, array $assessment = []): Incident
     {
-        $priority = $this->determinePriority($event, $assessment);
-        $incidentType = $this->determineType($event, $assessment);
+        $alert->loadMissing('signal');
+        $signal = $alert->signal;
+
+        $priority = $this->determinePriority($alert, $assessment);
+        $incidentType = $this->determineType($alert, $assessment);
+
+        $driverId = $signal?->driver_id;
+        $vehicleId = $signal?->vehicle_id;
+        $driverName = $signal?->driver_name;
+        $vehicleName = $signal?->vehicle_name;
         
         return $this->create([
-            'company_id' => $event->company_id,
+            'company_id' => $alert->company_id,
             'incident_type' => $incidentType,
             'priority' => $priority,
-            'severity' => $event->severity ?? Incident::SEVERITY_WARNING,
+            'severity' => $alert->severity ?? Incident::SEVERITY_WARNING,
             'status' => Incident::STATUS_OPEN,
-            'subject_type' => $event->driver_id ? Incident::SUBJECT_DRIVER : Incident::SUBJECT_VEHICLE,
-            'subject_id' => $event->driver_id ?? $event->vehicle_id,
-            'subject_name' => $event->driver_name ?? $event->vehicle_name,
+            'subject_type' => $driverId ? Incident::SUBJECT_DRIVER : Incident::SUBJECT_VEHICLE,
+            'subject_id' => $driverId ?? $vehicleId,
+            'subject_name' => $driverName ?? $vehicleName,
             'source' => Incident::SOURCE_WEBHOOK,
-            'samsara_event_id' => $event->samsara_event_id,
-            'ai_summary' => $assessment['summary'] ?? $event->ai_message,
+            'samsara_event_id' => $signal?->samsara_event_id,
+            'ai_summary' => $assessment['summary'] ?? $alert->ai_message,
             'ai_assessment' => $assessment,
-            'detected_at' => $event->occurred_at ?? now(),
+            'detected_at' => $alert->occurred_at ?? now(),
             'metadata' => [
-                'original_event_id' => $event->id,
-                'event_type' => $event->event_type,
-                'event_description' => $event->event_description,
+                'alert_id' => $alert->id,
+                'signal_id' => $signal?->id,
+                'event_type' => $signal?->event_type,
+                'event_description' => $alert->event_description ?? $signal?->event_description,
             ],
         ]);
     }
@@ -170,64 +179,59 @@ class IncidentService
     }
 
     /**
-     * Determine priority based on event and assessment.
+     * Determine priority based on alert and assessment.
      */
-    protected function determinePriority(SamsaraEvent $event, array $assessment): string
+    protected function determinePriority(Alert $alert, array $assessment): string
     {
-        // P1 for critical severity or emergency risk escalation
-        if ($event->severity === 'critical' || 
-            ($assessment['risk_escalation'] ?? '') === 'emergency') {
+        if ($alert->severity === Alert::SEVERITY_CRITICAL || 
+            ($assessment['risk_escalation'] ?? '') === Alert::RISK_EMERGENCY) {
             return Incident::PRIORITY_P1;
         }
         
-        // P2 for call escalation or high likelihood
-        if (($assessment['risk_escalation'] ?? '') === 'call' ||
-            ($assessment['likelihood'] ?? '') === 'high') {
+        if (($assessment['risk_escalation'] ?? '') === Alert::RISK_CALL ||
+            ($assessment['likelihood'] ?? '') === Alert::LIKELIHOOD_HIGH) {
             return Incident::PRIORITY_P2;
         }
         
-        // P3 for warning severity or warn escalation
-        if ($event->severity === 'warning' ||
-            ($assessment['risk_escalation'] ?? '') === 'warn') {
+        if ($alert->severity === Alert::SEVERITY_WARNING ||
+            ($assessment['risk_escalation'] ?? '') === Alert::RISK_WARN) {
             return Incident::PRIORITY_P3;
         }
         
-        // P4 for everything else
         return Incident::PRIORITY_P4;
     }
 
     /**
-     * Determine incident type based on event and assessment.
+     * Determine incident type based on alert and assessment.
      */
-    protected function determineType(SamsaraEvent $event, array $assessment): string
+    protected function determineType(Alert $alert, array $assessment): string
     {
-        $eventType = strtolower($event->event_type ?? '');
-        $eventDescription = strtolower($event->event_description ?? '');
-        $alertKind = $assessment['alert_kind'] ?? $event->alert_kind ?? '';
+        $alert->loadMissing('signal');
+        $signal = $alert->signal;
+
+        $eventType = strtolower($signal?->event_type ?? '');
+        $eventDescription = strtolower($alert->event_description ?? $signal?->event_description ?? '');
+        $alertKind = $assessment['alert_kind'] ?? $alert->alert_kind ?? '';
         
-        // Collision indicators
         if (str_contains($eventType, 'collision') || 
             str_contains($eventDescription, 'collision') ||
             str_contains($eventDescription, 'crash')) {
             return Incident::TYPE_COLLISION;
         }
         
-        // Emergency indicators (panic button)
         if (str_contains($eventDescription, 'panic') || 
             str_contains($eventDescription, 'emergency') ||
-            $alertKind === 'panic') {
+            $alertKind === Alert::ALERT_KIND_PANIC) {
             return Incident::TYPE_EMERGENCY;
         }
         
-        // Tampering indicators
         if (str_contains($eventDescription, 'obstruction') ||
             str_contains($eventDescription, 'tampering') ||
-            $alertKind === 'tampering') {
+            $alertKind === Alert::ALERT_KIND_TAMPERING) {
             return Incident::TYPE_TAMPERING;
         }
         
-        // Safety violation indicators
-        if ($alertKind === 'safety' ||
+        if ($alertKind === Alert::ALERT_KIND_SAFETY ||
             str_contains($eventDescription, 'speeding') ||
             str_contains($eventDescription, 'seatbelt')) {
             return Incident::TYPE_SAFETY_VIOLATION;

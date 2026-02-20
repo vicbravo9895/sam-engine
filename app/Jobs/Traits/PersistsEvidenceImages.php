@@ -3,6 +3,7 @@
 namespace App\Jobs\Traits;
 
 use App\Jobs\PersistMediaAssetJob;
+use App\Models\Alert;
 use App\Models\MediaAsset;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -12,9 +13,9 @@ use Illuminate\Support\Str;
  *
  * Crea registros MediaAsset y despacha PersistMediaAssetJob para cada imagen.
  * Las URLs en los arrays se mantienen como están (source URLs) hasta que
- * el job las reemplace con URLs locales en los campos JSON del evento.
+ * el job las reemplace con URLs locales en los campos JSON de la alerta.
  *
- * Usado por ProcessSamsaraEventJob y RevalidateSamsaraEventJob.
+ * Usado por ProcessAlertJob y RevalidateAlertJob.
  */
 trait PersistsEvidenceImages
 {
@@ -29,13 +30,13 @@ trait PersistsEvidenceImages
      */
     private function persistEvidenceImages(?array $execution, ?array $cameraAnalysis = null): array
     {
-        $eventId = $this->event->id;
-        $companyId = $this->event->company_id;
+        $alertId = $this->alert->id;
+        $companyId = $this->alert->company_id;
         $disk = config('filesystems.media');
         $dispatched = 0;
 
         Log::info('media_asset.dispatching_evidence', [
-            'event_id' => $eventId,
+            'alert_id' => $alertId,
             'has_camera_analysis' => !empty($cameraAnalysis),
         ]);
 
@@ -52,8 +53,8 @@ trait PersistsEvidenceImages
 
                 $asset = MediaAsset::create([
                     'company_id' => $companyId,
-                    'assetable_type' => \App\Models\SamsaraEvent::class,
-                    'assetable_id' => $eventId,
+                    'assetable_type' => Alert::class,
+                    'assetable_id' => $alertId,
                     'category' => MediaAsset::CATEGORY_EVIDENCE,
                     'disk' => $disk,
                     'source_url' => $samsaraUrl,
@@ -91,8 +92,8 @@ trait PersistsEvidenceImages
 
                         $asset = MediaAsset::create([
                             'company_id' => $companyId,
-                            'assetable_type' => \App\Models\SamsaraEvent::class,
-                            'assetable_id' => $eventId,
+                            'assetable_type' => Alert::class,
+                            'assetable_id' => $alertId,
                             'category' => MediaAsset::CATEGORY_EVIDENCE,
                             'disk' => $disk,
                             'source_url' => $samsaraUrl,
@@ -114,7 +115,7 @@ trait PersistsEvidenceImages
         }
 
         Log::info('media_asset.evidence_dispatched', [
-            'event_id' => $eventId,
+            'alert_id' => $alertId,
             'jobs_dispatched' => $dispatched,
         ]);
 

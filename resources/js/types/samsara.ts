@@ -47,6 +47,7 @@ export interface HumanReviewData {
 
 export interface EventListItem extends HumanReviewData {
     id: number;
+    signal_id?: string | null;
     samsara_event_id?: string | null;
     event_type?: string | null;
     event_title?: string | null;
@@ -81,6 +82,22 @@ export interface EventListItem extends HumanReviewData {
         count: number;
         max_investigations: number;
     } | null;
+    // Attention Engine
+    attention_state?: string | null;
+    ack_status?: string | null;
+    ack_due_at?: string | null;
+    owner_name?: string | null;
+    escalation_level?: number | null;
+    escalation_count?: number | null;
+}
+
+export interface UnifiedTimelineEntry {
+    type: 'signal' | 'ai' | 'notification' | 'notification_status' | 'activity' | 'domain_event';
+    icon: string;
+    title: string;
+    description?: string | null;
+    timestamp: string;
+    actor: string;
 }
 
 export interface ReviewApiResponse<T = unknown> {

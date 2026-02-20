@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Storage;
 class StorageController extends Controller
 {
     /**
-     * Serve storage files with CORS headers (local disk) or redirect to S3.
+     * Serve storage files with CORS headers (local disk) or redirect to S3/MinIO (bucket is public).
      */
     public function serve(Request $request, string $path)
     {

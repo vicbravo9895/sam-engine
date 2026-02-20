@@ -14,31 +14,17 @@ interface NavMainProps {
     label?: string;
 }
 
-/**
- * Check if a nav item could match the current URL.
- * Returns true for exact match or if URL is a subpath.
- */
-function couldMatch(currentUrl: string, itemHref: string): boolean {
-    const resolvedHref = resolveUrl(itemHref);
-    const urlPath = currentUrl.split('?')[0];
-    
-    return urlPath === resolvedHref || urlPath.startsWith(resolvedHref + '/');
-}
-
-/**
- * Find the best matching item from a list.
- * Returns the href of the most specific match (longest href that matches).
- */
 function findBestMatch(currentUrl: string, items: NavItem[]): string | null {
     const urlPath = currentUrl.split('?')[0];
     let bestMatch: string | null = null;
     let bestLength = -1;
     
     for (const item of items) {
-        const resolvedHref = resolveUrl(item.href);
-        if (couldMatch(urlPath, item.href) && resolvedHref.length > bestLength) {
-            bestMatch = resolvedHref;
-            bestLength = resolvedHref.length;
+        const resolved = resolveUrl(item.href);
+        const matches = urlPath === resolved || urlPath.startsWith(resolved + '/');
+        if (matches && resolved.length > bestLength) {
+            bestMatch = resolved;
+            bestLength = resolved.length;
         }
     }
     
@@ -51,22 +37,32 @@ export function NavMain({ items = [], label = 'Plataforma' }: NavMainProps) {
     
     return (
         <SidebarGroup className="px-2 py-0">
-            <SidebarGroupLabel>{label}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/60">
+                {label}
+            </SidebarGroupLabel>
             <SidebarMenu>
-                {items.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                        <SidebarMenuButton
-                            asChild
-                            isActive={resolveUrl(item.href) === bestMatch}
-                            tooltip={{ children: item.title }}
-                        >
-                            <Link href={item.href} prefetch>
-                                {item.icon && <item.icon />}
-                                <span>{item.title}</span>
-                            </Link>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                ))}
+                {items.map((item) => {
+                    const isActive = resolveUrl(item.href) === bestMatch;
+                    return (
+                        <SidebarMenuItem key={item.title}>
+                            <SidebarMenuButton
+                                asChild
+                                isActive={isActive}
+                                tooltip={{ children: item.title }}
+                                className={
+                                    isActive
+                                        ? 'relative border-l-2 border-sidebar-primary bg-sidebar-accent/80 font-medium text-sidebar-primary'
+                                        : 'transition-colors duration-150'
+                                }
+                            >
+                                <Link href={item.href} prefetch>
+                                    {item.icon ? <item.icon className="size-4" /> : null}
+                                    <span>{item.title}</span>
+                                </Link>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    );
+                })}
             </SidebarMenu>
         </SidebarGroup>
     );

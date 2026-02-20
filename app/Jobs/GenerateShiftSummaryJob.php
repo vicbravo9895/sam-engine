@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Models\Alert;
 use App\Models\Company;
-use App\Models\SamsaraEvent;
 use App\Models\ShiftSummary;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
@@ -94,7 +94,7 @@ class GenerateShiftSummaryJob implements ShouldQueue
      */
     private function gatherMetrics(Company $company, Carbon $start, Carbon $end): array
     {
-        $query = SamsaraEvent::forCompany($company->id)
+        $query = Alert::forCompany($company->id)
             ->whereBetween('occurred_at', [$start, $end]);
 
         $totalEvents = (clone $query)->count();
@@ -118,13 +118,15 @@ class GenerateShiftSummaryJob implements ShouldQueue
             ->pluck('count', 'ai_status')
             ->toArray();
 
-        $topVehicles = (clone $query)
-            ->selectRaw('vehicle_name, COUNT(*) as count')
-            ->whereNotNull('vehicle_name')
-            ->groupBy('vehicle_name')
+        $topVehicles = Alert::forCompany($company->id)
+            ->whereBetween('alerts.occurred_at', [$start, $end])
+            ->join('signals', 'alerts.signal_id', '=', 'signals.id')
+            ->selectRaw('signals.vehicle_name, COUNT(*) as count')
+            ->whereNotNull('signals.vehicle_name')
+            ->groupBy('signals.vehicle_name')
             ->orderByDesc('count')
             ->limit(5)
-            ->pluck('count', 'vehicle_name')
+            ->pluck('count', 'signals.vehicle_name')
             ->toArray();
 
         $notificationsSent = (clone $query)
@@ -136,7 +138,10 @@ class GenerateShiftSummaryJob implements ShouldQueue
             ->whereIn('ai_status', ['failed', 'investigating'])
             ->count();
 
-        $avgLatencyMs = (clone $query)
+        $avgLatencyMs = \App\Models\AlertMetrics::whereIn(
+            'alert_id',
+            (clone $query)->select('alerts.id')
+        )
             ->whereNotNull('pipeline_latency_ms')
             ->avg('pipeline_latency_ms');
 

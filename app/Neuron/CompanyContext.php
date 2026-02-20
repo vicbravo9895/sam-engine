@@ -6,7 +6,7 @@ namespace App\Neuron;
 
 use App\Models\Company;
 use App\Models\User;
-use App\Samsara\Client\SamsaraClient;
+use App\Samsara\Client\CopilotAdapter;
 
 /**
  * Company context holder for multi-tenant operations.
@@ -128,7 +128,7 @@ class CompanyContext
     /**
      * Create a SamsaraClient configured for this company.
      */
-    public function createSamsaraClient(): SamsaraClient
+    public function createSamsaraClient(): CopilotAdapter
     {
         if (!$this->hasSamsaraAccess()) {
             throw new \RuntimeException(
@@ -137,7 +137,7 @@ class CompanyContext
             );
         }
 
-        return new SamsaraClient($this->samsaraApiKey);
+        return new CopilotAdapter($this->samsaraApiKey);
     }
 
     /**

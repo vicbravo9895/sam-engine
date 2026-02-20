@@ -33,6 +33,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { StaggerContainer, StaggerItem } from '@/components/motion';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
@@ -168,17 +169,17 @@ export default function DriversIndex({ drivers, filters, countryCodes }: IndexPr
             <div className="flex flex-1 flex-col gap-6 p-4">
                 <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
                     <div>
-                        <p className="text-sm font-medium text-muted-foreground">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                             Configuración
                         </p>
-                        <h1 className="text-2xl font-semibold tracking-tight">
+                        <h1 className="font-display text-2xl font-bold tracking-tight">
                             Conductores
                         </h1>
                         <p className="text-sm text-muted-foreground">
                             Configura los números de teléfono y códigos de país para notificaciones.
                         </p>
                     </div>
-                    {selectedDrivers.length > 0 && (
+                    {selectedDrivers.length > 0 ? (
                         <Button 
                             onClick={() => setBulkCountryCodeModal(true)} 
                             className="gap-2"
@@ -186,7 +187,7 @@ export default function DriversIndex({ drivers, filters, countryCodes }: IndexPr
                             <Globe className="size-4" />
                             Asignar Código País ({selectedDrivers.length})
                         </Button>
-                    )}
+                    ) : null}
                 </header>
 
                 {/* Stats */}
@@ -230,7 +231,7 @@ export default function DriversIndex({ drivers, filters, countryCodes }: IndexPr
                 </section>
 
                 {/* Info sobre México */}
-                <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20">
+                <Card className="rounded-xl border-amber-200 bg-amber-50 shadow-sm dark:border-amber-800 dark:bg-amber-950/20">
                     <CardHeader className="flex flex-row items-start gap-3 pb-2">
                         <AlertCircle className="size-5 text-amber-500" />
                         <div className="space-y-1">
@@ -245,13 +246,13 @@ export default function DriversIndex({ drivers, filters, countryCodes }: IndexPr
                 </Card>
 
                 {/* Filters */}
-                <Card>
+                <Card className="rounded-xl shadow-sm">
                     <CardHeader className="flex flex-row items-center gap-3 border-b pb-4">
                         <div className="rounded-full bg-primary/10 p-2 text-primary">
                             <Filter className="size-4" />
                         </div>
                         <div>
-                            <CardTitle className="text-sm">Filtros</CardTitle>
+                            <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Filtros</CardTitle>
                             <CardDescription className="text-xs">
                                 Busca y filtra conductores
                             </CardDescription>
@@ -378,7 +379,7 @@ export default function DriversIndex({ drivers, filters, countryCodes }: IndexPr
                                                 {driver.phone ? (
                                                     <div className="flex items-center gap-1">
                                                         <Phone className="size-3 text-muted-foreground" />
-                                                        <span className="font-mono text-sm">{driver.phone}</span>
+                                                        <span className="font-mono text-xs">{driver.phone}</span>
                                                     </div>
                                                 ) : (
                                                     <span className="text-muted-foreground text-sm">-</span>
@@ -397,7 +398,7 @@ export default function DriversIndex({ drivers, filters, countryCodes }: IndexPr
                                             </TableCell>
                                             <TableCell>
                                                 {driver.formatted_phone ? (
-                                                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                                                    <code className="font-mono rounded bg-muted px-1.5 py-0.5 text-xs">
                                                         {driver.formatted_phone}
                                                     </code>
                                                 ) : (

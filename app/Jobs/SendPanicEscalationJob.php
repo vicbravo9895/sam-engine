@@ -2,10 +2,10 @@
 
 namespace App\Jobs;
 
+use App\Models\Alert;
+use App\Models\AlertActivity;
 use App\Models\Contact;
 use App\Models\NotificationResult;
-use App\Models\SamsaraEvent;
-use App\Models\SamsaraEventActivity;
 use App\Services\TwilioService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -30,7 +30,7 @@ class SendPanicEscalationJob implements ShouldQueue
     public $backoff = [10, 30, 60];
 
     public function __construct(
-        public SamsaraEvent $event
+        public Alert $alert
     ) {
         $this->onQueue('notifications');
     }
@@ -38,18 +38,19 @@ class SendPanicEscalationJob implements ShouldQueue
     public function handle(TwilioService $twilioService): void
     {
         $startTime = microtime(true);
+        $signal = $this->alert->signal;
         
         Log::channel('stack')->info('========================================');
         Log::channel('stack')->info('=== PANIC ESCALATION JOB STARTED ===');
         Log::channel('stack')->info('========================================', [
-            'event_id' => $this->event->id,
-            'vehicle_name' => $this->event->vehicle_name,
-            'driver_name' => $this->event->driver_name,
-            'company_id' => $this->event->company_id,
+            'alert_id' => $this->alert->id,
+            'vehicle_name' => $signal?->vehicle_name,
+            'driver_name' => $signal?->driver_name,
+            'company_id' => $this->alert->company_id,
         ]);
 
         $results = [];
-        $companyId = $this->event->company_id;
+        $companyId = $this->alert->company_id;
 
         // Preparar datos para templates y mensajes
         $templateVars = $this->buildTemplateVariables();
@@ -57,7 +58,7 @@ class SendPanicEscalationJob implements ShouldQueue
         $callScript = $this->buildCallScript();
 
         Log::info('Panic escalation prepared', [
-            'event_id' => $this->event->id,
+            'alert_id' => $this->alert->id,
             'template_vars' => $templateVars,
             'sms_preview' => mb_substr($smsMessage, 0, 100),
         ]);
@@ -70,7 +71,7 @@ class SendPanicEscalationJob implements ShouldQueue
             ->get();
 
         Log::info('Monitoring contacts found', [
-            'event_id' => $this->event->id,
+            'alert_id' => $this->alert->id,
             'count' => $monitoringContacts->count(),
             'contacts' => $monitoringContacts->pluck('name')->toArray(),
         ]);
@@ -86,7 +87,7 @@ class SendPanicEscalationJob implements ShouldQueue
                 $results[] = $this->recordResult('whatsapp_template', 'monitoring_team', $contact, $result);
                 
                 Log::info('Monitoring WhatsApp Template sent', [
-                    'event_id' => $this->event->id,
+                    'alert_id' => $this->alert->id,
                     'contact' => $contact->name,
                     'to' => $contact->whatsapp_number,
                     'template' => 'sam_escalation_monitoring',
@@ -100,7 +101,7 @@ class SendPanicEscalationJob implements ShouldQueue
                 $results[] = $this->recordResult('sms', 'monitoring_team', $contact, $result);
                 
                 Log::info('Monitoring SMS sent', [
-                    'event_id' => $this->event->id,
+                    'alert_id' => $this->alert->id,
                     'contact' => $contact->name,
                     'to' => $contact->phone,
                     'success' => $result['success'] ?? false,
@@ -116,7 +117,7 @@ class SendPanicEscalationJob implements ShouldQueue
             ->get();
 
         Log::info('Emergency contacts found', [
-            'event_id' => $this->event->id,
+            'alert_id' => $this->alert->id,
             'count' => $emergencyContacts->count(),
             'contacts' => $emergencyContacts->pluck('name')->toArray(),
         ]);
@@ -128,7 +129,7 @@ class SendPanicEscalationJob implements ShouldQueue
                 $results[] = $this->recordResult('call', 'emergency', $contact, $result);
                 
                 Log::info('Emergency call initiated', [
-                    'event_id' => $this->event->id,
+                    'alert_id' => $this->alert->id,
                     'contact' => $contact->name,
                     'to' => $contact->phone,
                     'success' => $result['success'] ?? false,
@@ -160,7 +161,7 @@ class SendPanicEscalationJob implements ShouldQueue
             ->get();
 
         Log::info('Supervisor contacts found', [
-            'event_id' => $this->event->id,
+            'alert_id' => $this->alert->id,
             'count' => $supervisorContacts->count(),
         ]);
 
@@ -193,7 +194,7 @@ class SendPanicEscalationJob implements ShouldQueue
             ->values()
             ->toArray();
 
-        $this->event->update([
+        $this->alert->update([
             'notification_status' => 'escalated',
             'notification_channels' => $channels,
             'notification_sent_at' => now(),
@@ -201,9 +202,9 @@ class SendPanicEscalationJob implements ShouldQueue
 
         // Registrar actividad
         try {
-            SamsaraEventActivity::create([
-                'samsara_event_id' => $this->event->id,
-                'company_id' => $this->event->company_id,
+            AlertActivity::create([
+                'alert_id' => $this->alert->id,
+                'company_id' => $this->alert->company_id,
                 'action' => 'panic_escalation_sent',
                 'data' => [
                     'total_notifications' => count($results),
@@ -224,7 +225,7 @@ class SendPanicEscalationJob implements ShouldQueue
         Log::channel('stack')->info('========================================');
         Log::channel('stack')->info('=== PANIC ESCALATION JOB COMPLETED ===');
         Log::channel('stack')->info('========================================', [
-            'event_id' => $this->event->id,
+            'alert_id' => $this->alert->id,
             'total_notifications' => count($results),
             'successful' => $successCount,
             'failed' => $failedCount,
@@ -247,16 +248,16 @@ class SendPanicEscalationJob implements ShouldQueue
      */
     private function buildTemplateVariables(): array
     {
-        $event = $this->event;
-        $timezone = $event->company?->timezone ?? 'America/Mexico_City';
-        $occurredAt = $event->occurred_at?->setTimezone($timezone)->format('d/m/Y H:i') ?? 'N/A';
+        $alert = $this->alert;
+        $signal = $alert->signal;
+        $timezone = $alert->company?->timezone ?? 'America/Mexico_City';
+        $occurredAt = $alert->occurred_at?->setTimezone($timezone)->format('d/m/Y H:i') ?? 'N/A';
         
-        // Intentar obtener ubicación del payload
         $location = $this->extractLocation();
 
         return [
-            '1' => $event->vehicle_name ?? 'Unidad desconocida',
-            '2' => $event->driver_name ?? 'Conductor no identificado',
+            '1' => $signal?->vehicle_name ?? 'Unidad desconocida',
+            '2' => $signal?->driver_name ?? 'Conductor no identificado',
             '3' => 'Botón de Pánico - CONFIRMADO',
             '4' => $location,
             '5' => "Hora: {$occurredAt}. Acción inmediata requerida.",
@@ -268,7 +269,7 @@ class SendPanicEscalationJob implements ShouldQueue
      */
     private function extractLocation(): string
     {
-        $payload = $this->event->raw_payload ?? [];
+        $payload = $this->alert->signal?->raw_payload ?? [];
         
         // Intentar obtener dirección formateada
         if (isset($payload['data']['location']['formattedAddress'])) {
@@ -290,13 +291,14 @@ class SendPanicEscalationJob implements ShouldQueue
      */
     private function buildSmsMessage(): string
     {
-        $event = $this->event;
-        $timezone = $event->company?->timezone ?? 'America/Mexico_City';
-        $occurredAt = $event->occurred_at?->setTimezone($timezone)->format('H:i') ?? 'N/A';
+        $alert = $this->alert;
+        $signal = $alert->signal;
+        $timezone = $alert->company?->timezone ?? 'America/Mexico_City';
+        $occurredAt = $alert->occurred_at?->setTimezone($timezone)->format('H:i') ?? 'N/A';
 
         return "🚨 EMERGENCIA CONFIRMADA\n" .
-            "Unidad: {$event->vehicle_name}\n" .
-            "Conductor: " . ($event->driver_name ?? 'No identificado') . "\n" .
+            "Unidad: {$signal?->vehicle_name}\n" .
+            "Conductor: " . ($signal?->driver_name ?? 'No identificado') . "\n" .
             "Hora: {$occurredAt}\n" .
             "ACCIÓN INMEDIATA REQUERIDA";
     }
@@ -306,11 +308,11 @@ class SendPanicEscalationJob implements ShouldQueue
      */
     private function buildCallScript(): string
     {
-        $event = $this->event;
+        $signal = $this->alert->signal;
         
-        return "Alerta de emergencia. El operador de la unidad {$event->vehicle_name} " .
+        return "Alerta de emergencia. El operador de la unidad {$signal?->vehicle_name} " .
             "ha confirmado un botón de pánico real. " .
-            "Conductor: " . ($event->driver_name ?? 'no identificado') . ". " .
+            "Conductor: " . ($signal?->driver_name ?? 'no identificado') . ". " .
             "Se requiere acción inmediata. Contacte al conductor.";
     }
 
@@ -338,7 +340,7 @@ class SendPanicEscalationJob implements ShouldQueue
         foreach ($results as $result) {
             try {
                 NotificationResult::create([
-                    'samsara_event_id' => $this->event->id,
+                    'alert_id' => $this->alert->id,
                     'channel' => $result['channel'],
                     'recipient_type' => $result['recipient_type'],
                     'to_number' => $result['to'],
@@ -360,7 +362,7 @@ class SendPanicEscalationJob implements ShouldQueue
     public function failed(\Throwable $exception): void
     {
         Log::error('SendPanicEscalationJob failed', [
-            'event_id' => $this->event->id,
+            'alert_id' => $this->alert->id,
             'error' => $exception->getMessage(),
         ]);
     }

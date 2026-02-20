@@ -110,7 +110,7 @@ export default function UsersIndex() {
                 {/* Header */}
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Usuarios</h1>
+                        <h1 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Usuarios</h1>
                         <p className="text-muted-foreground text-sm">
                             Gestiona los usuarios de tu empresa
                         </p>
@@ -124,9 +124,9 @@ export default function UsersIndex() {
                 </div>
 
                 {/* Filters */}
-                <Card>
+                <Card className="rounded-xl shadow-sm">
                     <CardHeader className="pb-3">
-                        <CardTitle className="text-base">Filtros</CardTitle>
+                        <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Filtros</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-col gap-4 sm:flex-row">
@@ -173,17 +173,17 @@ export default function UsersIndex() {
                                     <SelectItem value="inactive">Inactivos</SelectItem>
                                 </SelectContent>
                             </Select>
-                            {(filters.search || filters.role || filters.status) && (
-                                <Button variant="ghost" onClick={clearFilters}>
-                                    Limpiar
-                                </Button>
-                            )}
+                                            {(filters.search || filters.role || filters.status) ? (
+                                                <Button variant="ghost" onClick={clearFilters}>
+                                                    Limpiar
+                                                </Button>
+                                            ) : null}
                         </div>
                     </CardContent>
                 </Card>
 
                 {/* Users Table */}
-                <Card>
+                <Card className="rounded-xl shadow-sm">
                     <CardHeader>
                         <CardDescription>
                             {users.total} usuario{users.total !== 1 ? 's' : ''} encontrado
@@ -206,8 +206,8 @@ export default function UsersIndex() {
                                     {users.data.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={5} className="py-12 text-center">
-                                                <User className="text-muted-foreground mx-auto mb-3 size-8" />
-                                                <p className="text-muted-foreground">
+                                                <User className="mx-auto mb-4 size-16 text-muted-foreground/20" />
+                                                <p className="font-display font-semibold text-muted-foreground">
                                                     No se encontraron usuarios
                                                 </p>
                                             </TableCell>
@@ -223,7 +223,7 @@ export default function UsersIndex() {
                                                         <span className="font-medium">{user.name}</span>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell className="text-muted-foreground">
+                                                <TableCell className="font-mono text-xs text-muted-foreground">
                                                     {user.email}
                                                 </TableCell>
                                                 <TableCell>

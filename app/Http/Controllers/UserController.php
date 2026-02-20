@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\DomainEventEmitter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -18,10 +19,7 @@ class UserController extends Controller
     {
         $user = $request->user();
 
-        // Only admins and managers can access
-        if (!$user->canManageUsers()) {
-            abort(403, 'No tienes permisos para acceder a esta sección.');
-        }
+        $this->authorize('viewAny', User::class);
 
         $query = User::forCompany($user->company_id)
             ->with('company:id,name')
@@ -65,10 +63,7 @@ class UserController extends Controller
     public function create(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->canManageUsers()) {
-            abort(403, 'No tienes permisos para crear usuarios.');
-        }
+        $this->authorize('create', User::class);
 
         return Inertia::render('users/create', [
             'roles' => $this->getAvailableRoles($user),
@@ -81,10 +76,7 @@ class UserController extends Controller
     public function store(Request $request)
     {
         $currentUser = $request->user();
-
-        if (!$currentUser->canManageUsers()) {
-            abort(403, 'No tienes permisos para crear usuarios.');
-        }
+        $this->authorize('create', User::class);
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -100,12 +92,12 @@ class UserController extends Controller
             'is_active' => ['boolean'],
         ], [
             'name.required' => 'El nombre es requerido.',
-            'email.required' => 'El correo electrónico es requerido.',
-            'email.email' => 'El correo electrónico no es válido.',
-            'email.unique' => 'Este correo electrónico ya está registrado.',
-            'password.required' => 'La contraseña es requerida.',
+            'email.required' => 'El correo electr?nico es requerido.',
+            'email.email' => 'El correo electr?nico no es v?lido.',
+            'email.unique' => 'Este correo electr?nico ya est? registrado.',
+            'password.required' => 'La contrase?a es requerida.',
             'role.required' => 'El rol es requerido.',
-            'role.in' => 'El rol seleccionado no es válido.',
+            'role.in' => 'El rol seleccionado no es v?lido.',
         ]);
 
         $user = User::create([
@@ -117,6 +109,20 @@ class UserController extends Controller
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
+        DomainEventEmitter::emit(
+            companyId: $currentUser->company_id,
+            entityType: 'user',
+            entityId: (string) $user->id,
+            eventType: 'user.created',
+            payload: [
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+            ],
+            actorType: 'user',
+            actorId: (string) $currentUser->id,
+        );
+
         return redirect()->route('users.index')
             ->with('success', "Usuario {$user->name} creado exitosamente.");
     }
@@ -127,15 +133,7 @@ class UserController extends Controller
     public function edit(Request $request, User $user)
     {
         $currentUser = $request->user();
-
-        if (!$currentUser->canManageUsers()) {
-            abort(403, 'No tienes permisos para editar usuarios.');
-        }
-
-        // Ensure user belongs to same company
-        if ($user->company_id !== $currentUser->company_id) {
-            abort(404);
-        }
+        $this->authorize('update', $user);
 
         return Inertia::render('users/edit', [
             'user' => $user->only(['id', 'name', 'email', 'role', 'is_active', 'created_at']),
@@ -150,15 +148,7 @@ class UserController extends Controller
     public function update(Request $request, User $user)
     {
         $currentUser = $request->user();
-
-        if (!$currentUser->canManageUsers()) {
-            abort(403, 'No tienes permisos para editar usuarios.');
-        }
-
-        // Ensure user belongs to same company
-        if ($user->company_id !== $currentUser->company_id) {
-            abort(404);
-        }
+        $this->authorize('update', $user);
 
         $rules = [
             'name' => ['required', 'string', 'max:255'],
@@ -184,9 +174,9 @@ class UserController extends Controller
 
         $validated = $request->validate($rules, [
             'name.required' => 'El nombre es requerido.',
-            'email.required' => 'El correo electrónico es requerido.',
-            'email.email' => 'El correo electrónico no es válido.',
-            'email.unique' => 'Este correo electrónico ya está registrado.',
+            'email.required' => 'El correo electr?nico es requerido.',
+            'email.email' => 'El correo electr?nico no es v?lido.',
+            'email.unique' => 'Este correo electr?nico ya est? registrado.',
         ]);
 
         $updateData = [
@@ -194,6 +184,8 @@ class UserController extends Controller
             'email' => $validated['email'],
             'is_active' => $validated['is_active'] ?? $user->is_active,
         ];
+
+        $previousRole = $user->role;
 
         if (isset($validated['role'])) {
             $updateData['role'] = $validated['role'];
@@ -205,6 +197,31 @@ class UserController extends Controller
 
         $user->update($updateData);
 
+        DomainEventEmitter::emit(
+            companyId: $user->company_id,
+            entityType: 'user',
+            entityId: (string) $user->id,
+            eventType: 'user.updated',
+            payload: array_diff_key($updateData, ['password' => true]),
+            actorType: 'user',
+            actorId: (string) $currentUser->id,
+        );
+
+        if (isset($validated['role']) && $previousRole !== $validated['role']) {
+            DomainEventEmitter::emit(
+                companyId: $user->company_id,
+                entityType: 'user',
+                entityId: (string) $user->id,
+                eventType: 'user.role_changed',
+                payload: [
+                    'previous_role' => $previousRole,
+                    'new_role' => $validated['role'],
+                ],
+                actorType: 'user',
+                actorId: (string) $currentUser->id,
+            );
+        }
+
         return redirect()->route('users.index')
             ->with('success', "Usuario {$user->name} actualizado exitosamente.");
     }
@@ -215,28 +232,26 @@ class UserController extends Controller
     public function destroy(Request $request, User $user)
     {
         $currentUser = $request->user();
-
-        if (!$currentUser->canManageUsers()) {
-            abort(403, 'No tienes permisos para eliminar usuarios.');
-        }
-
-        // Ensure user belongs to same company
-        if ($user->company_id !== $currentUser->company_id) {
-            abort(404);
-        }
-
-        // Cannot delete yourself
-        if ($user->id === $currentUser->id) {
-            return back()->with('error', 'No puedes eliminar tu propia cuenta.');
-        }
-
-        // Cannot delete admins if you're a manager
-        if ($user->isAdmin() && !$currentUser->isAdmin()) {
-            return back()->with('error', 'No tienes permisos para eliminar administradores.');
-        }
+        $this->authorize('delete', $user);
 
         $userName = $user->name;
+        $userEmail = $user->email;
+        $userCompanyId = $user->company_id;
+        $userId = $user->id;
         $user->delete();
+
+        DomainEventEmitter::emit(
+            companyId: $userCompanyId,
+            entityType: 'user',
+            entityId: (string) $userId,
+            eventType: 'user.deleted',
+            payload: [
+                'name' => $userName,
+                'email' => $userEmail,
+            ],
+            actorType: 'user',
+            actorId: (string) $currentUser->id,
+        );
 
         return redirect()->route('users.index')
             ->with('success', "Usuario {$userName} eliminado exitosamente.");

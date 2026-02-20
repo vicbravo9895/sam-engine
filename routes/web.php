@@ -8,12 +8,16 @@ use App\Http\Controllers\DriverController;
 use App\Http\Controllers\FleetReportController;
 use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\SafetySignalController;
-use App\Http\Controllers\SamsaraEventController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\AlertController;
 use App\Http\Controllers\StorageController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\SuperAdmin\AuditController as SuperAdminAuditController;
 use App\Http\Controllers\SuperAdmin\DashboardController as SuperAdminDashboardController;
 use App\Http\Controllers\SuperAdmin\CompanyController as SuperAdminCompanyController;
 use App\Http\Controllers\SuperAdmin\DealController as SuperAdminDealController;
+use App\Http\Controllers\SuperAdmin\FeatureFlagsController as SuperAdminFeatureFlagsController;
+use App\Http\Controllers\SuperAdmin\UsageController as SuperAdminUsageController;
 use App\Http\Controllers\SuperAdmin\UserController as SuperAdminUserController;
 use App\Http\Middleware\EnsureSuperAdmin;
 use Illuminate\Support\Facades\Auth;
@@ -29,12 +33,11 @@ Route::get('/', function () {
     return redirect()->route('login');
 })->name('home');
 
-// Public storage route for dashcam media (no auth required, includes CORS headers)
-Route::get('storage/{path}', [StorageController::class, 'serve'])
-    ->where('path', '.*')
-    ->name('storage.serve');
-
 Route::middleware(['auth', 'verified'])->group(function () {
+    // Serve media (local stream or redirect to S3 signed URL for private buckets)
+    Route::get('storage/{path}', [StorageController::class, 'serve'])
+        ->where('path', '.*')
+        ->name('storage.serve');
     Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     
     // Copilot routes (streaming now via WebSockets/Reverb, not SSE)
@@ -47,12 +50,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('copilot/{threadId}', [CopilotController::class, 'destroy'])->name('copilot.destroy');
 
     // Workbench — T4 Attention Center (lista única "Requieren atención")
-    Route::get('workbench/attention', [SamsaraEventController::class, 'workbenchAttention'])->name('workbench.attention');
+    Route::get('workbench/attention', [AlertController::class, 'workbenchAttention'])->name('workbench.attention');
 
-    // Samsara alerts routes
+    // Samsara alerts routes (V2: Alert model binding)
     Route::prefix('samsara/alerts')->name('samsara.alerts.')->group(function () {
-        Route::get('/', [SamsaraEventController::class, 'index'])->name('index');
-        Route::get('/{samsaraEvent}', [SamsaraEventController::class, 'show'])->name('show');
+        Route::get('/', [AlertController::class, 'index'])->name('index');
+        Route::get('/{alert}', [AlertController::class, 'show'])->name('show');
     });
 
     // Safety Signals routes
@@ -67,6 +70,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/{incident}', [IncidentController::class, 'show'])->name('show');
         Route::patch('/{incident}/status', [IncidentController::class, 'updateStatus'])->name('update-status');
     });
+
+    // Notifications
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
 
     // Fleet Report
     Route::get('fleet-report', [FleetReportController::class, 'index'])->name('fleet-report.index');
@@ -135,6 +141,19 @@ Route::middleware(['auth', 'verified', EnsureSuperAdmin::class])
         Route::patch('deals/{deal}/status', [SuperAdminDealController::class, 'updateStatus'])->name('deals.update-status');
         Route::patch('deals/{deal}/notes', [SuperAdminDealController::class, 'updateNotes'])->name('deals.update-notes');
         Route::delete('deals/{deal}', [SuperAdminDealController::class, 'destroy'])->name('deals.destroy');
+
+        // Usage dashboard
+        Route::get('usage', [SuperAdminUsageController::class, 'index'])->name('usage.index');
+        Route::get('usage/export', [SuperAdminUsageController::class, 'export'])->name('usage.export');
+        Route::get('usage/{company}', [SuperAdminUsageController::class, 'show'])->name('usage.show');
+
+        // Audit log viewer
+        Route::get('audit', [SuperAdminAuditController::class, 'index'])->name('audit.index');
+        Route::get('audit/export', [SuperAdminAuditController::class, 'export'])->name('audit.export');
+
+        // Feature flags (per-company toggles)
+        Route::get('feature-flags', [SuperAdminFeatureFlagsController::class, 'index'])->name('feature-flags.index');
+        Route::put('feature-flags/{company}', [SuperAdminFeatureFlagsController::class, 'update'])->name('feature-flags.update');
     });
 
 require __DIR__.'/settings.php';

@@ -2,14 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\Alert;
 use App\Models\Contact;
 use App\Models\Driver;
-use App\Models\SamsaraEvent;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Servicio para resolver contactos basados en el contexto del evento.
+ * Servicio para resolver contactos basados en el contexto de la alerta.
  * 
  * Lógica de resolución:
  * - OPERATOR: Se obtiene de la tabla drivers (conductor del vehículo)
@@ -24,16 +24,16 @@ use Illuminate\Support\Facades\Log;
 class ContactResolver
 {
     /**
-     * Resuelve los contactos para un evento de Samsara.
-     * 
-     * @param SamsaraEvent $event El evento para el cual resolver contactos
-     * @return array Contactos organizados por tipo para el AI Service
+     * Resuelve los contactos para una alerta.
+     * Vehicle/driver data is read from the alert's signal.
      */
-    public function resolveForEvent(SamsaraEvent $event): array
+    public function resolveForAlert(Alert $alert): array
     {
-        $vehicleId = $event->vehicle_id;
-        $driverId = $event->driver_id;
-        $companyId = $event->company_id;
+        $alert->loadMissing('signal');
+
+        $vehicleId = $alert->signal?->vehicle_id;
+        $driverId = $alert->signal?->driver_id;
+        $companyId = $alert->company_id;
 
         return $this->resolve($vehicleId, $driverId, $companyId);
     }
@@ -56,7 +56,6 @@ class ContactResolver
             'dispatch' => null,
         ];
 
-        // OPERATOR: Resolver desde la tabla drivers
         if ($driverId) {
             $operator = $this->resolveOperatorFromDriver($driverId, $companyId);
             if ($operator) {
@@ -64,7 +63,6 @@ class ContactResolver
             }
         }
 
-        // Otros tipos: Resolver desde la tabla contacts
         $contactTypes = ['monitoring_team', 'supervisor', 'emergency', 'dispatch'];
         
         foreach ($contactTypes as $type) {
@@ -74,16 +72,11 @@ class ContactResolver
             }
         }
 
-        // Filtrar nulls para una respuesta más limpia
         return array_filter($contacts);
     }
 
     /**
      * Resuelve el operador (conductor) desde la tabla drivers.
-     * 
-     * @param string $driverId ID del conductor de Samsara (samsara_id)
-     * @param int|null $companyId ID de la compañía
-     * @return array|null Datos del operador para notificaciones
      */
     private function resolveOperatorFromDriver(string $driverId, ?int $companyId = null): ?array
     {
@@ -103,7 +96,6 @@ class ContactResolver
             return null;
         }
 
-        // Verificar que tenga teléfono configurado
         $phone = $driver->formatted_phone;
         $whatsapp = $driver->formatted_whatsapp;
         
@@ -131,7 +123,7 @@ class ContactResolver
             'phone' => $phone,
             'whatsapp' => $whatsapp,
             'email' => null,
-            'priority' => 1, // Máxima prioridad
+            'priority' => 1,
         ];
     }
 
@@ -143,16 +135,9 @@ class ContactResolver
      * 2. Contacto específico del conductor
      * 3. Contacto global por defecto
      * 4. Cualquier contacto global activo del tipo
-     * 
-     * @param string $type Tipo de contacto
-     * @param string|null $vehicleId ID del vehículo
-     * @param string|null $driverId ID del conductor
-     * @param int|null $companyId ID de la compañía (multi-tenant isolation)
-     * @return Contact|null
      */
     public function resolveByType(string $type, ?string $vehicleId, ?string $driverId, ?int $companyId = null): ?Contact
     {
-        // 1. Buscar contacto específico del vehículo
         if ($vehicleId) {
             $query = Contact::active()
                 ->ofType($type)
@@ -169,7 +154,6 @@ class ContactResolver
             }
         }
 
-        // 2. Buscar contacto específico del conductor
         if ($driverId) {
             $query = Contact::active()
                 ->ofType($type)
@@ -186,7 +170,6 @@ class ContactResolver
             }
         }
 
-        // 3. Buscar contacto global por defecto
         $query = Contact::active()
             ->ofType($type)
             ->global()
@@ -202,7 +185,6 @@ class ContactResolver
             return $contact;
         }
 
-        // 4. Fallback: cualquier contacto global activo del tipo
         $query = Contact::active()
             ->ofType($type)
             ->global();
@@ -216,26 +198,18 @@ class ContactResolver
 
     /**
      * Obtiene todos los contactos aplicables para un evento.
-     * 
-     * @param string|null $vehicleId ID del vehículo
-     * @param string|null $driverId ID del conductor
-     * @param int|null $companyId ID de la compañía (multi-tenant isolation)
-     * @return Collection Colección de todos los contactos aplicables
      */
     public function getAllApplicable(?string $vehicleId, ?string $driverId, ?int $companyId = null): Collection
     {
         $query = Contact::active();
         
-        // Filter by company_id if provided (multi-tenant isolation)
         if ($companyId) {
             $query->forCompany($companyId);
         }
 
         $query->where(function ($q) use ($vehicleId, $driverId) {
-            // Contactos globales
             $q->whereNull('entity_type');
 
-            // Contactos del vehículo
             if ($vehicleId) {
                 $q->orWhere(function ($subQ) use ($vehicleId) {
                     $subQ->where('entity_type', Contact::ENTITY_VEHICLE)
@@ -243,7 +217,6 @@ class ContactResolver
                 });
             }
 
-            // Contactos del conductor
             if ($driverId) {
                 $q->orWhere(function ($subQ) use ($driverId) {
                     $subQ->where('entity_type', Contact::ENTITY_DRIVER)
@@ -257,26 +230,18 @@ class ContactResolver
 
     /**
      * Formatea los contactos para inyectarlos en el payload del AI Service.
-     * 
-     * @param array $contacts Array de contactos resueltos
-     * @return array Estructura para el payload
      */
     public function formatForPayload(array $contacts): array
     {
-        // Extraer teléfonos principales para compatibilidad con el prompt actual
         $operatorPhone = $contacts['operator']['phone'] ?? null;
         $monitoringTeamPhone = $contacts['monitoring_team']['phone'] ?? null;
         $supervisorPhone = $contacts['supervisor']['phone'] ?? null;
 
         return [
-            // Campos de compatibilidad con el prompt actual
             'operator_phone' => $operatorPhone,
             'monitoring_team_number' => $monitoringTeamPhone,
             'supervisor_phone' => $supervisorPhone,
-            
-            // Estructura completa de contactos
             'notification_contacts' => $contacts,
         ];
     }
 }
-

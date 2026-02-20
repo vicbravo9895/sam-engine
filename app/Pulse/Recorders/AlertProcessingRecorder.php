@@ -2,7 +2,7 @@
 
 namespace App\Pulse\Recorders;
 
-use App\Models\SamsaraEvent;
+use App\Models\Alert;
 use Illuminate\Config\Repository;
 use Illuminate\Support\Facades\Log;
 use Laravel\Pulse\Facades\Pulse;
@@ -35,43 +35,41 @@ class AlertProcessingRecorder
      */
     public function record(\App\Events\AlertProcessed $event): void
     {
-        $samsaraEvent = $event->samsaraEvent;
+        $alert = $event->alert;
+        $alert->loadMissing('signal');
         $duration = $event->durationMs;
 
-        // Registrar duración del procesamiento
+        $eventType = $alert->signal?->event_type ?? 'unknown';
+
         Pulse::record(
             type: 'alert_processing',
-            key: $samsaraEvent->event_type ?? 'unknown',
+            key: $eventType,
             value: $duration
         )->avg()->max()->count();
 
-        // Registrar por severidad
         Pulse::record(
             type: 'alert_severity',
-            key: $samsaraEvent->severity ?? 'unknown',
+            key: $alert->severity ?? 'unknown',
             value: $duration
         )->count();
 
-        // Registrar por verdict
-        $verdict = $samsaraEvent->ai_assessment['verdict'] ?? 'unknown';
+        $verdict = $alert->verdict ?? 'unknown';
         Pulse::record(
             type: 'alert_verdict',
             key: $verdict,
             value: 1
         )->count();
 
-        // Registrar por status final
         Pulse::record(
             type: 'alert_status',
-            key: $samsaraEvent->ai_status ?? 'unknown',
+            key: $alert->ai_status ?? 'unknown',
             value: 1
         )->count();
 
-        // Registrar por company (multi-tenant)
-        if ($samsaraEvent->company_id) {
+        if ($alert->company_id) {
             Pulse::record(
                 type: 'alert_company',
-                key: (string) $samsaraEvent->company_id,
+                key: (string) $alert->company_id,
                 value: $duration
             )->avg()->count();
         }
@@ -81,50 +79,48 @@ class AlertProcessingRecorder
      * Record directly without event (for use in Jobs).
      */
     public static function recordAlertProcessing(
-        SamsaraEvent $event,
+        Alert $alert,
         int $durationMs,
         string $status = 'completed'
     ): void {
-        // Registrar duración del procesamiento
+        $alert->loadMissing('signal');
+        $eventType = $alert->signal?->event_type ?? 'unknown';
+
         Pulse::record(
             type: 'alert_processing',
-            key: $event->event_type ?? 'unknown',
+            key: $eventType,
             value: $durationMs
         )->avg()->max()->count();
 
-        // Registrar por severidad
         Pulse::record(
             type: 'alert_severity',
-            key: $event->severity ?? 'unknown',
+            key: $alert->severity ?? 'unknown',
             value: 1
         )->count();
 
-        // Registrar por verdict
-        $verdict = $event->ai_assessment['verdict'] ?? 'unknown';
+        $verdict = $alert->verdict ?? 'unknown';
         Pulse::record(
             type: 'alert_verdict',
             key: $verdict,
             value: 1
         )->count();
 
-        // Registrar status final
         Pulse::record(
             type: 'alert_status',
             key: $status,
             value: 1
         )->count();
 
-        // Registrar por company
-        if ($event->company_id) {
+        if ($alert->company_id) {
             Pulse::record(
                 type: 'alert_company',
-                key: (string) $event->company_id,
+                key: (string) $alert->company_id,
                 value: $durationMs
             )->avg()->count();
         }
 
         Log::debug('Pulse: Alert processing recorded', [
-            'event_id' => $event->id,
+            'alert_id' => $alert->id,
             'duration_ms' => $durationMs,
             'status' => $status,
             'verdict' => $verdict,

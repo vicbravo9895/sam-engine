@@ -60,17 +60,23 @@ RUN composer install \
 RUN npm ci --include=dev || npm install --include=dev
 
 # Create minimal .env for artisan commands during build
-# Wayfinder needs to run php artisan to generate route types
-RUN if [ -f .env.example ]; then cp .env.example .env; else \
-    echo "APP_NAME=SAM" > .env && \
-    echo "APP_ENV=production" >> .env && \
-    echo "APP_KEY=" >> .env && \
-    echo "APP_DEBUG=false" >> .env && \
-    echo "DB_CONNECTION=sqlite" >> .env; \
-    fi
+# Wayfinder needs php artisan to generate route types — no external services available
+RUN printf '%s\n' \
+    'APP_NAME=SAM' \
+    'APP_ENV=production' \
+    'APP_KEY=' \
+    'APP_DEBUG=false' \
+    'DB_CONNECTION=sqlite' \
+    'CACHE_STORE=array' \
+    'SESSION_DRIVER=array' \
+    'QUEUE_CONNECTION=sync' \
+    'PULSE_ENABLED=false' \
+    'LOG_CHANNEL=stderr' \
+    > .env
 
 # Ensure directories exist, generate key, and run post-install scripts
-RUN mkdir -p bootstrap/cache storage/framework/{cache,sessions,views} \
+RUN mkdir -p bootstrap/cache storage/framework/{cache,sessions,views} database \
+    && touch database/database.sqlite \
     && php artisan key:generate --force \
     && composer run-script post-autoload-dump 2>/dev/null || true
 

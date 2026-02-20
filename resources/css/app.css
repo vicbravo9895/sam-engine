@@ -14,6 +14,12 @@
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
         'Noto Color Emoji';
 
+    --font-display:
+        'Manrope', ui-sans-serif, system-ui, sans-serif;
+
+    --font-mono:
+        'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);
     --radius-sm: calc(var(--radius) - 4px);
@@ -102,12 +108,11 @@
     --sidebar-foreground: var(--sam-text);
     --sidebar-primary: var(--sam-accent-teal);
     --sidebar-primary-foreground: var(--sam-primary-foreground);
-    /* Active/hover: light teal background + dark text so contrast is always visible (no white on white) */
     --sidebar-accent: var(--sam-accent-bg);
     --sidebar-accent-foreground: var(--sam-text);
     --sidebar-border: var(--sam-border);
     --sidebar-ring: var(--sam-accent-teal);
-    /* Feedback tokens for Alert/Badge and status UI */
+    /* Feedback tokens */
     --success: var(--sam-success);
     --success-foreground: var(--sam-success-foreground);
     --warning: var(--sam-warning);
@@ -116,10 +121,13 @@
     --error-foreground: var(--sam-error-foreground);
     --info: var(--sam-info);
     --info-foreground: var(--sam-info-foreground);
+    /* Extended depth tokens */
+    --surface-raised: var(--sam-surface-raised);
+    --surface-glass: var(--sam-surface-glass);
+    --border-subtle: var(--sam-border-subtle);
 }
 
 .dark {
-    /* SAM dark mode - uses --sam-* overrides from theme.css .dark */
     --background: var(--sam-bg);
     --foreground: var(--sam-text);
     --card: var(--sam-surface);
@@ -160,6 +168,9 @@
     --error-foreground: var(--sam-error-foreground);
     --info: var(--sam-info);
     --info-foreground: var(--sam-info-foreground);
+    --surface-raised: var(--sam-surface-raised);
+    --surface-glass: var(--sam-surface-glass);
+    --border-subtle: var(--sam-border-subtle);
 }
 
 @layer base {
@@ -197,74 +208,109 @@
 }
 
 @layer utilities {
-    /* Animación de pulso lento para eventos urgentes */
+    /* Pulse animations for urgent events */
     @keyframes pulse-slow {
-        0%, 100% {
-            opacity: 0.3;
-        }
-        50% {
-            opacity: 0.6;
-        }
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 0.6; }
     }
-
     .animate-pulse-slow {
         animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
 
-    /* Animación sutil para el borde de eventos urgentes */
     @keyframes pulse-border {
-        0%, 100% {
-            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
-        }
-        50% {
-            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1);
-        }
+        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        50% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1); }
     }
-
     .animate-pulse-border {
         animation: pulse-border 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
 
-    /* Safe area utilities for PWA (iOS home indicator, notch, etc.) */
-    .pb-safe {
-        padding-bottom: env(safe-area-inset-bottom, 0);
+    /* Page entrance animations */
+    @keyframes fade-up {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes scale-in {
+        from { opacity: 0; transform: scale(0.96); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes slide-in-left {
+        from { opacity: 0; transform: translateX(-12px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes blur-in {
+        from { opacity: 0; filter: blur(4px); }
+        to { opacity: 1; filter: blur(0); }
+    }
+    @keyframes shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
     }
 
-    .pt-safe {
-        padding-top: env(safe-area-inset-top, 0);
+    .animate-fade-up {
+        animation: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .animate-scale-in {
+        animation: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .animate-slide-in-left {
+        animation: slide-in-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .animate-blur-in {
+        animation: blur-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
-    .pl-safe {
-        padding-left: env(safe-area-inset-left, 0);
+    /* Glass / frosted surface */
+    .glass {
+        background: var(--surface-glass);
+        backdrop-filter: blur(12px) saturate(1.4);
+        -webkit-backdrop-filter: blur(12px) saturate(1.4);
     }
 
-    .pr-safe {
-        padding-right: env(safe-area-inset-right, 0);
+    /* Raised surface */
+    .surface-raised {
+        background: var(--surface-raised);
+        box-shadow: var(--sam-shadow-sm);
     }
 
-    .mb-safe {
-        margin-bottom: env(safe-area-inset-bottom, 0);
+    /* Severity glow indicators */
+    .glow-teal { box-shadow: var(--sam-glow-teal); }
+    .glow-red { box-shadow: var(--sam-glow-red); }
+    .glow-amber { box-shadow: var(--sam-glow-amber); }
+    .glow-green { box-shadow: var(--sam-glow-green); }
+
+    /* Gradient mesh background for auth pages */
+    .gradient-mesh {
+        background:
+            radial-gradient(ellipse 80% 50% at 20% 30%, rgba(20, 120, 140, 0.15), transparent 70%),
+            radial-gradient(ellipse 60% 40% at 80% 70%, rgba(10, 90, 120, 0.1), transparent 70%),
+            radial-gradient(ellipse 40% 60% at 50% 50%, rgba(45, 212, 191, 0.06), transparent 70%),
+            var(--sam-bg);
     }
 
-    .mt-safe {
-        margin-top: env(safe-area-inset-top, 0);
-    }
-
-    /* Combined safe area padding */
+    /* Safe area utilities for PWA */
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0); }
+    .pt-safe { padding-top: env(safe-area-inset-top, 0); }
+    .pl-safe { padding-left: env(safe-area-inset-left, 0); }
+    .pr-safe { padding-right: env(safe-area-inset-right, 0); }
+    .mb-safe { margin-bottom: env(safe-area-inset-bottom, 0); }
+    .mt-safe { margin-top: env(safe-area-inset-top, 0); }
     .p-safe {
         padding-top: env(safe-area-inset-top, 0);
         padding-right: env(safe-area-inset-right, 0);
         padding-bottom: env(safe-area-inset-bottom, 0);
         padding-left: env(safe-area-inset-left, 0);
     }
-
-    /* Min-height accounting for safe areas */
     .min-h-screen-safe {
         min-height: calc(100vh - env(safe-area-inset-top, 0) - env(safe-area-inset-bottom, 0));
     }
-
-    /* Height accounting for safe areas */
     .h-screen-safe {
         height: calc(100vh - env(safe-area-inset-top, 0) - env(safe-area-inset-bottom, 0));
+    }
+
+    /* content-visibility for long lists -- Vercel rendering-content-visibility */
+    .cv-auto {
+        content-visibility: auto;
+        contain-intrinsic-size: auto 48px;
     }
 }

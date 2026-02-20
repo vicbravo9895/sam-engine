@@ -17,13 +17,17 @@ services:
             XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
             XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
             IGNITION_LOCAL_SITES_PATH: '${PWD}'
+            REDIS_HOST: redis
+            DB_HOST: pgsql
         volumes:
             - '.:/var/www/html'
         networks:
             - sail
         depends_on:
-            - pgsql
-            - redis
+            pgsql:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
     horizon:
         build:
             context: './vendor/laravel/sail/runtimes/8.4'
@@ -39,13 +43,17 @@ services:
             XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
             XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
             IGNITION_LOCAL_SITES_PATH: '${PWD}'
+            REDIS_HOST: redis
+            DB_HOST: pgsql
         volumes:
             - '.:/var/www/html'
         networks:
             - sail
         depends_on:
-            - pgsql
-            - redis
+            pgsql:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
         command: php artisan horizon
 
     reverb:
@@ -60,15 +68,19 @@ services:
         environment:
             WWWUSER: '${WWWUSER}'
             LARAVEL_SAIL: 1
+            # Inside Docker, Laravel/Redis must use service name (not 127.0.0.1)
+            REDIS_HOST: redis
         volumes:
             - '.:/var/www/html'
         networks:
             - sail
         depends_on:
-            - redis
+            redis:
+                condition: service_healthy
         ports:
             - '${REVERB_SERVER_PORT:-8080}:8080'
         command: php artisan reverb:start --host=0.0.0.0 --port=8080 --debug
+        restart: unless-stopped
 
     pgsql:
         image: 'postgres:18-alpine'
@@ -227,10 +239,10 @@ services:
             LANGFUSE_S3_MEDIA_UPLOAD_REGION: 'auto'
             LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: '${MINIO_ROOT_USER:-minio}'
             LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: '${MINIO_ROOT_PASSWORD:-miniosecret}'
-            LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: 'http://localhost:9090'
+            LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: 'http://minio:9000'
             LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
             LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: 'media/'
-            
+
             # Redis (reusing existing Redis)
             REDIS_HOST: 'redis'
             REDIS_PORT: '6379'
@@ -289,7 +301,7 @@ services:
             LANGFUSE_S3_MEDIA_UPLOAD_REGION: 'auto'
             LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: '${MINIO_ROOT_USER:-minio}'
             LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: '${MINIO_ROOT_PASSWORD:-miniosecret}'
-            LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: 'http://localhost:9090'
+            LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: 'http://minio:9000'
             LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
             LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: 'media/'
             REDIS_HOST: 'redis'
@@ -340,11 +352,34 @@ services:
         volumes:
             - sail-minio-data:/data
         healthcheck:
-            test: ['CMD', 'mc', 'ready', 'local']
-            interval: 5s
+            # MinIO image has no mc/curl/wget; check TCP port 9000 (bash /dev/tcp on UBI)
+            test: ['CMD-SHELL', 'bash -c "timeout 2 cat < /dev/null > /dev/tcp/127.0.0.1/9000" || exit 1']
+            interval: 10s
             timeout: 5s
             retries: 5
-            start_period: 5s
+            start_period: 10s
+
+    # Crea el bucket sam-media y lo deja público (lectura anónima) para evidencias y media de la app.
+    minio-sam-media-init:
+        image: docker.io/minio/mc:latest
+        container_name: minio-sam-media-init
+        entrypoint: sh
+        command:
+            - -c
+            - |
+                mc alias set myminio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+                mc mb myminio/sam-media --ignore-existing
+                mc anonymous set download myminio/sam-media
+                echo "Bucket sam-media listo (acceso público de lectura)."
+        environment:
+            MINIO_ROOT_USER: '${MINIO_ROOT_USER:-minio}'
+            MINIO_ROOT_PASSWORD: '${MINIO_ROOT_PASSWORD:-miniosecret}'
+        networks:
+            - sail
+        depends_on:
+            minio:
+                condition: service_healthy
+        restart: "no"
 
 networks:
     sail:

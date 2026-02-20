@@ -24,6 +24,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { StaggerContainer, StaggerItem } from '@/components/motion';
 import { useTimezone } from '@/hooks/use-timezone';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
@@ -287,10 +288,10 @@ export default function FleetReportIndex({
                 {/* Header */}
                 <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
                     <div>
-                        <p className="text-sm font-medium text-muted-foreground">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                             Reportes • Flota
                         </p>
-                        <h1 className="text-2xl font-semibold tracking-tight">
+                        <h1 className="font-display text-2xl font-bold tracking-tight">
                             Reporte de Flota
                         </h1>
                         <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -358,13 +359,13 @@ export default function FleetReportIndex({
                 </section>
 
                 {/* Filters */}
-                <Card>
+                <Card className="rounded-xl shadow-sm">
                     <CardHeader className="flex flex-row items-center gap-3 border-b pb-4">
                         <div className="rounded-full bg-primary/10 p-2 text-primary">
                             <Filter className="size-4" />
                         </div>
                         <div>
-                            <CardTitle className="text-sm">Filtros</CardTitle>
+                            <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Filtros</CardTitle>
                             <CardDescription className="text-xs">
                                 Filtra por tag, nombre, placa o estado
                             </CardDescription>
@@ -474,7 +475,7 @@ export default function FleetReportIndex({
                 </Card>
 
                 {/* Table */}
-                <Card>
+                <Card className="rounded-xl shadow-sm">
                     <CardContent className="p-0">
                         <div className="overflow-x-auto">
                             <Table>
@@ -578,7 +579,7 @@ export default function FleetReportIndex({
                                                             className={cn(
                                                                 'size-2.5 rounded-full',
                                                                 getEngineStateColor(vehicle.engine_state),
-                                                                vehicle.is_active && 'animate-pulse'
+                                                                vehicle.is_active ? 'animate-pulse' : ''
                                                             )}
                                                         />
                                                         <span
@@ -592,12 +593,12 @@ export default function FleetReportIndex({
                                                             {vehicle.engine_state_label}
                                                         </span>
                                                     </div>
-                                                    {vehicle.is_moving && (
+                                                    {vehicle.is_moving ? (
                                                         <span className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
                                                             <Navigation className="size-3" />
                                                             En movimiento
                                                         </span>
-                                                    )}
+                                                    ) : null}
                                                 </TableCell>
 
                                                 {/* Location */}
@@ -608,14 +609,14 @@ export default function FleetReportIndex({
                                                             {vehicle.location}
                                                         </span>
                                                     </div>
-                                                    {vehicle.is_geofence && (
+                                                    {vehicle.is_geofence ? (
                                                         <Badge
                                                             variant="secondary"
                                                             className="mt-1 text-xs"
                                                         >
                                                             Geofence
                                                         </Badge>
-                                                    )}
+                                                    ) : null}
                                                 </TableCell>
 
                                                 {/* Speed */}
@@ -636,7 +637,7 @@ export default function FleetReportIndex({
                                                 {/* Odometer */}
                                                 <TableCell>
                                                     {vehicle.odometer_km !== null ? (
-                                                        <span className="text-sm">
+                                                        <span className="font-mono text-xs">
                                                             {vehicle.odometer_km.toLocaleString('es-MX')}{' '}
                                                             <span className="text-xs text-muted-foreground">
                                                                 km
@@ -659,7 +660,7 @@ export default function FleetReportIndex({
 
                                                 {/* Actions */}
                                                 <TableCell>
-                                                    {vehicle.maps_link && (
+                                                    {vehicle.maps_link ? (
                                                         <Button
                                                             variant="outline"
                                                             size="sm"
@@ -674,7 +675,7 @@ export default function FleetReportIndex({
                                                                 Maps
                                                             </a>
                                                         </Button>
-                                                    )}
+                                                    ) : null}
                                                 </TableCell>
                                             </TableRow>
                                         ))
@@ -684,8 +685,8 @@ export default function FleetReportIndex({
                                                 colSpan={7}
                                                 className="py-12 text-center"
                                             >
-                                                <Car className="mx-auto size-12 text-muted-foreground/50" />
-                                                <p className="mt-2 text-muted-foreground">
+                                                <Car className="mx-auto size-16 text-muted-foreground/20" />
+                                                <p className="mt-2 font-display font-semibold text-muted-foreground">
                                                     {filters.search || filters.tag_id
                                                         ? 'No se encontraron vehículos con esos criterios.'
                                                         : 'No hay datos de vehículos disponibles. Ejecuta la sincronización primero.'}

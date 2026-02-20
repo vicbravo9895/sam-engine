@@ -1,104 +1,63 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { AnimatedCounter, StaggerContainer, StaggerItem } from '@/components/motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
-import samsara from '@/routes/samsara';
 import copilot from '@/routes/copilot';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
+    Activity,
     AlertTriangle,
-    CheckCircle2,
-    Loader2,
-    Truck,
-    Users,
-    Phone,
+    Bell,
+    Clock,
     MessageSquare,
-    Eye,
-    AlertCircle,
-    Settings,
-    RefreshCw,
-    UserPlus,
-    Zap,
-    CircleDot,
+    ShieldCheck,
+    TrendingUp,
 } from 'lucide-react';
 
 const breadcrumbs: BreadcrumbItem[] = [
-    {
-        title: 'Dashboard',
-        href: dashboard().url,
-    },
+    { title: 'Dashboard', href: dashboard().url },
 ];
 
-interface SamsaraEvent {
+interface OperationalStatus {
+    alerts_open: number;
+    sla_breaches: number;
+    needs_attention: number;
+    avg_ack_seconds: number | null;
+    deliverability_rate: number | null;
+    alerts_today: number;
+}
+
+interface AttentionQueueItem {
     id: number;
-    event_type: string;
-    event_description: string;
     vehicle_name: string | null;
-    driver_name: string | null;
+    event_type: string | null;
     severity: string;
+    created_at: string;
+    owner_name: string | null;
+    ack_due_at: string | null;
+    ack_sla_remaining_seconds: number | null;
+    ack_status: string;
     ai_status: string;
-    occurred_at: string;
-    risk_escalation?: string | null;
+    attention_state: string | null;
 }
 
-interface OnboardingStatus {
-    has_api_key: boolean;
-    has_vehicles: boolean;
-    has_contacts: boolean;
-    has_drivers: boolean;
-    is_complete: boolean;
-    completed_steps: number;
-    total_steps: number;
-}
-
-interface PipelineHealth {
-    last_processed_at: string | null;
-    avg_latency_ms_today: number | null;
+interface TrendDay {
+    date: string;
+    count?: number;
+    total?: number;
+    delivered?: number;
 }
 
 interface Props {
     isSuperAdmin: boolean;
     companyName: string | null;
-    onboardingStatus: OnboardingStatus | null;
-    pipelineHealth: PipelineHealth | null;
-    samsaraStats: {
-        total: number;
-        today: number;
-        thisWeek: number;
-        critical: number;
-        pending: number;
-        processing: number;
-        investigating: number;
-        completed: number;
-        failed: number;
-        needsHumanAttention: number;
+    operationalStatus: OperationalStatus;
+    attentionQueue: AttentionQueueItem[];
+    trends: {
+        alerts_per_day: TrendDay[];
+        notifications_per_day: TrendDay[];
     };
-    vehiclesStats: {
-        total: number;
-    };
-    contactsStats: {
-        total: number;
-        active: number;
-        default: number;
-    };
-    usersStats: {
-        total: number;
-        active: number;
-        admins?: number;
-    };
-    conversationsStats: {
-        total: number;
-        today: number;
-        thisWeek: number;
-    };
-    eventsBySeverity: Record<string, number>;
-    eventsByAiStatus: Record<string, number>;
-    eventsByDay: Array<{ day: string; count: number }>;
-    eventsByType: Array<{ type: string; count: number }>;
-    recentEvents: SamsaraEvent[];
-    criticalEvents: SamsaraEvent[];
-    eventsNeedingAttention: SamsaraEvent[];
     recentConversations: Array<{
         id: number;
         thread_id: string;
@@ -111,15 +70,21 @@ interface Props {
 }
 
 const severityColors: Record<string, string> = {
-    critical: 'bg-red-500',
-    warning: 'bg-yellow-500',
-    info: 'bg-blue-500',
+    critical: 'text-red-600 bg-red-50 dark:bg-red-950/30 dark:text-red-400',
+    warning: 'text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400',
+    info: 'text-blue-600 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400',
 };
 
 const severityLabels: Record<string, string> = {
-    critical: 'Crítico',
+    critical: 'Critico',
     warning: 'Advertencia',
     info: 'Informativo',
+};
+
+const severityBorderColors: Record<string, string> = {
+    critical: 'border-l-red-500',
+    warning: 'border-l-amber-500',
+    info: 'border-l-blue-500',
 };
 
 const aiStatusLabels: Record<string, string> = {
@@ -130,678 +95,384 @@ const aiStatusLabels: Record<string, string> = {
     failed: 'Fallido',
 };
 
-const riskEscalationLabels: Record<string, string> = {
-    monitor: 'Monitorear',
-    warn: 'Advertir',
-    call: 'Llamar',
-    emergency: 'Emergencia',
-};
+function formatAvgAck(seconds: number | null): string {
+    if (seconds === null) return '\u2014';
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+    return `${(seconds / 3600).toFixed(1)} h`;
+}
 
-function formatEventTime(dateString: string): string {
+function formatRelativeSla(remainingSeconds: number | null): string {
+    if (remainingSeconds === null) return '\u2014';
+    if (remainingSeconds < 0) return 'Vencido';
+    if (remainingSeconds < 60) return `${Math.round(remainingSeconds)}s`;
+    if (remainingSeconds < 3600) return `${Math.round(remainingSeconds / 60)} min`;
+    return `${Math.round(remainingSeconds / 3600)} h`;
+}
+
+function getSlaColor(remainingSeconds: number | null): string {
+    if (remainingSeconds === null) return 'text-muted-foreground';
+    if (remainingSeconds < 0) return 'text-red-600 dark:text-red-400 font-semibold';
+    if (remainingSeconds < 1800) return 'text-amber-600 dark:text-amber-400';
+    return 'text-green-600 dark:text-green-400';
+}
+
+function formatShortDate(iso: string): string {
     try {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-        if (diffInSeconds < 60) {
-            return 'hace unos segundos';
-        } else if (diffInSeconds < 3600) {
-            const minutes = Math.floor(diffInSeconds / 60);
-            return `hace ${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}`;
-        } else if (diffInSeconds < 86400) {
-            const hours = Math.floor(diffInSeconds / 3600);
-            return `hace ${hours} ${hours === 1 ? 'hora' : 'horas'}`;
-        } else if (diffInSeconds < 604800) {
-            const days = Math.floor(diffInSeconds / 86400);
-            return `hace ${days} ${days === 1 ? 'día' : 'días'}`;
-        } else {
-            return date.toLocaleDateString('es-MX', {
-                day: 'numeric',
-                month: 'short',
-                year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
-            });
-        }
+        const d = new Date(iso);
+        return d.toLocaleDateString('es-MX', {
+            day: '2-digit',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     } catch {
-        return 'Fecha inválida';
+        return '\u2014';
     }
+}
+
+function MiniSparkline({ data, accessor, color }: { data: TrendDay[]; accessor: (d: TrendDay) => number; color: string }) {
+    const values = data.map(accessor);
+    const max = Math.max(...values, 1);
+    const width = 200;
+    const height = 48;
+    const padding = 2;
+    const stepX = (width - padding * 2) / Math.max(values.length - 1, 1);
+
+    const points = values.map((v, i) => ({
+        x: padding + i * stepX,
+        y: height - padding - ((v / max) * (height - padding * 2)),
+    }));
+
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+    const areaPath = `${linePath} L${points[points.length - 1]?.x ?? width},${height} L${points[0]?.x ?? 0},${height} Z`;
+
+    return (
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12" preserveAspectRatio="none">
+            <defs>
+                <linearGradient id={`grad-${color}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+                    <stop offset="100%" stopColor={color} stopOpacity="0" />
+                </linearGradient>
+            </defs>
+            <path d={areaPath} fill={`url(#grad-${color})`} />
+            <path d={linePath} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+    );
+}
+
+interface StatCardProps {
+    label: string;
+    value: string | number;
+    subtitle?: string;
+    colorClass: string;
+    icon: React.ReactNode;
+    glowClass?: string;
+}
+
+function StatCard({ label, value, subtitle, colorClass, icon, glowClass }: StatCardProps) {
+    return (
+        <div className={`relative overflow-hidden rounded-xl border bg-card p-4 transition-shadow duration-200 hover:shadow-md ${glowClass ?? ''}`}>
+            <div className="absolute top-3 right-3 text-muted-foreground/15">
+                {icon}
+            </div>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+            <p className={`mt-2 font-display text-2xl font-bold tracking-tight ${colorClass}`}>
+                {typeof value === 'number' ? (
+                    <AnimatedCounter value={value} />
+                ) : (
+                    value
+                )}
+            </p>
+            {subtitle ? (
+                <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
+            ) : null}
+        </div>
+    );
 }
 
 export default function Dashboard() {
     const {
         isSuperAdmin,
         companyName,
-        onboardingStatus,
-        pipelineHealth,
-        samsaraStats,
-        vehiclesStats,
-        contactsStats,
-        usersStats,
-        conversationsStats,
-        eventsByDay,
-        eventsByType,
-        recentEvents,
-        criticalEvents,
-        eventsNeedingAttention,
+        operationalStatus,
+        attentionQueue,
+        trends,
         recentConversations,
     } = usePage<{ props: Props }>().props as unknown as Props;
 
-    const maxEventsCount = Math.max(...eventsByDay.map((d) => d.count), 1);
+    const openColor =
+        operationalStatus.alerts_open === 0
+            ? 'text-green-600 dark:text-green-400'
+            : operationalStatus.sla_breaches > 0
+              ? 'text-red-600 dark:text-red-400'
+              : 'text-amber-600 dark:text-amber-400';
+
+    const attentionColor =
+        operationalStatus.needs_attention === 0
+            ? 'text-green-600 dark:text-green-400'
+            : 'text-amber-600 dark:text-amber-400';
+
+    const deliverColor =
+        operationalStatus.deliverability_rate === null
+            ? 'text-muted-foreground'
+            : operationalStatus.deliverability_rate >= 90
+              ? 'text-green-600 dark:text-green-400'
+              : operationalStatus.deliverability_rate >= 70
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-red-600 dark:text-red-400';
+
+    const todayColor =
+        operationalStatus.alerts_today === 0
+            ? 'text-green-600 dark:text-green-400'
+            : operationalStatus.alerts_today > 10
+              ? 'text-amber-600 dark:text-amber-400'
+              : 'text-foreground';
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Dashboard" />
             <div className="flex h-full flex-1 flex-col gap-6 p-4 sm:p-6">
-                {/* Header */}
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                        Dashboard
+                    <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
+                        Centro de Comando
                     </h1>
                     <p className="text-muted-foreground">
                         {isSuperAdmin
                             ? 'Vista general del sistema'
                             : companyName
-                              ? `Vista general de ${companyName}`
+                              ? companyName
                               : 'Vista general de tu flota'}
                     </p>
                 </div>
 
-                {/* Onboarding Checklist */}
-                {onboardingStatus && !onboardingStatus.is_complete && (
-                    <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
-                        <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <CardTitle className="text-lg">Configura SAM</CardTitle>
-                                    <CardDescription>
-                                        Completa estos pasos para comenzar a recibir y procesar alertas
-                                    </CardDescription>
-                                </div>
-                                <Badge variant="outline" className="text-sm">
-                                    {onboardingStatus.completed_steps}/{onboardingStatus.total_steps}
-                                </Badge>
+                {/* Stat cards */}
+                <StaggerContainer className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+                    <StaggerItem>
+                        <StatCard
+                            label="Alertas Abiertas"
+                            value={operationalStatus.alerts_open}
+                            subtitle={operationalStatus.sla_breaches > 0 ? `${operationalStatus.sla_breaches} SLA vencidos` : undefined}
+                            colorClass={openColor}
+                            icon={<AlertTriangle className="size-8" />}
+                            glowClass={operationalStatus.sla_breaches > 0 ? 'glow-red' : undefined}
+                        />
+                    </StaggerItem>
+                    <StaggerItem>
+                        <StatCard
+                            label="Requieren Atencion"
+                            value={operationalStatus.needs_attention}
+                            colorClass={attentionColor}
+                            icon={<Activity className="size-8" />}
+                        />
+                    </StaggerItem>
+                    <StaggerItem>
+                        <StatCard
+                            label="Tiempo Promedio ACK"
+                            value={formatAvgAck(operationalStatus.avg_ack_seconds)}
+                            subtitle="ultimos 7 dias"
+                            colorClass="text-foreground"
+                            icon={<Clock className="size-8" />}
+                        />
+                    </StaggerItem>
+                    <StaggerItem>
+                        <StatCard
+                            label="Tasa de Entrega"
+                            value={operationalStatus.deliverability_rate !== null ? `${operationalStatus.deliverability_rate}%` : '\u2014'}
+                            subtitle="notificaciones 7 dias"
+                            colorClass={deliverColor}
+                            icon={<Bell className="size-8" />}
+                        />
+                    </StaggerItem>
+                    <StaggerItem>
+                        <StatCard
+                            label="Alertas Hoy"
+                            value={operationalStatus.alerts_today}
+                            colorClass={todayColor}
+                            icon={<ShieldCheck className="size-8" />}
+                        />
+                    </StaggerItem>
+                </StaggerContainer>
+
+                {/* Attention Queue */}
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                            <AlertTriangle className="size-5 text-amber-500" />
+                            Cola de Atencion
+                        </CardTitle>
+                        <Link
+                            href="/samsara/alerts"
+                            className="text-sm font-medium text-primary transition-colors hover:text-primary/80"
+                        >
+                            Ver todas
+                        </Link>
+                    </CardHeader>
+                    <CardContent>
+                        {attentionQueue.length === 0 ? (
+                            <div className="flex flex-col items-center gap-2 py-10 text-center">
+                                <ShieldCheck className="size-10 text-green-500/40" />
+                                <p className="text-sm font-medium text-muted-foreground">
+                                    No hay alertas que requieran atencion
+                                </p>
                             </div>
-                            {/* Progress bar */}
-                            <div className="bg-muted mt-2 h-2 w-full overflow-hidden rounded-full">
-                                <div
-                                    className="h-full bg-blue-500 transition-all"
-                                    style={{
-                                        width: `${(onboardingStatus.completed_steps / onboardingStatus.total_steps) * 100}%`,
-                                    }}
-                                />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                                <Link
-                                    href="/company"
-                                    className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
-                                        onboardingStatus.has_api_key
-                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
-                                            : 'hover:bg-muted/50 border-dashed'
-                                    }`}
-                                >
-                                    {onboardingStatus.has_api_key ? (
-                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
-                                    ) : (
-                                        <Settings className="text-muted-foreground size-5 shrink-0" />
-                                    )}
-                                    <div>
-                                        <p className="text-sm font-medium">Conecta Samsara</p>
-                                        <p className="text-muted-foreground text-xs">
-                                            {onboardingStatus.has_api_key
-                                                ? 'API key configurada'
-                                                : 'Agrega tu API key'}
-                                        </p>
-                                    </div>
-                                </Link>
-
-                                <div
-                                    className={`flex items-center gap-3 rounded-lg border p-3 ${
-                                        onboardingStatus.has_vehicles
-                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
-                                            : 'border-dashed'
-                                    }`}
-                                >
-                                    {onboardingStatus.has_vehicles ? (
-                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
-                                    ) : (
-                                        <RefreshCw className="text-muted-foreground size-5 shrink-0" />
-                                    )}
-                                    <div>
-                                        <p className="text-sm font-medium">Sincroniza tu flota</p>
-                                        <p className="text-muted-foreground text-xs">
-                                            {onboardingStatus.has_vehicles
-                                                ? 'Vehículos sincronizados'
-                                                : 'Se sincroniza automáticamente'}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <Link
-                                    href="/contacts/create"
-                                    className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
-                                        onboardingStatus.has_contacts
-                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
-                                            : 'hover:bg-muted/50 border-dashed'
-                                    }`}
-                                >
-                                    {onboardingStatus.has_contacts ? (
-                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
-                                    ) : (
-                                        <UserPlus className="text-muted-foreground size-5 shrink-0" />
-                                    )}
-                                    <div>
-                                        <p className="text-sm font-medium">Configura contactos</p>
-                                        <p className="text-muted-foreground text-xs">
-                                            {onboardingStatus.has_contacts
-                                                ? 'Contactos configurados'
-                                                : 'Para recibir notificaciones'}
-                                        </p>
-                                    </div>
-                                </Link>
-
-                                <div
-                                    className={`flex items-center gap-3 rounded-lg border p-3 ${
-                                        onboardingStatus.has_drivers
-                                            ? 'border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20'
-                                            : 'border-dashed'
-                                    }`}
-                                >
-                                    {onboardingStatus.has_drivers ? (
-                                        <CheckCircle2 className="size-5 shrink-0 text-green-500" />
-                                    ) : (
-                                        <Users className="text-muted-foreground size-5 shrink-0" />
-                                    )}
-                                    <div>
-                                        <p className="text-sm font-medium">Conductores</p>
-                                        <p className="text-muted-foreground text-xs">
-                                            {onboardingStatus.has_drivers
-                                                ? 'Conductores sincronizados'
-                                                : 'Se sincroniza automáticamente'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {/* Pipeline Health Indicator */}
-                {pipelineHealth && samsaraStats.total > 0 && (
-                    <div className="flex flex-wrap items-center gap-4 text-sm">
-                        <div className="flex items-center gap-2">
-                            {(() => {
-                                if (!pipelineHealth.last_processed_at) return null;
-                                const diffMs = Date.now() - new Date(pipelineHealth.last_processed_at).getTime();
-                                const diffMin = Math.floor(diffMs / 60000);
-                                const color = diffMin < 15 ? 'text-green-500' : diffMin < 60 ? 'text-yellow-500' : 'text-red-500';
-                                const bgColor = diffMin < 15 ? 'bg-green-500' : diffMin < 60 ? 'bg-yellow-500' : 'bg-red-500';
-                                return (
-                                    <>
-                                        <CircleDot className={`size-3 ${color}`} />
-                                        <span className="text-muted-foreground">
-                                            Última alerta procesada{' '}
-                                            <span className="font-medium text-foreground">
-                                                {formatEventTime(pipelineHealth.last_processed_at)}
-                                            </span>
-                                        </span>
-                                    </>
-                                );
-                            })()}
-                        </div>
-                        {pipelineHealth.avg_latency_ms_today !== null && (
-                            <div className="flex items-center gap-2">
-                                <Zap className="text-muted-foreground size-3" />
-                                <span className="text-muted-foreground">
-                                    Latencia promedio hoy:{' '}
-                                    <span className="font-medium text-foreground">
-                                        {pipelineHealth.avg_latency_ms_today < 1000
-                                            ? `${pipelineHealth.avg_latency_ms_today}ms`
-                                            : `${(pipelineHealth.avg_latency_ms_today / 1000).toFixed(1)}s`}
-                                    </span>
-                                </span>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b">
+                                            <th className="pb-3 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">ID</th>
+                                            <th className="pb-3 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vehiculo</th>
+                                            <th className="pb-3 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo</th>
+                                            <th className="pb-3 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Severidad</th>
+                                            <th className="pb-3 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Creada</th>
+                                            <th className="pb-3 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Propietario</th>
+                                            <th className="pb-3 pr-4 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">SLA</th>
+                                            <th className="pb-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Estado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {attentionQueue.map((alert) => (
+                                            <tr
+                                                key={alert.id}
+                                                className={`cursor-pointer border-b border-l-2 transition-colors duration-150 hover:bg-muted/50 ${severityBorderColors[alert.severity] ?? 'border-l-transparent'}`}
+                                                onClick={() => router.visit(`/samsara/alerts/${alert.id}`)}
+                                            >
+                                                <td className="py-3 pr-4 font-mono text-xs font-medium">
+                                                    {alert.id}
+                                                </td>
+                                                <td className="py-3 pr-4">
+                                                    {alert.vehicle_name ?? '\u2014'}
+                                                </td>
+                                                <td className="py-3 pr-4 max-w-[160px] truncate">
+                                                    {alert.event_type ?? '\u2014'}
+                                                </td>
+                                                <td className="py-3 pr-4">
+                                                    <span className={`inline-flex rounded-md px-2 py-0.5 text-xs font-medium ${severityColors[alert.severity] ?? 'bg-muted text-muted-foreground'}`}>
+                                                        {severityLabels[alert.severity] ?? alert.severity}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 pr-4 text-xs text-muted-foreground">
+                                                    {formatShortDate(alert.created_at)}
+                                                </td>
+                                                <td className="py-3 pr-4">
+                                                    {alert.owner_name ?? '\u2014'}
+                                                </td>
+                                                <td className={`py-3 pr-4 font-mono text-xs font-medium ${getSlaColor(alert.ack_sla_remaining_seconds)}`}>
+                                                    {formatRelativeSla(alert.ack_sla_remaining_seconds)}
+                                                </td>
+                                                <td className="py-3">
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {aiStatusLabels[alert.ai_status] ?? alert.ai_status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         )}
-                    </div>
-                )}
+                    </CardContent>
+                </Card>
 
-                {/* Stats Grid - Samsara Events */}
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {/* Trend sparklines */}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Total de Alertas</CardTitle>
-                            <AlertTriangle className="text-muted-foreground size-5" />
+                        <CardHeader className="pb-2">
+                            <CardTitle className="flex items-center gap-2 text-sm">
+                                <TrendingUp className="size-4 text-muted-foreground" />
+                                Alertas por dia (14 dias)
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-3xl font-bold">{samsaraStats.total}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="text-sky-600">{samsaraStats.today} hoy</span>
-                                <span>•</span>
-                                <span>{samsaraStats.thisWeek} esta semana</span>
-                            </div>
+                            <MiniSparkline
+                                data={trends.alerts_per_day}
+                                accessor={(d) => d.count ?? 0}
+                                color="var(--sam-accent-teal)"
+                            />
+                            <p className="mt-2 font-mono text-xs text-muted-foreground">
+                                {trends.alerts_per_day.reduce((s, d) => s + (d.count ?? 0), 0)} total
+                            </p>
                         </CardContent>
                     </Card>
 
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Alertas Críticas</CardTitle>
-                            <AlertCircle className="text-red-500 size-5" />
+                        <CardHeader className="pb-2">
+                            <CardTitle className="flex items-center gap-2 text-sm">
+                                <Bell className="size-4 text-muted-foreground" />
+                                Notificaciones por dia (14 dias)
+                            </CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-3xl font-bold text-red-600">{samsaraStats.critical}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="text-red-600">
-                                    {samsaraStats.needsHumanAttention} requieren atención
-                                </span>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">En Procesamiento</CardTitle>
-                            <Loader2 className="text-blue-500 size-5 animate-spin" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">
-                                {samsaraStats.pending + samsaraStats.processing + samsaraStats.investigating}
-                            </div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span>{samsaraStats.pending} pendientes</span>
-                                <span>•</span>
-                                <span>{samsaraStats.processing} procesando</span>
-                                <span>•</span>
-                                <span>{samsaraStats.investigating} investigando</span>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Completadas</CardTitle>
-                            <CheckCircle2 className="text-green-500 size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold text-green-600">{samsaraStats.completed}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                {samsaraStats.failed > 0 && (
-                                    <>
-                                        <span className="text-red-600">{samsaraStats.failed} fallidas</span>
-                                    </>
-                                )}
-                            </div>
+                            <MiniSparkline
+                                data={trends.notifications_per_day}
+                                accessor={(d) => d.total ?? 0}
+                                color="var(--sam-accent-blue)"
+                            />
+                            <p className="mt-2 font-mono text-xs text-muted-foreground">
+                                {trends.notifications_per_day.reduce((s, d) => s + (d.total ?? 0), 0)} total
+                            </p>
                         </CardContent>
                     </Card>
                 </div>
 
-                {/* Secondary Stats Grid */}
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Vehículos</CardTitle>
-                            <Truck className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{vehiclesStats.total}</div>
-                            <p className="text-muted-foreground mt-1 text-xs">Total en flota</p>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Contactos</CardTitle>
-                            <Phone className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{contactsStats.total}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="text-emerald-600">{contactsStats.active} activos</span>
-                                {contactsStats.default > 0 && (
-                                    <>
-                                        <span>•</span>
-                                        <span>{contactsStats.default} por defecto</span>
-                                    </>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Usuarios</CardTitle>
-                            <Users className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{usersStats.total}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="text-emerald-600">{usersStats.active} activos</span>
-                                {usersStats.admins !== undefined && (
-                                    <>
-                                        <span>•</span>
-                                        <span>{usersStats.admins} admins</span>
-                                    </>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between pb-2">
-                            <CardTitle className="text-sm font-medium">Conversaciones</CardTitle>
-                            <MessageSquare className="text-muted-foreground size-5" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-3xl font-bold">{conversationsStats.total}</div>
-                            <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                <span className="text-sky-600">{conversationsStats.today} hoy</span>
-                                <span>•</span>
-                                <span>{conversationsStats.thisWeek} esta semana</span>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Charts and Activity */}
-                <div className="grid gap-6 lg:grid-cols-2">
-                    {/* Activity Chart */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Actividad de Alertas (7 días)</CardTitle>
-                            <CardDescription>Número de alertas por día</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-2">
-                                {eventsByDay.map((day, index) => {
-                                    const height = maxEventsCount > 0 ? (day.count / maxEventsCount) * 100 : 0;
-                                    return (
-                                        <div key={index} className="flex items-center gap-3">
-                                            <div className="text-muted-foreground w-12 text-xs">
-                                                {day.day}
-                                            </div>
-                                            <div className="flex-1">
-                                                <div className="bg-muted relative h-8 w-full overflow-hidden rounded-full">
-                                                    <div
-                                                        className="bg-primary h-full transition-all"
-                                                        style={{ width: `${height}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="text-muted-foreground w-8 text-right text-xs">
-                                                {day.count}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Events by Type */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Alertas por Tipo</CardTitle>
-                            <CardDescription>Últimos 30 días</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            {eventsByType.length === 0 ? (
-                                <p className="text-muted-foreground py-4 text-center text-sm">
-                                    No hay datos disponibles
-                                </p>
-                            ) : (
-                                <div className="space-y-3">
-                                    {eventsByType.map((item, index) => (
-                                        <div key={index} className="flex items-center justify-between">
-                                            <div className="flex-1">
-                                                <p className="text-sm font-medium">{item.type}</p>
-                                            </div>
-                                            <Badge variant="outline">{item.count}</Badge>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Events Lists */}
-                <div className="grid gap-6 lg:grid-cols-3">
-                    {/* Critical Events */}
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <div>
-                                <CardTitle>Alertas Críticas</CardTitle>
-                                <CardDescription>Requieren atención inmediata</CardDescription>
-                            </div>
-                            <Link
-                                href={samsara.alerts.index().url}
-                                className="text-primary text-sm hover:underline"
-                            >
-                                Ver todas
-                            </Link>
-                        </CardHeader>
-                        <CardContent>
-                            {criticalEvents.length === 0 ? (
-                                <p className="text-muted-foreground py-4 text-center text-sm">
-                                    No hay alertas críticas
-                                </p>
-                            ) : (
-                                <div className="space-y-3">
-                                    {criticalEvents.map((event) => (
-                                        <Link
-                                            key={event.id}
-                                            href={samsara.alerts.show({ samsaraEvent: event.id }).url}
-                                            className="hover:bg-muted/50 block rounded-lg border p-3 transition-colors"
-                                        >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium truncate">
-                                                        {event.event_description || event.event_type}
-                                                    </p>
-                                                    {event.vehicle_name && (
-                                                        <p className="text-muted-foreground text-xs">
-                                                            {event.vehicle_name}
-                                                        </p>
-                                                    )}
-                                                    <p className="text-muted-foreground mt-1 text-xs">
-                                                        {formatEventTime(event.occurred_at)}
-                                                    </p>
-                                                </div>
-                                                <Badge
-                                                    variant="destructive"
-                                                    className="shrink-0"
-                                                >
-                                                    Crítico
-                                                </Badge>
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    {/* Events Needing Attention */}
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <div>
-                                <CardTitle>Requieren Atención</CardTitle>
-                                <CardDescription>Pendientes de revisión humana</CardDescription>
-                            </div>
-                            <Link
-                                href={samsara.alerts.index().url}
-                                className="text-primary text-sm hover:underline"
-                            >
-                                Ver todas
-                            </Link>
-                        </CardHeader>
-                        <CardContent>
-                            {eventsNeedingAttention.length === 0 ? (
-                                <p className="text-muted-foreground py-4 text-center text-sm">
-                                    No hay eventos pendientes
-                                </p>
-                            ) : (
-                                <div className="space-y-3">
-                                    {eventsNeedingAttention.map((event) => (
-                                        <Link
-                                            key={event.id}
-                                            href={samsara.alerts.show({ samsaraEvent: event.id }).url}
-                                            className="hover:bg-muted/50 block rounded-lg border p-3 transition-colors"
-                                        >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium truncate">
-                                                        {event.event_description || event.event_type}
-                                                    </p>
-                                                    {event.vehicle_name && (
-                                                        <p className="text-muted-foreground text-xs">
-                                                            {event.vehicle_name}
-                                                        </p>
-                                                    )}
-                                                    <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                                        <Badge
-                                                            variant="outline"
-                                                            className="text-xs"
-                                                        >
-                                                            {aiStatusLabels[event.ai_status] || event.ai_status}
-                                                        </Badge>
-                                                    </div>
-                                                </div>
-                                                <Eye className="text-amber-500 size-4 shrink-0" />
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    {/* Recent Events */}
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <div>
-                                <CardTitle>Eventos Recientes</CardTitle>
-                                <CardDescription>Últimas alertas recibidas</CardDescription>
-                            </div>
-                            <Link
-                                href={samsara.alerts.index().url}
-                                className="text-primary text-sm hover:underline"
-                            >
-                                Ver todas
-                            </Link>
-                        </CardHeader>
-                        <CardContent>
-                            {recentEvents.length === 0 ? (
-                                <p className="text-muted-foreground py-4 text-center text-sm">
-                                    No hay eventos recientes
-                                </p>
-                            ) : (
-                                <div className="space-y-3">
-                                    {recentEvents.map((event) => (
-                                        <Link
-                                            key={event.id}
-                                            href={samsara.alerts.show({ samsaraEvent: event.id }).url}
-                                            className="hover:bg-muted/50 block rounded-lg border p-3 transition-colors"
-                                        >
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium truncate">
-                                                        {event.event_description || event.event_type}
-                                                    </p>
-                                                    {event.vehicle_name && (
-                                                        <p className="text-muted-foreground text-xs">
-                                                            {event.vehicle_name}
-                                                        </p>
-                                                    )}
-                                                    <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                                        <Badge
-                                                            variant="outline"
-                                                            className="text-xs"
-                                                            style={{
-                                                                backgroundColor:
-                                                                    severityColors[event.severity] + '20',
-                                                                color: severityColors[event.severity],
-                                                            }}
-                                                        >
-                                                            {severityLabels[event.severity] || event.severity}
-                                                        </Badge>
-                                                        {event.risk_escalation && (
-                                                            <Badge variant="outline" className="text-xs">
-                                                                {riskEscalationLabels[event.risk_escalation] ||
-                                                                    event.risk_escalation}
-                                                            </Badge>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-muted-foreground mt-1 text-xs">
-                                                        {formatEventTime(event.occurred_at)}
-                                                    </p>
-                                                </div>
-                                                <div
-                                                    className="size-2 shrink-0 rounded-full"
-                                                    style={{
-                                                        backgroundColor:
-                                                            severityColors[event.severity] || '#gray',
-                                                    }}
-                                                />
-                                            </div>
-                                        </Link>
-                                    ))}
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-
-                {/* Conversaciones Recientes */}
+                {/* Recent Conversations */}
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between">
                         <div>
                             <CardTitle>Conversaciones Recientes</CardTitle>
-                            <CardDescription>Últimas conversaciones del Copilot</CardDescription>
+                            <p className="text-sm text-muted-foreground">
+                                Ultimas conversaciones del Copilot
+                            </p>
                         </div>
                         <Link
                             href={copilot.index().url}
-                            className="text-primary text-sm hover:underline"
+                            className="text-sm font-medium text-primary transition-colors hover:text-primary/80"
                         >
                             Ver todas
                         </Link>
                     </CardHeader>
                     <CardContent>
                         {recentConversations.length === 0 ? (
-                            <p className="text-muted-foreground py-4 text-center text-sm">
-                                No hay conversaciones recientes
-                            </p>
-                        ) : (
-                            <div className="space-y-3">
-                                {recentConversations.map((conv) => (
-                                    <Link
-                                        key={conv.id}
-                                        href={copilot.show({ threadId: conv.thread_id }).url}
-                                        className="hover:bg-muted/50 block rounded-lg border p-3 transition-colors"
-                                    >
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-medium truncate">
-                                                    {conv.title || 'Sin título'}
-                                                </p>
-                                                <p className="text-muted-foreground text-xs">
-                                                    {conv.user_name}
-                                                </p>
-                                                {conv.last_message_preview && (
-                                                    <p className="text-muted-foreground mt-1 truncate text-xs">
-                                                        {conv.last_message_preview}
-                                                    </p>
-                                                )}
-                                                <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
-                                                    <span>{conv.message_count} mensajes</span>
-                                                    <span>•</span>
-                                                    <span>{conv.updated_at}</span>
-                                                </div>
-                                            </div>
-                                            <MessageSquare className="text-muted-foreground size-4 shrink-0" />
-                                        </div>
-                                    </Link>
-                                ))}
+                            <div className="flex flex-col items-center gap-2 py-8 text-center">
+                                <MessageSquare className="size-10 text-muted-foreground/30" />
+                                <p className="text-sm text-muted-foreground">
+                                    No hay conversaciones recientes
+                                </p>
                             </div>
+                        ) : (
+                            <StaggerContainer className="space-y-2">
+                                {recentConversations.map((conv) => (
+                                    <StaggerItem key={conv.id}>
+                                        <Link
+                                            href={copilot.show({ threadId: conv.thread_id }).url}
+                                            className="group block rounded-lg border border-transparent p-3 transition-all duration-150 hover:border-border hover:bg-muted/50 hover:shadow-sm"
+                                        >
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                                                        {conv.title || 'Sin titulo'}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {conv.user_name}
+                                                    </p>
+                                                    {conv.last_message_preview ? (
+                                                        <p className="mt-1 truncate text-xs text-muted-foreground/70">
+                                                            {conv.last_message_preview}
+                                                        </p>
+                                                    ) : null}
+                                                    <div className="mt-1.5 flex items-center gap-2 font-mono text-[11px] text-muted-foreground/60">
+                                                        <span>{conv.message_count} msgs</span>
+                                                        <span className="text-muted-foreground/30">/</span>
+                                                        <span>{conv.updated_at}</span>
+                                                    </div>
+                                                </div>
+                                                <MessageSquare className="size-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-primary/50" />
+                                            </div>
+                                        </Link>
+                                    </StaggerItem>
+                                ))}
+                            </StaggerContainer>
                         )}
                     </CardContent>
                 </Card>

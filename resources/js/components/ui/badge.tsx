@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+  "inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-all duration-200 overflow-hidden",
   {
     variants: {
       variant: {
@@ -18,11 +18,13 @@ const badgeVariants = cva(
         outline:
           "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         success:
-          "border-transparent bg-success/15 text-success [a&]:hover:bg-success/25 dark:bg-success/20 dark:text-success-foreground",
+          "border-transparent bg-success/15 text-success [a&]:hover:bg-success/25 dark:bg-success/20 dark:text-success",
         warning:
-          "border-transparent bg-warning/15 text-warning [a&]:hover:bg-warning/25 dark:bg-warning/20 dark:text-warning-foreground",
+          "border-transparent bg-warning/15 text-warning [a&]:hover:bg-warning/25 dark:bg-warning/20 dark:text-warning",
         info:
-          "border-transparent bg-info/15 text-info [a&]:hover:bg-info/25 dark:bg-info/20 dark:text-info-foreground",
+          "border-transparent bg-info/15 text-info [a&]:hover:bg-info/25 dark:bg-info/20 dark:text-info",
+        critical:
+          "border-transparent bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300 animate-pulse-slow",
       },
     },
     defaultVariants: {

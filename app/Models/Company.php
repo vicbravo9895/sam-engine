@@ -76,6 +76,16 @@ class Company extends Model
             'cooldown_minutes' => 60,
             'inactive_after_days' => 20,
         ],
+        'sla_policies' => [
+            'critical' => ['ack_minutes' => 5, 'resolve_minutes' => 30],
+            'warning'  => ['ack_minutes' => 15, 'resolve_minutes' => 120],
+            'info'     => ['ack_minutes' => 60, 'resolve_minutes' => 1440],
+        ],
+        'escalation_policy' => [
+            'enabled' => true,
+            'max_escalations' => 3,
+            'escalation_interval_minutes' => 10,
+        ],
     ];
 
     /**
@@ -178,11 +188,19 @@ class Company extends Model
     }
 
     /**
-     * Get the Samsara events for this company.
+     * Get the alerts for this company.
      */
-    public function samsaraEvents(): HasMany
+    public function alerts(): HasMany
     {
-        return $this->hasMany(SamsaraEvent::class);
+        return $this->hasMany(Alert::class);
+    }
+
+    /**
+     * Get the signals for this company.
+     */
+    public function signals(): HasMany
+    {
+        return $this->hasMany(Signal::class);
     }
 
     /**

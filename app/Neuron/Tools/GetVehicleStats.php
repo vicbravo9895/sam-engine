@@ -114,10 +114,10 @@ class GetVehicleStats extends Tool
             if ($stat_types) {
                 $types = array_map('trim', explode(',', $stat_types));
                 // Validate types
-                $validTypes = \App\Samsara\Client\SamsaraClient::STAT_TYPES;
+                $validTypes = \App\Samsara\Client\CopilotAdapter::STAT_TYPES;
                 $types = array_filter($types, fn($type) => in_array($type, $validTypes));
                 // Limit to max 3 types per API requirement
-                $types = array_slice(array_values($types), 0, \App\Samsara\Client\SamsaraClient::MAX_TYPES_PER_REQUEST);
+                $types = array_slice(array_values($types), 0, \App\Samsara\Client\CopilotAdapter::MAX_TYPES_PER_REQUEST);
             }
 
             // Default types if none provided (most commonly used)

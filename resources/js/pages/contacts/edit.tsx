@@ -114,7 +114,7 @@ export default function ContactEdit({ contact, types }: EditProps) {
                             Volver a Contactos
                         </Link>
                     </Button>
-                    <h1 className="text-2xl font-semibold tracking-tight">
+                    <h1 className="font-display text-2xl font-bold tracking-tight">
                         Editar Contacto
                     </h1>
                     <p className="text-sm text-muted-foreground">
@@ -124,7 +124,7 @@ export default function ContactEdit({ contact, types }: EditProps) {
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     {/* Tipo de Contacto */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Icon className="size-5" />
@@ -173,7 +173,7 @@ export default function ContactEdit({ contact, types }: EditProps) {
                     </Card>
 
                     {/* Información Personal */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <User className="size-5" />
@@ -210,7 +210,7 @@ export default function ContactEdit({ contact, types }: EditProps) {
                     </Card>
 
                     {/* Canales de Comunicación */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Phone className="size-5" />
@@ -274,7 +274,7 @@ export default function ContactEdit({ contact, types }: EditProps) {
                     </Card>
 
                     {/* Asociación */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Truck className="size-5" />
@@ -326,7 +326,7 @@ export default function ContactEdit({ contact, types }: EditProps) {
                     </Card>
 
                     {/* Configuración */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle>Configuración</CardTitle>
                         </CardHeader>

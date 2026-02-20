@@ -65,7 +65,7 @@ export default function UsersEdit() {
                         </Button>
                     </Link>
                     <div>
-                        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
+                        <h1 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
                             Editar Usuario
                         </h1>
                         <p className="text-muted-foreground text-sm">
@@ -75,7 +75,7 @@ export default function UsersEdit() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="mx-auto w-full max-w-2xl">
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <div className="flex items-center gap-3">
                                 <div className="bg-primary/10 flex size-12 items-center justify-center rounded-full">
@@ -158,18 +158,18 @@ export default function UsersEdit() {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                {!canChangeRole && (
+                                {!canChangeRole ? (
                                     <p className="text-muted-foreground text-sm">
                                         No tienes permisos para cambiar el rol de este usuario
                                     </p>
-                                )}
+                                ) : null}
                                 {errors.role && (
                                     <p className="text-destructive text-sm">{errors.role}</p>
                                 )}
                             </div>
 
                             {/* Active */}
-                            <div className="flex items-center justify-between rounded-lg border p-4">
+                            <div className="flex items-center justify-between rounded-xl border p-4">
                                 <div className="space-y-0.5">
                                     <Label htmlFor="is_active">Usuario activo</Label>
                                     <p className="text-muted-foreground text-sm">

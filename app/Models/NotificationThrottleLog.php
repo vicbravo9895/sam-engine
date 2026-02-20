@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class NotificationThrottleLog extends Model
 {
+    use HasFactory;
     /**
      * The table associated with the model.
      */
@@ -26,7 +28,7 @@ class NotificationThrottleLog extends Model
     protected $fillable = [
         'throttle_key',
         'notification_timestamp',
-        'samsara_event_id',
+        'alert_id',
     ];
 
     protected $casts = [
@@ -40,11 +42,11 @@ class NotificationThrottleLog extends Model
      */
 
     /**
-     * Event that triggered this notification.
+     * Alert that triggered this notification.
      */
-    public function event(): BelongsTo
+    public function alert(): BelongsTo
     {
-        return $this->belongsTo(SamsaraEvent::class, 'samsara_event_id');
+        return $this->belongsTo(Alert::class);
     }
 
     /**
@@ -110,12 +112,12 @@ class NotificationThrottleLog extends Model
     /**
      * Record a notification.
      */
-    public static function record(string $throttleKey, ?int $eventId = null): self
+    public static function record(string $throttleKey, ?int $alertId = null): self
     {
         return self::create([
             'throttle_key' => $throttleKey,
             'notification_timestamp' => now(),
-            'samsara_event_id' => $eventId,
+            'alert_id' => $alertId,
         ]);
     }
 

@@ -97,7 +97,7 @@ export default function ContactCreate({ types }: CreateProps) {
                             Volver a Contactos
                         </Link>
                     </Button>
-                    <h1 className="text-2xl font-semibold tracking-tight">
+                    <h1 className="font-display text-2xl font-bold tracking-tight">
                         Nuevo Contacto
                     </h1>
                     <p className="text-sm text-muted-foreground">
@@ -107,7 +107,7 @@ export default function ContactCreate({ types }: CreateProps) {
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     {/* Tipo de Contacto */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Icon className="size-5" />
@@ -156,7 +156,7 @@ export default function ContactCreate({ types }: CreateProps) {
                     </Card>
 
                     {/* Información Personal */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <User className="size-5" />
@@ -193,7 +193,7 @@ export default function ContactCreate({ types }: CreateProps) {
                     </Card>
 
                     {/* Canales de Comunicación */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Phone className="size-5" />
@@ -257,7 +257,7 @@ export default function ContactCreate({ types }: CreateProps) {
                     </Card>
 
                     {/* Asociación */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Truck className="size-5" />
@@ -309,7 +309,7 @@ export default function ContactCreate({ types }: CreateProps) {
                     </Card>
 
                     {/* Configuración */}
-                    <Card>
+                    <Card className="rounded-xl shadow-sm">
                         <CardHeader>
                             <CardTitle>Configuración</CardTitle>
                         </CardHeader>

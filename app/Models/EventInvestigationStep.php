@@ -6,23 +6,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/**
- * Modelo para pasos de investigación de eventos.
- * 
- * Almacena los pasos de investigación definidos por el triage.
- * Anteriormente almacenado en alert_context.investigation_plan JSON.
- */
 class EventInvestigationStep extends Model
 {
     use HasFactory;
 
-    /**
-     * Disable timestamps - only using created_at.
-     */
     public $timestamps = false;
 
     protected $fillable = [
-        'samsara_event_id',
+        'alert_id',
         'step_text',
         'step_order',
         'created_at',
@@ -33,9 +24,6 @@ class EventInvestigationStep extends Model
         'created_at' => 'datetime',
     ];
 
-    /**
-     * Boot method to set created_at.
-     */
     protected static function boot()
     {
         parent::boot();
@@ -47,49 +35,25 @@ class EventInvestigationStep extends Model
         });
     }
 
-    /**
-     * ========================================
-     * RELATIONSHIPS
-     * ========================================
-     */
-
-    /**
-     * Event this step belongs to.
-     */
-    public function event(): BelongsTo
+    public function alert(): BelongsTo
     {
-        return $this->belongsTo(SamsaraEvent::class, 'samsara_event_id');
+        return $this->belongsTo(Alert::class);
     }
 
-    /**
-     * ========================================
-     * STATIC HELPERS
-     * ========================================
-     */
-
-    /**
-     * Create multiple steps for an event from an array.
-     */
-    public static function createFromArray(int $eventId, array $steps): void
+    public static function createFromArray(int $alertId, array $steps): void
     {
         foreach ($steps as $index => $stepText) {
             self::create([
-                'samsara_event_id' => $eventId,
+                'alert_id' => $alertId,
                 'step_text' => $stepText,
                 'step_order' => $index,
             ]);
         }
     }
 
-    /**
-     * Replace all steps for an event.
-     */
-    public static function replaceForEvent(int $eventId, array $steps): void
+    public static function replaceForAlert(int $alertId, array $steps): void
     {
-        // Delete existing steps
-        self::where('samsara_event_id', $eventId)->delete();
-        
-        // Create new steps
-        self::createFromArray($eventId, $steps);
+        self::where('alert_id', $alertId)->delete();
+        self::createFromArray($alertId, $steps);
     }
 }

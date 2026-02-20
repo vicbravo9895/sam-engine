@@ -54,7 +54,7 @@ async def ingest_alert(request: AlertRequest):
     """
     Procesa una alerta de Samsara de forma síncrona.
     
-    Este endpoint es llamado por el Job de Laravel (ProcessSamsaraEventJob).
+    Este endpoint es llamado por el Job de Laravel (ProcessAlertJob).
     Ejecuta el pipeline de agentes y retorna los resultados para que
     Laravel los guarde en la base de datos.
     """
@@ -142,7 +142,7 @@ async def revalidate_alert(request: RevalidateRequest):
     """
     Revalida una alerta existente con contexto temporal adicional.
     
-    Este endpoint es llamado por RevalidateSamsaraEventJob para
+    Este endpoint es llamado por RevalidateAlertJob para
     reanalizar eventos que requieren monitoreo continuo.
     """
     start_time = time.time()

@@ -10,25 +10,12 @@ use App\Models\Company;
  * Este trait permite que los Jobs registren automáticamente el company_id
  * y company_name en todos los logs que generen, facilitando el filtrado
  * en Grafana por empresa.
- * 
- * Uso:
- *   use LogsWithTenantContext;
- * 
- *   public function handle(): void
- *   {
- *       $this->setLogContext($this->event->company);
- *       // Todos los Log:: ahora incluirán company_id y company_name
- *   }
+ *
+ * También genera un W3C traceparent si no existe en el container,
+ * garantizando trazabilidad distribuida end-to-end.
  */
 trait LogsWithTenantContext
 {
-    /**
-     * Registra el contexto de empresa para todos los logs subsiguientes.
-     * 
-     * @param Company|null $company La empresa a registrar
-     * @param int|null $companyId ID de empresa (alternativo si no tienes el modelo)
-     * @param string|null $companyName Nombre de empresa (alternativo)
-     */
     protected function setLogContext(
         ?Company $company = null,
         ?int $companyId = null,
@@ -46,17 +33,16 @@ trait LogsWithTenantContext
             }
         }
 
-        // También generar trace_id único para este job si no existe
-        if (!app()->bound('trace_id')) {
-            $traceId = 'job-' . dechex((int) (microtime(true) * 1000)) . '-' . substr(md5(uniqid('', true)), 0, 8);
+        if (!app()->bound('traceparent')) {
+            $traceId = bin2hex(random_bytes(16));
+            $spanId = bin2hex(random_bytes(8));
+            $traceparent = "00-{$traceId}-{$spanId}-01";
+
+            app()->instance('traceparent', $traceparent);
             app()->instance('trace_id', $traceId);
         }
     }
 
-    /**
-     * Limpia el contexto de logs al finalizar el job.
-     * Útil si procesas múltiples empresas en un solo job.
-     */
     protected function clearLogContext(): void
     {
         if (app()->bound('log_company_id')) {
@@ -67,13 +53,18 @@ trait LogsWithTenantContext
         }
     }
 
-    /**
-     * Helper para obtener el trace_id actual.
-     */
     protected function getTraceId(): string
     {
         if (app()->bound('trace_id')) {
             return app('trace_id');
+        }
+        return 'unknown';
+    }
+
+    protected function getTraceparent(): string
+    {
+        if (app()->bound('traceparent')) {
+            return app('traceparent');
         }
         return 'unknown';
     }

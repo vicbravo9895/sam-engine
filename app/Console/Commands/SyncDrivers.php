@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Company;
 use App\Models\Driver;
-use App\Samsara\Client\SamsaraClient;
+use App\Samsara\Client\SyncAdapter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -121,7 +121,7 @@ class SyncDrivers extends Command
      */
     protected function syncCompanyDrivers(Company $company, bool $includeDeactivated = false): array
     {
-        $client = new SamsaraClient($company->getSamsaraApiKey());
+        $client = new SyncAdapter($company->getSamsaraApiKey());
         
         // Build params for API call
         $params = [];
@@ -129,7 +129,7 @@ class SyncDrivers extends Command
             $params['driverActivationStatus'] = 'active';
         }
         
-        $drivers = $client->getDrivers($params);
+        $drivers = $client->getAllDrivers($params);
 
         $created = 0;
         $updated = 0;

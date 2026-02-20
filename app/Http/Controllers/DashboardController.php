@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\SamsaraEvent;
-use App\Models\Vehicle;
-use App\Models\Contact;
-use App\Models\User;
-use App\Models\Conversation;
+use App\Models\Alert;
+use App\Models\AlertMetrics;
 use App\Models\ChatMessage;
+use App\Models\Contact;
+use App\Models\Conversation;
+use App\Models\NotificationResult;
+use App\Models\Signal;
+use App\Models\User;
+use App\Models\Vehicle;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,49 +25,43 @@ class DashboardController extends Controller
         $today = Carbon::today();
         $lastWeek = Carbon::now()->subDays(7);
         $lastMonth = Carbon::now()->subDays(30);
+        $last14Days = Carbon::now()->subDays(14);
 
-        // Determinar el filtro de company_id
         $companyIdFilter = $isSuperAdmin ? null : $user->company_id;
 
-        // ========================================
-        // ESTADÍSTICAS DE EVENTOS DE SAMSARA
-        // ========================================
-        $samsaraEventsQuery = SamsaraEvent::query();
+        $alertsBaseQuery = Alert::query();
         if ($companyIdFilter !== null) {
-            $samsaraEventsQuery->forCompany($companyIdFilter);
+            $alertsBaseQuery->forCompany($companyIdFilter);
         }
 
         $samsaraStats = [
-            'total' => (clone $samsaraEventsQuery)->count(),
-            'today' => (clone $samsaraEventsQuery)->whereDate('created_at', $today)->count(),
-            'thisWeek' => (clone $samsaraEventsQuery)->where('created_at', '>=', $lastWeek)->count(),
-            'critical' => (clone $samsaraEventsQuery)->critical()->count(),
-            'pending' => (clone $samsaraEventsQuery)->pending()->count(),
-            'processing' => (clone $samsaraEventsQuery)->processing()->count(),
-            'investigating' => (clone $samsaraEventsQuery)->investigating()->count(),
-            'completed' => (clone $samsaraEventsQuery)->completed()->count(),
-            'failed' => (clone $samsaraEventsQuery)->failed()->count(),
-            'needsHumanAttention' => (clone $samsaraEventsQuery)->needsHumanAttention()->count(),
+            'total' => (clone $alertsBaseQuery)->count(),
+            'today' => (clone $alertsBaseQuery)->whereDate('created_at', $today)->count(),
+            'thisWeek' => (clone $alertsBaseQuery)->where('created_at', '>=', $lastWeek)->count(),
+            'critical' => (clone $alertsBaseQuery)->critical()->count(),
+            'pending' => (clone $alertsBaseQuery)->pending()->count(),
+            'processing' => (clone $alertsBaseQuery)->processing()->count(),
+            'investigating' => (clone $alertsBaseQuery)->investigating()->count(),
+            'completed' => (clone $alertsBaseQuery)->completed()->count(),
+            'failed' => (clone $alertsBaseQuery)->failed()->count(),
+            'needsHumanAttention' => (clone $alertsBaseQuery)->needsHumanAttention()->count(),
         ];
 
-        // Eventos por severidad
-        $eventsBySeverity = (clone $samsaraEventsQuery)
+        $eventsBySeverity = (clone $alertsBaseQuery)
             ->select('severity', DB::raw('COUNT(*) as count'))
             ->groupBy('severity')
             ->get()
             ->pluck('count', 'severity')
             ->toArray();
 
-        // Eventos por estado AI
-        $eventsByAiStatus = (clone $samsaraEventsQuery)
+        $eventsByAiStatus = (clone $alertsBaseQuery)
             ->select('ai_status', DB::raw('COUNT(*) as count'))
             ->groupBy('ai_status')
             ->get()
             ->pluck('count', 'ai_status')
             ->toArray();
 
-        // Actividad de eventos por día (últimos 7 días)
-        $eventsActivity = (clone $samsaraEventsQuery)
+        $eventsActivity = (clone $alertsBaseQuery)
             ->where('created_at', '>=', $lastWeek)
             ->select(DB::raw('DATE(created_at) as date'), DB::raw('COUNT(*) as count'))
             ->groupBy('date')
@@ -82,9 +79,6 @@ class DashboardController extends Controller
             ];
         }
 
-        // ========================================
-        // ESTADÍSTICAS DE VEHÍCULOS
-        // ========================================
         $vehiclesQuery = Vehicle::query();
         if ($companyIdFilter !== null) {
             $vehiclesQuery->forCompany($companyIdFilter);
@@ -94,9 +88,6 @@ class DashboardController extends Controller
             'total' => (clone $vehiclesQuery)->count(),
         ];
 
-        // ========================================
-        // ESTADÍSTICAS DE CONTACTOS
-        // ========================================
         $contactsQuery = Contact::query();
         if ($companyIdFilter !== null) {
             $contactsQuery->forCompany($companyIdFilter);
@@ -108,9 +99,6 @@ class DashboardController extends Controller
             'default' => (clone $contactsQuery)->default()->count(),
         ];
 
-        // ========================================
-        // ESTADÍSTICAS DE USUARIOS (solo si es super admin)
-        // ========================================
         $usersStats = null;
         if ($isSuperAdmin) {
             $usersStats = [
@@ -119,7 +107,6 @@ class DashboardController extends Controller
                 'admins' => User::where('role', User::ROLE_ADMIN)->count(),
             ];
         } else {
-            // Para usuarios normales, mostrar usuarios de su compañía
             $usersQuery = User::query()->forCompany($user->company_id);
             $usersStats = [
                 'total' => (clone $usersQuery)->count(),
@@ -127,46 +114,72 @@ class DashboardController extends Controller
             ];
         }
 
-        // ========================================
-        // EVENTOS RECIENTES Y CRÍTICOS
-        // ========================================
-        $recentEvents = (clone $samsaraEventsQuery)
+        $recentEvents = (clone $alertsBaseQuery)
+            ->with('signal:id,event_type,event_description,vehicle_name,driver_name')
             ->orderBy('occurred_at', 'desc')
             ->limit(10)
-            ->get(['id', 'event_type', 'event_description', 'vehicle_name', 'driver_name', 'severity', 'ai_status', 'occurred_at', 'risk_escalation']);
+            ->get()
+            ->map(fn (Alert $a) => [
+                'id' => $a->id,
+                'event_type' => $a->signal?->event_type,
+                'event_description' => $a->signal?->event_description ?? $a->event_description,
+                'vehicle_name' => $a->signal?->vehicle_name,
+                'driver_name' => $a->signal?->driver_name,
+                'severity' => $a->severity,
+                'ai_status' => $a->ai_status,
+                'occurred_at' => $a->occurred_at,
+                'risk_escalation' => $a->risk_escalation,
+            ]);
 
-        $criticalEvents = (clone $samsaraEventsQuery)
+        $criticalEvents = (clone $alertsBaseQuery)
+            ->with('signal:id,event_type,event_description,vehicle_name,driver_name')
             ->critical()
             ->orderBy('occurred_at', 'desc')
             ->limit(5)
-            ->get(['id', 'event_type', 'event_description', 'vehicle_name', 'driver_name', 'ai_status', 'occurred_at', 'risk_escalation']);
+            ->get()
+            ->map(fn (Alert $a) => [
+                'id' => $a->id,
+                'event_type' => $a->signal?->event_type,
+                'event_description' => $a->signal?->event_description ?? $a->event_description,
+                'vehicle_name' => $a->signal?->vehicle_name,
+                'driver_name' => $a->signal?->driver_name,
+                'ai_status' => $a->ai_status,
+                'occurred_at' => $a->occurred_at,
+                'risk_escalation' => $a->risk_escalation,
+            ]);
 
-        $eventsNeedingAttention = (clone $samsaraEventsQuery)
+        $eventsNeedingAttention = (clone $alertsBaseQuery)
+            ->with('signal:id,event_type,event_description,vehicle_name,driver_name')
             ->needsHumanAttention()
             ->orderBy('occurred_at', 'desc')
             ->limit(5)
-            ->get(['id', 'event_type', 'event_description', 'vehicle_name', 'driver_name', 'severity', 'ai_status', 'occurred_at', 'risk_escalation']);
+            ->get()
+            ->map(fn (Alert $a) => [
+                'id' => $a->id,
+                'event_type' => $a->signal?->event_type,
+                'event_description' => $a->signal?->event_description ?? $a->event_description,
+                'vehicle_name' => $a->signal?->vehicle_name,
+                'driver_name' => $a->signal?->driver_name,
+                'severity' => $a->severity,
+                'ai_status' => $a->ai_status,
+                'occurred_at' => $a->occurred_at,
+                'risk_escalation' => $a->risk_escalation,
+            ]);
 
-        // ========================================
-        // EVENTOS POR TIPO (últimos 30 días)
-        // ========================================
-        $eventsByType = (clone $samsaraEventsQuery)
+        $signalScope = fn ($q) => $companyIdFilter !== null ? $q->forCompany($companyIdFilter) : $q;
+
+        $eventsByType = Signal::query()->tap($signalScope)
             ->where('created_at', '>=', $lastMonth)
             ->select('event_type', DB::raw('COUNT(*) as count'))
             ->groupBy('event_type')
             ->orderByDesc('count')
             ->limit(10)
             ->get()
-            ->map(function ($item) {
-                return [
-                    'type' => $item->event_type,
-                    'count' => $item->count,
-                ];
-            });
+            ->map(fn ($item) => [
+                'type' => $item->event_type,
+                'count' => $item->count,
+            ]);
 
-        // ========================================
-        // ESTADÍSTICAS DE CONVERSACIONES
-        // ========================================
         $conversationsQuery = Conversation::query();
         if ($companyIdFilter !== null) {
             $conversationsQuery->forCompany($companyIdFilter);
@@ -178,7 +191,6 @@ class DashboardController extends Controller
             'thisWeek' => (clone $conversationsQuery)->where('created_at', '>=', $lastWeek)->count(),
         ];
 
-        // Conversaciones recientes
         $recentConversations = (clone $conversationsQuery)
             ->with('user:id,name')
             ->orderBy('updated_at', 'desc')
@@ -189,15 +201,15 @@ class DashboardController extends Controller
                 $lastMessage = ChatMessage::where('thread_id', $conv->thread_id)
                     ->orderBy('created_at', 'desc')
                     ->first();
-                
+
                 return [
                     'id' => $conv->id,
                     'thread_id' => $conv->thread_id,
                     'title' => $conv->title,
                     'user_name' => $conv->user?->name ?? 'Usuario',
                     'message_count' => $messageCount,
-                    'last_message_preview' => $lastMessage 
-                        ? (is_array($lastMessage->content) 
+                    'last_message_preview' => $lastMessage
+                        ? (is_array($lastMessage->content)
                             ? \Illuminate\Support\Str::limit($lastMessage->content['text'] ?? '', 80)
                             : \Illuminate\Support\Str::limit($lastMessage->content ?? '', 80))
                         : null,
@@ -205,37 +217,138 @@ class DashboardController extends Controller
                 ];
             });
 
-        // Onboarding status (only for non-super-admin users with a company)
         $onboardingStatus = null;
         if (!$isSuperAdmin && $user->company) {
             $onboardingStatus = $user->company->getOnboardingStatus();
         }
 
-        // Pipeline health: last processed alert and avg latency today
         $pipelineHealth = null;
         if ($companyIdFilter !== null) {
-            $lastProcessed = (clone $samsaraEventsQuery)
-                ->whereIn('ai_status', ['completed', 'investigating', 'failed'])
-                ->whereNotNull('ai_processed_at')
-                ->orderByDesc('ai_processed_at')
-                ->value('ai_processed_at');
+            $lastProcessedMetric = AlertMetrics::query()
+                ->whereHas('alert', fn ($q) => $q->forCompany($companyIdFilter))
+                ->whereNotNull('ai_finished_at')
+                ->orderByDesc('ai_finished_at')
+                ->first();
 
-            $avgLatencyMs = (clone $samsaraEventsQuery)
-                ->whereDate('pipeline_time_ai_finished_at', $today)
+            $avgLatencyMs = AlertMetrics::query()
+                ->whereHas('alert', fn ($q) => $q->forCompany($companyIdFilter))
+                ->whereDate('ai_finished_at', $today)
                 ->whereNotNull('pipeline_latency_ms')
                 ->avg('pipeline_latency_ms');
 
             $pipelineHealth = [
-                'last_processed_at' => $lastProcessed,
+                'last_processed_at' => $lastProcessedMetric?->ai_finished_at,
                 'avg_latency_ms_today' => $avgLatencyMs ? (int) round($avgLatencyMs) : null,
             ];
         }
+
+        $alertsQuery = Alert::query()->when($companyIdFilter !== null, fn ($q) => $q->forCompany($companyIdFilter));
+
+        $operationalStatus = [
+            'alerts_open' => (clone $alertsQuery)->whereNotIn('ai_status', ['completed'])->count(),
+            'sla_breaches' => (clone $alertsQuery)->overdueAck()->count(),
+            'needs_attention' => (clone $alertsQuery)->needsAttention()->count(),
+            'avg_ack_seconds' => null,
+            'deliverability_rate' => null,
+            'alerts_today' => (clone $alertsQuery)->whereDate('created_at', $today)->count(),
+        ];
+
+        $ackedCount = (clone $alertsQuery)->whereNotNull('acked_at')->where('acked_at', '>=', $lastWeek)->count();
+        if ($ackedCount > 0) {
+            $avgAck = (clone $alertsQuery)
+                ->whereNotNull('acked_at')
+                ->where('acked_at', '>=', $lastWeek)
+                ->selectRaw('AVG(EXTRACT(EPOCH FROM (acked_at - created_at))) as avg_sec')
+                ->value('avg_sec');
+            $operationalStatus['avg_ack_seconds'] = $avgAck ? (int) round($avgAck) : null;
+        }
+
+        $nrBaseQuery = NotificationResult::query()
+            ->whereHas('alert', function ($q) use ($companyIdFilter) {
+                if ($companyIdFilter !== null) {
+                    $q->where('company_id', $companyIdFilter);
+                }
+            })
+            ->where('notification_results.created_at', '>=', $lastWeek);
+        $totalNr = (clone $nrBaseQuery)->count();
+        if ($totalNr > 0) {
+            $deliveredNr = (clone $nrBaseQuery)->whereIn('status_current', ['delivered', 'read'])->count();
+            $operationalStatus['deliverability_rate'] = round($deliveredNr / $totalNr * 100, 1);
+        }
+
+        $attentionQuery = Alert::query()
+            ->with(['signal', 'ownerUser'])
+            ->needsAttention()
+            ->orderByAttentionPriority()
+            ->limit(20);
+        if ($companyIdFilter !== null) {
+            $attentionQuery->forCompany($companyIdFilter);
+        }
+        $attentionQueue = $attentionQuery->get()
+            ->map(fn (Alert $a) => [
+                'id' => $a->id,
+                'vehicle_name' => $a->signal?->vehicle_name,
+                'event_type' => $a->signal?->event_type,
+                'severity' => $a->severity,
+                'created_at' => $a->created_at->toIso8601String(),
+                'owner_name' => $a->ownerUser?->name,
+                'ack_due_at' => $a->ack_due_at?->toIso8601String(),
+                'ack_sla_remaining_seconds' => $a->ackSlaRemainingSeconds(),
+                'ack_status' => $a->ack_status,
+                'ai_status' => $a->ai_status,
+                'attention_state' => $a->attention_state,
+            ])
+            ->toArray();
+
+        $alertsPerDay = [];
+        for ($i = 13; $i >= 0; $i--) {
+            $date = Carbon::now()->subDays($i)->format('Y-m-d');
+            $dayStart = Carbon::parse($date)->startOfDay();
+            $dayEnd = Carbon::parse($date)->endOfDay();
+            $q = Alert::query()->whereBetween('created_at', [$dayStart, $dayEnd]);
+            if ($companyIdFilter !== null) {
+                $q->forCompany($companyIdFilter);
+            }
+            $alertsPerDay[] = [
+                'date' => $date,
+                'count' => $q->count(),
+            ];
+        }
+
+        $notificationsPerDay = [];
+        for ($i = 13; $i >= 0; $i--) {
+            $date = Carbon::now()->subDays($i)->format('Y-m-d');
+            $dayStart = Carbon::parse($date)->startOfDay();
+            $dayEnd = Carbon::parse($date)->endOfDay();
+            $nrQ = NotificationResult::query()
+                ->whereHas('alert', function ($q) use ($companyIdFilter) {
+                    if ($companyIdFilter !== null) {
+                        $q->where('company_id', $companyIdFilter);
+                    }
+                })
+                ->whereBetween('notification_results.created_at', [$dayStart, $dayEnd]);
+            $total = (clone $nrQ)->count();
+            $delivered = (clone $nrQ)->whereIn('status_current', ['delivered', 'read'])->count();
+            $notificationsPerDay[] = [
+                'date' => $date,
+                'total' => $total,
+                'delivered' => $delivered,
+            ];
+        }
+
+        $trends = [
+            'alerts_per_day' => $alertsPerDay,
+            'notifications_per_day' => $notificationsPerDay,
+        ];
 
         return Inertia::render('dashboard', [
             'isSuperAdmin' => $isSuperAdmin,
             'companyName' => $user->company?->name ?? null,
             'onboardingStatus' => $onboardingStatus,
             'pipelineHealth' => $pipelineHealth,
+            'operationalStatus' => $operationalStatus,
+            'attentionQueue' => $attentionQueue,
+            'trends' => $trends,
             'samsaraStats' => $samsaraStats,
             'vehiclesStats' => $vehiclesStats,
             'contactsStats' => $contactsStats,
@@ -252,4 +365,3 @@ class DashboardController extends Controller
         ]);
     }
 }
-

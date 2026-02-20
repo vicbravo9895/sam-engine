@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\MediaAsset;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +70,7 @@ class MigrateMediaToS3 extends Command
         if ($shouldUpdateUrls) {
             $this->newLine();
             $this->updateDatabaseUrls($s3, $isDryRun);
+            $this->updateMediaAssetsTable($s3, $isDryRun);
         }
 
         $this->printSummary($prefixStats, $totals, $isDryRun);
@@ -204,6 +206,44 @@ class MigrateMediaToS3 extends Command
             $verb = $isDryRun ? 'would update' : 'updated';
             $this->line("  {$table}.{$column}: {$count} rows {$verb}");
         }
+    }
+
+    /**
+     * Update media_assets: set disk=s3 and local_url to S3 URL for assets that were on public.
+     */
+    private function updateMediaAssetsTable(Filesystem $s3, bool $isDryRun): void
+    {
+        if (!Schema::hasTable('media_assets')) {
+            return;
+        }
+
+        $query = MediaAsset::where('disk', 'public')
+            ->whereNotNull('storage_path');
+
+        $count = $query->count();
+        if ($count === 0) {
+            $this->line('  media_assets: no rows with disk=public to update');
+            return;
+        }
+
+        $this->line("  media_assets: {$count} rows with disk=public to point to S3");
+
+        if ($isDryRun) {
+            $this->line('  (dry-run: would set disk=s3 and local_url to S3 URL per asset)');
+            return;
+        }
+
+        $updated = 0;
+        foreach (MediaAsset::where('disk', 'public')->whereNotNull('storage_path')->cursor() as $asset) {
+            if (!$s3->exists($asset->storage_path)) {
+                continue;
+            }
+            $newUrl = $s3->url($asset->storage_path);
+            $asset->update(['disk' => 's3', 'local_url' => $newUrl]);
+            $updated++;
+        }
+
+        $this->line("  media_assets: {$updated} rows updated (disk=s3, local_url → MinIO/S3).");
     }
 
     private function countRowsWithLocalUrls(string $table, string $column, string $type, string $oldPrefix): int

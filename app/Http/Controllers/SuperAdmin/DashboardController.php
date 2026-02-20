@@ -4,9 +4,11 @@ namespace App\Http\Controllers\SuperAdmin;
 
 use App\Http\Controllers\Controller;
 use App\Models\ChatMessage;
+use App\Models\Alert;
+use App\Models\AlertMetrics;
 use App\Models\Company;
 use App\Models\PendingWebhook;
-use App\Models\SamsaraEvent;
+use App\Models\Signal;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\Conversation;
@@ -75,7 +77,7 @@ class DashboardController extends Controller
         $thisMonth = Carbon::now()->startOfMonth();
 
         // Pipeline performance (p50, p95 latency today)
-        $latencyToday = SamsaraEvent::whereDate('pipeline_time_ai_finished_at', today())
+        $latencyToday = AlertMetrics::whereDate('ai_finished_at', today())
             ->whereNotNull('pipeline_latency_ms')
             ->pluck('pipeline_latency_ms')
             ->sort()
@@ -91,16 +93,16 @@ class DashboardController extends Controller
         }
 
         // Human review rate (last 30 days)
-        $totalCompleted = SamsaraEvent::where('ai_processed_at', '>=', $last30Days)
+        $totalCompleted = Alert::where('created_at', '>=', $last30Days)
             ->whereIn('ai_status', ['completed', 'investigating'])
             ->count();
 
-        $humanReviewed = SamsaraEvent::where('ai_processed_at', '>=', $last30Days)
+        $humanReviewed = Alert::where('created_at', '>=', $last30Days)
             ->whereIn('ai_status', ['completed', 'investigating'])
             ->where('human_status', '!=', 'pending')
             ->count();
 
-        $humanOverride = SamsaraEvent::where('ai_processed_at', '>=', $last30Days)
+        $humanOverride = Alert::where('created_at', '>=', $last30Days)
             ->where('human_status', 'false_positive')
             ->count();
 
@@ -114,8 +116,8 @@ class DashboardController extends Controller
             ->distinct('user_id')
             ->count('user_id');
 
-        // Failed events (last 7 days)
-        $failedLast7Days = SamsaraEvent::where('ai_processed_at', '>=', $last7Days)
+        // Failed alerts (last 7 days)
+        $failedLast7Days = Alert::where('created_at', '>=', $last7Days)
             ->where('ai_status', 'failed')
             ->count();
 
@@ -128,7 +130,7 @@ class DashboardController extends Controller
         }
 
         // Days to first alert by company
-        $companiesFirstAlert = DB::table('samsara_events')
+        $companiesFirstAlert = DB::table('alerts')
             ->select('company_id', DB::raw('MIN(created_at) as first_alert_at'))
             ->groupBy('company_id')
             ->get();

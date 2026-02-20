@@ -165,7 +165,7 @@ export default function DetectionRulesPage() {
 
             <div className="flex h-full flex-1 flex-col gap-6 p-4 sm:p-6">
                 <div className="flex flex-col gap-1">
-                    <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                    <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
                         Motor de Reglas de Detección
                     </h1>
                     <p className="text-muted-foreground">
@@ -178,7 +178,7 @@ export default function DetectionRulesPage() {
                 <Collapsible open={howItWorksOpen} onOpenChange={setHowItWorksOpen}>
                     <Card>
                         <CollapsibleTrigger asChild>
-                            <CardHeader className="cursor-pointer select-none rounded-t-lg transition-colors hover:bg-muted/50">
+                            <CardHeader className="cursor-pointer select-none rounded-t-xl transition-colors hover:bg-muted/50">
                                 <div className="flex items-center gap-2">
                                     {howItWorksOpen ? (
                                         <ChevronDown className="size-4" />
@@ -200,7 +200,7 @@ export default function DetectionRulesPage() {
                                     contra esas etiquetas.
                                 </p>
 
-                                <h5 className="text-foreground font-semibold">Construir reglas</h5>
+                                <h5 className="font-display text-foreground font-semibold tracking-tight">Construir reglas</h5>
                                 <ol className="ml-2 list-inside list-decimal space-y-1">
                                     <li>
                                         <strong>Arrastra señales</strong> desde la paleta izquierda al
@@ -226,7 +226,7 @@ export default function DetectionRulesPage() {
                                     </li>
                                 </ol>
 
-                                <h5 className="text-foreground font-semibold">Tipos de acción</h5>
+                                <h5 className="font-display text-foreground font-semibold tracking-tight">Tipos de acción</h5>
                                 <p>
                                     Haz clic en la etiqueta de acción del nodo AND para cambiar entre:
                                 </p>
@@ -252,7 +252,7 @@ export default function DetectionRulesPage() {
                                     </li>
                                 </ul>
 
-                                <h5 className="text-foreground font-semibold">
+                                <h5 className="font-display text-foreground font-semibold tracking-tight">
                                     Canales y destinatarios
                                 </h5>
                                 <p>
@@ -269,7 +269,7 @@ export default function DetectionRulesPage() {
                 <Collapsible open={howToTestOpen} onOpenChange={setHowToTestOpen}>
                     <Card>
                         <CollapsibleTrigger asChild>
-                            <CardHeader className="cursor-pointer select-none rounded-t-lg transition-colors hover:bg-muted/50">
+                            <CardHeader className="cursor-pointer select-none rounded-t-xl transition-colors hover:bg-muted/50">
                                 <div className="flex items-center gap-2">
                                     {howToTestOpen ? (
                                         <ChevronDown className="size-4" />
@@ -326,7 +326,7 @@ export default function DetectionRulesPage() {
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0">
                             <div className="flex items-center gap-3">
-                                <div className="flex size-10 items-center justify-center rounded-lg bg-violet-500/10">
+                                <div className="flex size-10 items-center justify-center rounded-xl bg-violet-500/10">
                                     <Network className="size-5 text-violet-600" />
                                 </div>
                                 <div>
@@ -356,18 +356,18 @@ export default function DetectionRulesPage() {
                                         onChange={handleRulesChange}
                                         height={560}
                                     />
-                                    {form.data.rules.length === 0 && (
-                                        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+                                    {form.data.rules.length === 0 ? (
+                                        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
                                             <BellOff className="size-4 text-amber-600" />
                                             <p className="text-sm text-amber-800 dark:text-amber-200">
                                                 No hay reglas. Arrastra señales al canvas, crea un nodo AND,
                                                 conecta los triggers al AND y guarda.
                                             </p>
                                         </div>
-                                    )}
+                                    ) : null}
                                 </>
                             ) : (
-                                <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
                                     <BellOff className="size-5 text-zinc-500" />
                                     <div>
                                         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -400,7 +400,7 @@ export default function DetectionRulesPage() {
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0">
                             <div className="flex items-center gap-3">
-                                <div className="flex size-10 items-center justify-center rounded-lg bg-rose-500/10">
+                                <div className="flex size-10 items-center justify-center rounded-xl bg-rose-500/10">
                                     <Satellite className="size-5 text-rose-600" />
                                 </div>
                                 <div>
@@ -428,7 +428,7 @@ export default function DetectionRulesPage() {
                                 <>
                                     <div className="grid gap-6 sm:grid-cols-2">
                                         <div className="space-y-2">
-                                            <Label>
+                                            <Label className="uppercase tracking-wider text-xs">
                                                 Umbral de inactividad
                                             </Label>
                                             <p className="text-muted-foreground text-xs">
@@ -440,15 +440,15 @@ export default function DetectionRulesPage() {
                                                     staleForm.setData('threshold_minutes', val)
                                                 }
                                             />
-                                            {staleForm.errors.threshold_minutes && (
+                                            {staleForm.errors.threshold_minutes ? (
                                                 <p className="text-xs text-red-500">
                                                     {staleForm.errors.threshold_minutes}
                                                 </p>
-                                            )}
+                                            ) : null}
                                         </div>
 
                                         <div className="space-y-2">
-                                            <Label>
+                                            <Label className="uppercase tracking-wider text-xs">
                                                 Cooldown entre alertas
                                             </Label>
                                             <p className="text-muted-foreground text-xs">
@@ -472,15 +472,15 @@ export default function DetectionRulesPage() {
                                                     minutos
                                                 </span>
                                             </div>
-                                            {staleForm.errors.cooldown_minutes && (
+                                            {staleForm.errors.cooldown_minutes ? (
                                                 <p className="text-xs text-red-500">
                                                     {staleForm.errors.cooldown_minutes}
                                                 </p>
-                                            )}
+                                            ) : null}
                                         </div>
 
                                         <div className="space-y-2">
-                                            <Label>
+                                            <Label className="uppercase tracking-wider text-xs">
                                                 Ignorar vehículos inactivos
                                             </Label>
                                             <p className="text-muted-foreground text-xs">
@@ -504,17 +504,17 @@ export default function DetectionRulesPage() {
                                                     días
                                                 </span>
                                             </div>
-                                            {staleForm.errors.inactive_after_days && (
+                                            {staleForm.errors.inactive_after_days ? (
                                                 <p className="text-xs text-red-500">
                                                     {staleForm.errors.inactive_after_days}
                                                 </p>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </div>
 
                                     <div className="grid gap-6 sm:grid-cols-2">
                                         <div className="space-y-3">
-                                            <Label>Canales de notificación</Label>
+                                            <Label className="uppercase tracking-wider text-xs">Canales de notificación</Label>
                                             <p className="text-muted-foreground text-xs">
                                                 Por qué medios se envía la alerta.
                                             </p>
@@ -547,15 +547,15 @@ export default function DetectionRulesPage() {
                                                     );
                                                 })}
                                             </div>
-                                            {staleForm.errors.channels && (
+                                            {staleForm.errors.channels ? (
                                                 <p className="text-xs text-red-500">
                                                     {staleForm.errors.channels}
                                                 </p>
-                                            )}
+                                            ) : null}
                                         </div>
 
                                         <div className="space-y-3">
-                                            <Label>Destinatarios</Label>
+                                            <Label className="uppercase tracking-wider text-xs">Destinatarios</Label>
                                             <p className="text-muted-foreground text-xs">
                                                 A quién se envía la alerta.
                                             </p>
@@ -597,7 +597,7 @@ export default function DetectionRulesPage() {
                                     </div>
                                 </>
                             ) : (
-                                <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                                <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900">
                                     <Satellite className="size-5 text-zinc-500" />
                                     <div>
                                         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">

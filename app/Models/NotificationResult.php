@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Modelo para resultados de notificaciones.
@@ -22,7 +23,7 @@ class NotificationResult extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'samsara_event_id',
+        'alert_id',
         'channel',
         'recipient_type',
         'to_number',
@@ -30,6 +31,7 @@ class NotificationResult extends Model
         'error',
         'call_sid',
         'message_sid',
+        'status_current',
         'timestamp_utc',
         'created_at',
     ];
@@ -68,9 +70,17 @@ class NotificationResult extends Model
     /**
      * Event this result belongs to.
      */
-    public function event(): BelongsTo
+    public function alert(): BelongsTo
     {
-        return $this->belongsTo(SamsaraEvent::class, 'samsara_event_id');
+        return $this->belongsTo(Alert::class);
+    }
+
+    /**
+     * Delivery status events (append-only log).
+     */
+    public function deliveryEvents(): HasMany
+    {
+        return $this->hasMany(NotificationDeliveryEvent::class);
     }
 
     /**
@@ -183,5 +193,33 @@ class NotificationResult extends Model
             'error' => $error,
             'timestamp_utc' => now(),
         ]));
+    }
+
+    /**
+     * Update the current delivery status from a Twilio callback.
+     * Only advances forward — ignores stale/out-of-order updates.
+     */
+    public function updateStatusFromCallback(string $newStatus): bool
+    {
+        $rank = [
+            'queued' => 0,
+            'accepted' => 1,
+            'sending' => 2,
+            'sent' => 3,
+            'delivered' => 4,
+            'read' => 5,
+            'failed' => 4,
+            'undelivered' => 4,
+        ];
+
+        $currentRank = $rank[$this->status_current] ?? -1;
+        $newRank = $rank[$newStatus] ?? -1;
+
+        if ($newRank > $currentRank || in_array($newStatus, ['failed', 'undelivered'])) {
+            $this->update(['status_current' => $newStatus]);
+            return true;
+        }
+
+        return false;
     }
 }

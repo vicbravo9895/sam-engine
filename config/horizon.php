@@ -278,6 +278,36 @@ return [
             'nice' => 0,
         ],
 
+        // Supervisor para domain events / ledger (baja prioridad)
+        'domain-events-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['domain-events'],
+            'balance' => 'simple',
+            'maxProcesses' => 2,
+            'minProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 3,
+            'timeout' => 30,
+            'nice' => 0,
+        ],
+
+        // Supervisor para metering / usage events (baja prioridad)
+        'metering-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['metering'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'minProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 3,
+            'timeout' => 30,
+            'nice' => 0,
+        ],
+
         // Supervisor para tareas generales (baja prioridad)
         'default-supervisor' => [
             'connection' => 'redis',
@@ -327,6 +357,18 @@ return [
                 'balanceCooldown' => 3,
             ],
             
+            // Domain events: baja prioridad
+            'domain-events-supervisor' => [
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
+            ],
+
+            // Metering: baja prioridad
+            'metering-supervisor' => [
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
+            ],
+
             // Default: tareas de fondo
             'default-supervisor' => [
                 'maxProcesses' => 2,
@@ -349,6 +391,14 @@ return [
             ],
             'media-assets-supervisor' => [
                 'maxProcesses' => 2,
+                'minProcesses' => 1,
+            ],
+            'domain-events-supervisor' => [
+                'maxProcesses' => 1,
+                'minProcesses' => 1,
+            ],
+            'metering-supervisor' => [
+                'maxProcesses' => 1,
                 'minProcesses' => 1,
             ],
             'default-supervisor' => [

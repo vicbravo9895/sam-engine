@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Company;
 use App\Services\BehaviorLabelTranslator;
+use App\Services\DomainEventEmitter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -17,17 +18,8 @@ class CompanyController extends Controller
     public function edit(Request $request)
     {
         $user = $request->user();
-
-        // Only admins can edit company settings
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden editar la configuración de la empresa.');
-        }
-
         $company = Company::findOrFail($user->company_id);
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('update', $company);
 
         return Inertia::render('company/edit', [
             'company' => [
@@ -59,16 +51,8 @@ class CompanyController extends Controller
     public function update(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden editar la configuración de la empresa.');
-        }
-
         $company = $user->company;
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('update', $company);
 
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -108,7 +92,20 @@ class CompanyController extends Controller
         }
 
         unset($validated['logo']);
+
+        $changedFields = array_keys(array_filter($validated, fn ($value, $key) => $company->getAttribute($key) != $value, ARRAY_FILTER_USE_BOTH));
+
         $company->update($validated);
+
+        DomainEventEmitter::emit(
+            companyId: $company->id,
+            entityType: 'company',
+            entityId: (string) $company->id,
+            eventType: 'company.updated',
+            payload: ['changed_fields' => $changedFields],
+            actorType: 'user',
+            actorId: (string) $user->id,
+        );
 
         return back()->with('success', 'Configuración de empresa actualizada exitosamente.');
     }
@@ -119,16 +116,8 @@ class CompanyController extends Controller
     public function updateSamsaraKey(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden actualizar la API key de Samsara.');
-        }
-
         $company = $user->company;
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('updateSamsaraKey', $company);
 
         $validated = $request->validate([
             'samsara_api_key' => ['required', 'string', 'min:20'],
@@ -150,16 +139,8 @@ class CompanyController extends Controller
     public function removeSamsaraKey(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden eliminar la API key de Samsara.');
-        }
-
         $company = $user->company;
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('updateSamsaraKey', $company);
 
         $company->update([
             'samsara_api_key' => null,
@@ -174,12 +155,8 @@ class CompanyController extends Controller
     public function editAiSettings(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden editar la configuración de AI.');
-        }
-
         $company = Company::findOrFail($user->company_id);
+        $this->authorize('updateAiSettings', $company);
 
         $aiConfig = $company->getAiConfig();
 
@@ -203,16 +180,8 @@ class CompanyController extends Controller
     public function updateAiSettings(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden actualizar la configuración de AI.');
-        }
-
         $company = $user->company;
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('updateAiSettings', $company);
 
         $validated = $request->validate([
             // Investigation windows
@@ -248,6 +217,28 @@ class CompanyController extends Controller
             'safety_stream_notify.rules.*.channels.*' => ['string', 'in:whatsapp,sms,call'],
             'safety_stream_notify.rules.*.recipients' => ['sometimes', 'array'],
             'safety_stream_notify.rules.*.recipients.*' => ['string', 'in:monitoring_team,supervisor,operator,emergency,dispatch'],
+            // Escalation matrix (per-level channels and recipients)
+            'escalation_matrix' => ['sometimes', 'array'],
+            'escalation_matrix.emergency' => ['sometimes', 'array'],
+            'escalation_matrix.emergency.channels' => ['sometimes', 'array'],
+            'escalation_matrix.emergency.channels.*' => ['string', 'in:call,whatsapp,sms'],
+            'escalation_matrix.emergency.recipients' => ['sometimes', 'array'],
+            'escalation_matrix.emergency.recipients.*' => ['string', 'in:operator,monitoring,monitoring_team,supervisor,emergency,dispatch'],
+            'escalation_matrix.call' => ['sometimes', 'array'],
+            'escalation_matrix.call.channels' => ['sometimes', 'array'],
+            'escalation_matrix.call.channels.*' => ['string', 'in:call,whatsapp,sms'],
+            'escalation_matrix.call.recipients' => ['sometimes', 'array'],
+            'escalation_matrix.call.recipients.*' => ['string', 'in:operator,monitoring,monitoring_team,supervisor,emergency,dispatch'],
+            'escalation_matrix.warn' => ['sometimes', 'array'],
+            'escalation_matrix.warn.channels' => ['sometimes', 'array'],
+            'escalation_matrix.warn.channels.*' => ['string', 'in:call,whatsapp,sms'],
+            'escalation_matrix.warn.recipients' => ['sometimes', 'array'],
+            'escalation_matrix.warn.recipients.*' => ['string', 'in:operator,monitoring,monitoring_team,supervisor,emergency,dispatch'],
+            'escalation_matrix.monitor' => ['sometimes', 'array'],
+            'escalation_matrix.monitor.channels' => ['sometimes', 'array'],
+            'escalation_matrix.monitor.channels.*' => ['string', 'in:call,whatsapp,sms'],
+            'escalation_matrix.monitor.recipients' => ['sometimes', 'array'],
+            'escalation_matrix.monitor.recipients.*' => ['string', 'in:operator,monitoring,monitoring_team,supervisor,emergency,dispatch'],
         ], [
             'investigation_windows.required' => 'Los parámetros de investigación son requeridos.',
             'monitoring.required' => 'Los parámetros de monitoreo son requeridos.',
@@ -270,6 +261,19 @@ class CompanyController extends Controller
             ];
         }
 
+        // Include escalation_matrix if provided (replace entirely)
+        if (isset($validated['escalation_matrix'])) {
+            $defaultMatrix = Company::DEFAULT_AI_CONFIG['escalation_matrix'];
+            $matrix = [];
+            foreach (['emergency', 'call', 'warn', 'monitor'] as $key) {
+                $matrix[$key] = [
+                    'channels' => array_values($validated['escalation_matrix'][$key]['channels'] ?? $defaultMatrix[$key]['channels'] ?? []),
+                    'recipients' => array_values($validated['escalation_matrix'][$key]['recipients'] ?? $defaultMatrix[$key]['recipients'] ?? []),
+                ];
+            }
+            $aiConfig['escalation_matrix'] = $matrix;
+        }
+
         // Build notifications config
         $notificationsConfig = [
             'channels_enabled' => $validated['channels_enabled'],
@@ -288,7 +292,12 @@ class CompanyController extends Controller
         if (isset($aiConfig['safety_stream_notify'])) {
             $settings['ai_config']['safety_stream_notify'] = $aiConfig['safety_stream_notify'];
         }
-        
+
+        // escalation_matrix: replace entirely when provided
+        if (isset($aiConfig['escalation_matrix'])) {
+            $settings['ai_config']['escalation_matrix'] = $aiConfig['escalation_matrix'];
+        }
+
         $settings['notifications'] = array_replace_recursive(
             $settings['notifications'] ?? Company::DEFAULT_NOTIFICATION_CONFIG,
             $notificationsConfig
@@ -296,6 +305,20 @@ class CompanyController extends Controller
         
         $company->settings = $settings;
         $company->save();
+
+        DomainEventEmitter::emit(
+            companyId: $company->id,
+            entityType: 'company',
+            entityId: (string) $company->id,
+            eventType: 'company.ai_config_changed',
+            payload: [
+                'investigation_windows' => $aiConfig['investigation_windows'] ?? null,
+                'monitoring' => $aiConfig['monitoring'] ?? null,
+                'channels_enabled' => $notificationsConfig['channels_enabled'] ?? null,
+            ],
+            actorType: 'user',
+            actorId: (string) $user->id,
+        );
 
         return back()->with('success', 'Configuración de AI actualizada exitosamente.');
     }
@@ -306,16 +329,8 @@ class CompanyController extends Controller
     public function resetAiSettings(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden restablecer la configuración de AI.');
-        }
-
         $company = $user->company;
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('updateAiSettings', $company);
 
         $settings = $company->settings ?? [];
         
@@ -335,12 +350,8 @@ class CompanyController extends Controller
     public function editDetectionRules(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden editar el Motor de Reglas de Detección.');
-        }
-
         $company = Company::findOrFail($user->company_id);
+        $this->authorize('updateAiSettings', $company);
         $config = $company->getSafetyStreamNotifyConfig();
 
         return Inertia::render('company/detection-rules', [
@@ -366,16 +377,8 @@ class CompanyController extends Controller
     public function updateDetectionRules(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden actualizar el Motor de Reglas de Detección.');
-        }
-
         $company = $user->company;
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('updateAiSettings', $company);
 
         $validated = $request->validate([
             'enabled' => ['required', 'boolean'],
@@ -410,16 +413,8 @@ class CompanyController extends Controller
     public function updateStaleVehicleMonitor(Request $request)
     {
         $user = $request->user();
-
-        if (!$user->isAdmin()) {
-            abort(403, 'Solo los administradores pueden actualizar el monitor de vehículos.');
-        }
-
         $company = $user->company;
-
-        if (!$company) {
-            abort(404, 'No se encontró la empresa.');
-        }
+        $this->authorize('updateAiSettings', $company);
 
         $validated = $request->validate([
             'enabled' => ['required', 'boolean'],

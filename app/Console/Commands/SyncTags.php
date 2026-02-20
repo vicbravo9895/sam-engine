@@ -6,7 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Company;
 use App\Models\Tag;
-use App\Samsara\Client\SamsaraClient;
+use App\Samsara\Client\SyncAdapter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -120,8 +120,8 @@ class SyncTags extends Command
      */
     protected function syncCompanyTags(Company $company): array
     {
-        $client = new SamsaraClient($company->getSamsaraApiKey());
-        $tags = $client->getTags();
+        $client = new SyncAdapter($company->getSamsaraApiKey());
+        $tags = $client->getAllTags();
 
         $created = 0;
         $updated = 0;

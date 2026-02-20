@@ -5,7 +5,9 @@ namespace App\Http\Controllers\SuperAdmin;
 use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\User;
+use App\Services\DomainEventEmitter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
@@ -184,7 +186,19 @@ class CompanyController extends Controller
             $validated['slug'] = Str::slug($validated['name']);
         }
 
+        $changedFields = array_keys(array_filter($validated, fn ($value, $key) => $company->getAttribute($key) != $value, ARRAY_FILTER_USE_BOTH));
+
         $company->update($validated);
+
+        DomainEventEmitter::emit(
+            companyId: $company->id,
+            entityType: 'company',
+            entityId: (string) $company->id,
+            eventType: 'company.updated',
+            payload: ['changed_fields' => $changedFields],
+            actorType: 'user',
+            actorId: (string) Auth::id(),
+        );
 
         return back()->with('success', 'Empresa actualizada exitosamente.');
     }

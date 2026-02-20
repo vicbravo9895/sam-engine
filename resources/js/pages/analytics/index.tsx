@@ -24,6 +24,7 @@ import {
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
+import { StaggerContainer, StaggerItem } from '@/components/motion';
 import {
     Activity,
     AlertTriangle,
@@ -221,7 +222,7 @@ export default function AnalyticsIndex() {
                                 <BarChart3 className="size-5" />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-bold tracking-tight">
+                                <h1 className="font-display text-2xl font-bold tracking-tight">
                                     Análisis
                                 </h1>
                                 <p className="text-sm text-muted-foreground">
@@ -263,11 +264,11 @@ export default function AnalyticsIndex() {
                             </TooltipTrigger>
                             <TooltipContent>
                                 Actualizar datos
-                                {lastUpdated && (
-                                    <span className="ml-1 text-xs text-muted-foreground">
+                                {lastUpdated ? (
+                                    <span className="ml-1 font-mono text-xs text-muted-foreground">
                                         · {formatLastUpdated()}
                                     </span>
-                                )}
+                                ) : null}
                             </TooltipContent>
                         </Tooltip>
 
@@ -324,7 +325,7 @@ export default function AnalyticsIndex() {
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-semibold">Alertas AI</h2>
+                                <h2 className="font-display text-lg font-semibold">Alertas AI</h2>
                                 <p className="text-sm text-muted-foreground">
                                     Eventos de pánico y alertas procesadas por el pipeline de AI
                                 </p>
@@ -344,7 +345,7 @@ export default function AnalyticsIndex() {
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <div>
-                                <h2 className="text-lg font-semibold">Señales de Seguridad</h2>
+                                <h2 className="font-display text-lg font-semibold">Señales de Seguridad</h2>
                                 <p className="text-sm text-muted-foreground">
                                     Comportamientos de conducción capturados del stream de Samsara
                                 </p>
@@ -416,48 +417,58 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
         <div className="space-y-6">
             {/* Executive KPIs */}
             <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <KPICard
-                    icon={Activity}
-                    title="Total Eventos"
-                    value={totalEvents.toLocaleString()}
-                    subtitle={`últimos ${summary.period_days} días`}
-                    trend={null}
-                    accent="from-blue-500/20 to-blue-500/5"
-                    iconColor="text-blue-500"
-                />
-                <KPICard
-                    icon={ShieldAlert}
-                    title="Eventos Críticos"
-                    value={totalCritical.toLocaleString()}
-                    subtitle={`${criticalRate}% del total`}
-                    trend={totalCritical > 10 ? 'up' : null}
-                    accent="from-red-500/20 to-red-500/5"
-                    iconColor="text-red-500"
-                />
-                <KPICard
-                    icon={Users}
-                    title="Conductores Activos"
-                    value={summary.signals.unique_drivers.toLocaleString()}
-                    subtitle="con señales registradas"
-                    trend={null}
-                    accent="from-amber-500/20 to-amber-500/5"
-                    iconColor="text-amber-500"
-                />
-                <KPICard
-                    icon={Truck}
-                    title="Vehículos Monitoreados"
-                    value={summary.signals.unique_vehicles.toLocaleString()}
-                    subtitle="en el período"
-                    trend={null}
-                    accent="from-emerald-500/20 to-emerald-500/5"
-                    iconColor="text-emerald-500"
-                />
+                <StaggerContainer className="contents">
+                    <StaggerItem>
+                        <KPICard
+                            icon={Activity}
+                            title="Total Eventos"
+                            value={totalEvents.toLocaleString()}
+                            subtitle={`últimos ${summary.period_days} días`}
+                            trend={null}
+                            accent="from-blue-500/20 to-blue-500/5"
+                            iconColor="text-blue-500"
+                        />
+                    </StaggerItem>
+                    <StaggerItem>
+                        <KPICard
+                            icon={ShieldAlert}
+                            title="Eventos Críticos"
+                            value={totalCritical.toLocaleString()}
+                            subtitle={`${criticalRate}% del total`}
+                            trend={totalCritical > 10 ? 'up' : null}
+                            accent="from-red-500/20 to-red-500/5"
+                            iconColor="text-red-500"
+                        />
+                    </StaggerItem>
+                    <StaggerItem>
+                        <KPICard
+                            icon={Users}
+                            title="Conductores Activos"
+                            value={summary.signals.unique_drivers.toLocaleString()}
+                            subtitle="con señales registradas"
+                            trend={null}
+                            accent="from-amber-500/20 to-amber-500/5"
+                            iconColor="text-amber-500"
+                        />
+                    </StaggerItem>
+                    <StaggerItem>
+                        <KPICard
+                            icon={Truck}
+                            title="Vehículos Monitoreados"
+                            value={summary.signals.unique_vehicles.toLocaleString()}
+                            subtitle="en el período"
+                            trend={null}
+                            accent="from-emerald-500/20 to-emerald-500/5"
+                            iconColor="text-emerald-500"
+                        />
+                    </StaggerItem>
+                </StaggerContainer>
             </section>
 
             {/* System Comparison Cards - same gradient treatment as KPI row */}
             <section className="grid gap-6 lg:grid-cols-2">
                 {/* Alerts Summary Card */}
-                <Card className="relative overflow-hidden">
+                <Card className="relative overflow-hidden rounded-xl shadow-sm">
                     <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-primary/5" />
                     <CardHeader className="relative border-b border-primary/10 pb-4">
                         <div className="flex items-center justify-between">
@@ -517,7 +528,7 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
                 </Card>
 
                 {/* Signals Summary Card */}
-                <Card className="relative overflow-hidden">
+                <Card className="relative overflow-hidden rounded-xl shadow-sm">
                     <div className="absolute inset-0 bg-gradient-to-br from-amber-500/20 to-amber-500/5" />
                     <CardHeader className="relative border-b border-amber-500/10 pb-4">
                         <div className="flex items-center justify-between">
@@ -578,7 +589,7 @@ function OverviewTab({ summary, loading, error, onRetry, onNavigateToTab }: Over
 
             {/* Quick Insights */}
             <section>
-                <Card>
+                <Card className="rounded-xl shadow-sm">
                     <CardHeader>
                         <div className="flex items-center gap-2">
                             <Brain className="size-5 text-primary" />
@@ -669,14 +680,14 @@ interface KPICardProps {
 
 function KPICard({ icon: Icon, title, value, subtitle, trend, accent, iconColor }: KPICardProps) {
     return (
-        <Card className="relative overflow-hidden">
+        <Card className="relative overflow-hidden rounded-xl shadow-sm">
             <div className={`absolute inset-0 bg-gradient-to-br ${accent}`} />
             <CardContent className="relative p-4">
                 <div className="flex items-start justify-between">
                     <div className={`rounded-lg p-2 ${iconColor} bg-background/80 backdrop-blur`}>
                         <Icon className="size-5" />
                     </div>
-                    {trend && (
+                    {trend ? (
                         <span
                             className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                                 trend === 'up'
@@ -690,10 +701,10 @@ function KPICard({ icon: Icon, title, value, subtitle, trend, accent, iconColor 
                                 <TrendingDown className="size-3" />
                             )}
                         </span>
-                    )}
+                    ) : null}
                 </div>
                 <div className="mt-3">
-                    <p className="text-3xl font-bold">{value}</p>
+                    <p className="font-display font-bold text-3xl">{value}</p>
                     <p className="text-sm text-muted-foreground">{title}</p>
                     <p className="mt-1 text-xs text-muted-foreground/70">{subtitle}</p>
                 </div>
@@ -716,7 +727,7 @@ function MetricItem({ label, value, icon: Icon, accent }: MetricItemProps) {
                 <Icon className={`size-4 ${accent ?? 'text-muted-foreground'}`} />
             </div>
             <div>
-                <p className="text-lg font-semibold">{value}</p>
+                <p className="font-mono text-lg font-semibold">{value}</p>
                 <p className="text-xs text-muted-foreground">{label}</p>
             </div>
         </div>
@@ -779,7 +790,7 @@ interface QuickLinkCardProps {
 
 function QuickLinkCard({ icon: Icon, title, description, href, accent }: QuickLinkCardProps) {
     return (
-        <Card className="group relative overflow-hidden transition-all hover:shadow-md">
+        <Card className="group relative overflow-hidden rounded-xl shadow-sm transition-all hover:shadow-md">
             <div className={`absolute inset-0 bg-gradient-to-br ${accent} opacity-50 transition-opacity group-hover:opacity-100`} />
             <CardContent className="relative p-4">
                 <Link href={href} className="flex items-center justify-between">

@@ -31,7 +31,6 @@ from .schemas import (
     PanicAssessment,  # Alias para compatibilidad
     # Notification
     NotificationDecision,
-    NotificationResult,
     # Execution
     ToolResult,
     AgentResult,
@@ -65,7 +64,6 @@ __all__ = [
     "SupportingEvidence",
     "PanicAssessment",
     "NotificationDecision",
-    "NotificationResult",
     "ToolResult",
     "AgentResult",
     "PipelineResult",

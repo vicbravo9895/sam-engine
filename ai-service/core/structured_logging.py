@@ -30,6 +30,7 @@ from typing import Any, Optional
 
 # Context variables (thread-safe for async)
 trace_id_var: ContextVar[str] = ContextVar("trace_id", default="unknown")
+traceparent_var: ContextVar[str] = ContextVar("traceparent", default="unknown")
 event_id_var: ContextVar[Optional[int]] = ContextVar("event_id", default=None)
 company_id_var: ContextVar[Optional[int]] = ContextVar("company_id", default=None)
 
@@ -42,6 +43,16 @@ def get_trace_id() -> str:
 def set_trace_id(trace_id: str) -> None:
     """Set the trace ID in context."""
     trace_id_var.set(trace_id)
+
+
+def get_traceparent() -> str:
+    """Get the current W3C traceparent from context."""
+    return traceparent_var.get()
+
+
+def set_traceparent(traceparent: str) -> None:
+    """Set the W3C traceparent in context."""
+    traceparent_var.set(traceparent)
 
 
 def get_event_id() -> Optional[int]:
@@ -68,11 +79,14 @@ def set_request_context(
     trace_id: str,
     event_id: Optional[int] = None,
     company_id: Optional[int] = None,
+    traceparent: Optional[str] = None,
 ) -> None:
     """Set all request context variables at once."""
     set_trace_id(trace_id)
     set_event_id(event_id)
     set_company_id(company_id)
+    if traceparent:
+        set_traceparent(traceparent)
 
 
 class JsonFormatter(logging.Formatter):
@@ -89,12 +103,12 @@ class JsonFormatter(logging.Formatter):
     
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
-        # Build base log data
         log_data: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname.lower(),
             "service": self.service,
             "environment": self.environment,
+            "traceparent": get_traceparent(),
             "trace_id": get_trace_id(),
             "message": record.getMessage(),
         }

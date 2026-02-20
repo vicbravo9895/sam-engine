@@ -1,6 +1,6 @@
 /**
  * SAM Design System - Brand tokens
- * Single source of truth for colors, surfaces, and feedback.
+ * Single source of truth for colors, surfaces, depth, and feedback.
  * Use semantic variables (--primary, --accent, etc.) in app.css; do not hardcode these in components.
  */
 :root {
@@ -16,18 +16,21 @@
     --sam-accent-blue: #0A5A78;
     --sam-accent-deep: #0A466E;
 
-    /* Surfaces */
-    --sam-bg: #F7FAFC;
+    /* Surfaces - 3-tier system: bg < surface < surface-raised */
+    --sam-bg: #F5F7FA;
     --sam-surface: #FFFFFF;
-    --sam-border: #E5E7EB;
+    --sam-surface-raised: #FFFFFF;
+    --sam-surface-glass: rgba(255, 255, 255, 0.72);
+    --sam-border: #E2E5EB;
+    --sam-border-subtle: #EEF0F4;
 
     /* Text */
     --sam-text: #0B1220;
-    --sam-text-muted: #334155;
+    --sam-text-muted: #5B6578;
 
     /* Derived - light surfaces for secondary/muted/accent hover */
-    --sam-muted-bg: #f1f5f9;
-    --sam-accent-bg: #e6f4f4;
+    --sam-muted-bg: #EDF0F5;
+    --sam-accent-bg: #E0F2F1;
 
     /* Feedback - sober, AA contrast */
     --sam-success: #0d6842;
@@ -41,19 +44,40 @@
 
     /* Primary button text on dark background */
     --sam-primary-foreground: #ffffff;
+
+    /* Gradients */
+    --sam-gradient-subtle: linear-gradient(135deg, rgba(20, 120, 140, 0.04) 0%, rgba(10, 90, 120, 0.02) 100%);
+    --sam-gradient-accent: linear-gradient(135deg, #14788C 0%, #0A5A78 100%);
+    --sam-gradient-surface: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(20, 120, 140, 0.02) 100%);
+
+    /* Shadows - depth scale */
+    --sam-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --sam-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --sam-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+    --sam-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+    --sam-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+
+    /* Glow - severity indicators */
+    --sam-glow-teal: 0 0 12px rgba(20, 120, 140, 0.25);
+    --sam-glow-red: 0 0 12px rgba(185, 28, 28, 0.2);
+    --sam-glow-amber: 0 0 12px rgba(180, 83, 9, 0.2);
+    --sam-glow-green: 0 0 12px rgba(13, 104, 66, 0.2);
 }
 
-/* Dark mode - SAM tokens with safe contrast (no white text on light) */
+/* Dark mode */
 .dark {
-    --sam-bg: #0f172a;
-    --sam-surface: #1e293b;
-    --sam-border: #334155;
-    --sam-text: #f1f5f9;
-    --sam-text-muted: #94a3b8;
-    --sam-muted-bg: #1e293b;
-    --sam-accent-bg: #164e63;
+    --sam-bg: #0C1221;
+    --sam-surface: #151E30;
+    --sam-surface-raised: #1C2740;
+    --sam-surface-glass: rgba(21, 30, 48, 0.78);
+    --sam-border: #263044;
+    --sam-border-subtle: #1E2A3E;
+    --sam-text: #F0F4F8;
+    --sam-text-muted: #8896AB;
+    --sam-muted-bg: #1A2538;
+    --sam-accent-bg: #0F2E3D;
     --sam-primary: #38bdf8;
-    --sam-primary-foreground: #0f172a;
+    --sam-primary-foreground: #0C1221;
     --sam-accent-teal: #2dd4bf;
     --sam-success: #34d399;
     --sam-success-foreground: #022c22;
@@ -63,4 +87,22 @@
     --sam-error-foreground: #450a0a;
     --sam-info: #38bdf8;
     --sam-info-foreground: #0c4a6e;
+
+    /* Gradients - dark */
+    --sam-gradient-subtle: linear-gradient(135deg, rgba(45, 212, 191, 0.04) 0%, rgba(56, 189, 248, 0.02) 100%);
+    --sam-gradient-accent: linear-gradient(135deg, #2dd4bf 0%, #38bdf8 100%);
+    --sam-gradient-surface: linear-gradient(180deg, rgba(21, 30, 48, 0) 0%, rgba(45, 212, 191, 0.03) 100%);
+
+    /* Shadows - dark */
+    --sam-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --sam-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+    --sam-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+    --sam-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.2);
+    --sam-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+
+    /* Glow - dark mode (more vivid) */
+    --sam-glow-teal: 0 0 16px rgba(45, 212, 191, 0.2);
+    --sam-glow-red: 0 0 16px rgba(248, 113, 113, 0.18);
+    --sam-glow-amber: 0 0 16px rgba(251, 191, 36, 0.15);
+    --sam-glow-green: 0 0 16px rgba(52, 211, 153, 0.18);
 }

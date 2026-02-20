@@ -109,14 +109,25 @@ async def _analyze_images(image_items: List[Dict]) -> List[Dict]:
     
     async def analyze_single_image(idx: int, item: Dict, http_client: httpx.AsyncClient) -> Dict:
         """Analiza una sola imagen."""
+        # Extraer tipo de cámara y timestamp al inicio (Laravel envía camera_type/input y captured_at/start_time)
+        camera_input = item.get('camera_type') or item.get('input') or 'unknown'
+        if camera_input == '':
+            camera_input = 'unknown'
+        captured_at = (
+            item.get('captured_at')
+            or item.get('startTime')
+            or item.get('start_time')
+            or item.get('availableAtTime')
+            or 'unknown'
+        )
+        if captured_at == '':
+            captured_at = 'unknown'
+
         try:
             # Extraer URL
             url = item.get('url') or item.get('download_url')
             if not url:
-                return {"error": "No URL found", "input": item.get('camera_type', 'unknown')}
-            
-            camera_input = item.get('camera_type') or item.get('input', 'unknown')
-            captured_at = item.get('captured_at') or item.get('startTime', 'unknown')
+                return {"error": "No URL found", "input": camera_input}
             
             # Descargar imagen
             response = await http_client.get(url)
@@ -190,7 +201,7 @@ async def _analyze_images(image_items: List[Dict]) -> List[Dict]:
             logger.error(f"Error analyzing image {idx}: {e}")
             return {
                 "error": str(e),
-                "input": item.get('camera_type', 'unknown')
+                "input": camera_input,
             }
     
     # Ejecutar analisis EN PARALELO

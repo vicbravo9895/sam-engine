@@ -841,7 +841,7 @@ export default function Copilot() {
                                     <div className="from-primary/20 to-primary/5 animate-in fade-in zoom-in mx-auto mb-4 inline-flex rounded-full bg-gradient-to-br p-4 duration-500 md:p-5">
                                         <Sparkles className="text-primary size-7 md:size-9" />
                                     </div>
-                                    <h2 className="animate-in fade-in slide-in-from-bottom-4 mb-2 text-xl font-bold tracking-tight duration-500 md:text-2xl" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
+                                    <h2 className="animate-in fade-in slide-in-from-bottom-4 mb-2 font-display text-xl font-bold tracking-tight duration-500 md:text-2xl" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
                                         Tu Copilot de Flota
                                     </h2>
                                     <p className="text-muted-foreground animate-in fade-in slide-in-from-bottom-4 mx-auto max-w-lg text-sm duration-500 md:text-base" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
@@ -946,10 +946,10 @@ export default function Copilot() {
 
                                         <div
                                             className={cn(
-                                                'min-w-0 overflow-hidden rounded-2xl px-3 py-2 transition-shadow duration-200 md:px-4 md:py-3',
+                                                'min-w-0 overflow-hidden rounded-2xl px-3 py-2 transition-all duration-200 md:px-4 md:py-3',
                                                 message.role === 'user'
-                                                    ? 'bg-primary text-primary-foreground max-w-[85%] md:max-w-[70%]'
-                                                    : 'bg-muted flex-1 max-w-none',
+                                                    ? 'bg-primary text-primary-foreground max-w-[85%] shadow-sm md:max-w-[70%]'
+                                                    : 'bg-muted/60 border border-border/40 flex-1 max-w-none',
                                             )}
                                         >
                                             {message.role === 'assistant' ? (
