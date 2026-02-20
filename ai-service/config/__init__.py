@@ -8,7 +8,8 @@ from .settings import (
     OpenAIConfig,
     ServiceConfig,
     BreadcrumbConfig,
-    TwilioConfig
+    TwilioConfig,
+    SentryConfig,
 )
 from .langfuse import LangfuseConfig, langfuse_client
 
@@ -19,8 +20,9 @@ __all__ = [
     "ServiceConfig",
     "BreadcrumbConfig",
     "TwilioConfig",
+    "SentryConfig",
     "LangfuseConfig",
-    "langfuse_client"
+    "langfuse_client",
 ]
 
 

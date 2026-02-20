@@ -114,3 +114,25 @@ class TwilioConfig:
     def is_configured(cls) -> bool:
         """Check if Twilio credentials are configured."""
         return bool(cls.ACCOUNT_SID and cls.AUTH_TOKEN and cls.PHONE_NUMBER)
+
+
+# ============================================================================
+# CONFIGURACIÓN DE SENTRY
+# ============================================================================
+class SentryConfig:
+    """Configuración para Sentry (error monitoring, logs, tracing, profiling)."""
+
+    DSN = os.getenv("SENTRY_DSN", "")
+    ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", os.getenv("ENVIRONMENT", "production"))
+    RELEASE = os.getenv("SENTRY_RELEASE", "")
+    TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0"))
+    PROFILE_SESSION_SAMPLE_RATE = float(
+        os.getenv("SENTRY_PROFILE_SESSION_SAMPLE_RATE", "1.0")
+    )
+    SEND_DEFAULT_PII = os.getenv("SENTRY_SEND_DEFAULT_PII", "false").lower() == "true"
+    ENABLE_LOGS = os.getenv("SENTRY_ENABLE_LOGS", "true").lower() == "true"
+
+    @classmethod
+    def is_configured(cls) -> bool:
+        """Check if Sentry DSN is configured."""
+        return bool(cls.DSN)

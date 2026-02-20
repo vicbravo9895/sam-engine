@@ -142,6 +142,8 @@ services:
             ENVIRONMENT: ${APP_ENV:-local}
             LOG_LEVEL: ${LOG_LEVEL:-INFO}
             LOG_FILE: /app/logs/ai-service.json
+            # Sentry (AI_SENTRY_DSN for separate project, else inherits SENTRY_LARAVEL_DSN)
+            SENTRY_DSN: ${AI_SENTRY_DSN:-${SENTRY_LARAVEL_DSN:-}}
         ports:
             - '8000:8000'
         networks:

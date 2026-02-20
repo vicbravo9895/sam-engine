@@ -50,7 +50,7 @@ Sistema de monitoreo y procesamiento inteligente de alertas de flotas usando AI.
 | **LLM** | OpenAI GPT-4o / GPT-4o-mini | - |
 | **Telematics** | Samsara SDK | 4.1.0 |
 | **Notificaciones** | Twilio (SMS, WhatsApp, Voice) | 9.x |
-| **Observability** | Langfuse + ClickHouse | 3.x |
+| **Observability** | Langfuse + ClickHouse + Sentry | 3.x |
 | **Container** | Docker + Laravel Sail | - |
 | **UI Components** | Radix UI + Tailwind CSS | 4.x |
 
@@ -564,6 +564,12 @@ AI_SERVICE_BASE_URL=http://ai-service:8000
 DB_CONNECTION=pgsql
 QUEUE_CONNECTION=redis
 SAMSARA_API_KEY=samsara_api_...
+
+# Sentry (error monitoring, logs, tracing, profiling)
+SENTRY_LARAVEL_DSN=https://...
+SENTRY_TRACES_SAMPLE_RATE=1.0
+SENTRY_PROFILES_SAMPLE_RATE=1.0
+SENTRY_ENABLE_LOGS=true
 ```
 
 ### Dev: Reverb y MinIO al arrancar Sail
@@ -574,10 +580,22 @@ En `compose.yaml`, los servicios Laravel (laravel.test, horizon, reverb) tienen 
 2. Credenciales: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` pueden usar `${MINIO_ROOT_USER}` y `${MINIO_ROOT_PASSWORD}`.
 3. El bucket `sam-media` se crea automáticamente en el primer upload. Los archivos quedan en el volumen `sail-minio-data`.
 
-### AI Service (`ai-service/.env`)
+### AI Service y Sentry (Dokploy / un solo .env)
+
+**Todo en el .env raíz.** Compose inyecta las vars a cada servicio:
+- **Laravel** usa `SENTRY_LARAVEL_DSN`
+- **AI Service** usa `AI_SENTRY_DSN` si existe; si no, `SENTRY_LARAVEL_DSN`
+
+Mismo proyecto: solo `SENTRY_LARAVEL_DSN`. Dos proyectos: añadir `AI_SENTRY_DSN`.
+
+### AI Service (`ai-service/.env` - solo dev local)
+
+En dev con Sail puedes override en `ai-service/.env`:
+
 ```env
 OPENAI_API_KEY=sk-...
 SAMSARA_API_TOKEN=samsara_api_...
+SENTRY_DSN=   # opcional; en prod viene del root .env vía compose
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
 TWILIO_PHONE_NUMBER=+1...
@@ -753,12 +771,19 @@ sail artisan test --coverage
 
 ## Observabilidad
 
+- **Sentry**: Error monitoring, logs, tracing y profiling. Captura excepciones no manejadas, logs (canal `sentry_logs`), transacciones y spans de performance. Profiling requiere extensión Excimer (`pecl install excimer`).
 - **Laravel Pulse** (`/pulse`): Dashboard de monitoreo en tiempo real
 - **Langfuse** (`localhost:3030`): Traces de ejecución de agentes AI Service
 - **Laravel Telescope** (`/telescope`): Requests, jobs, queries
 - **Laravel Horizon** (`/horizon`): Dashboard de queues
 - **TokenUsage model**: Tracking de tokens del copilot
 - **Logs**: `storage/logs/laravel.log` y `docker logs ai-service`
+
+### Verificar Sentry
+
+```bash
+sail artisan sentry:test
+```
 
 ### Laravel Pulse - Métricas SAM
 

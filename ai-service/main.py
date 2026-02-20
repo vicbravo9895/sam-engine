@@ -8,11 +8,28 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI, Request
+
+from config import ServiceConfig, SentryConfig
 from fastapi.responses import JSONResponse
 
-from config import ServiceConfig
 from api import router, analytics_router, analysis_router
+
+# ============================================================================
+# SENTRY (must be initialized before other imports that might trigger errors)
+# ============================================================================
+if SentryConfig.is_configured():
+    sentry_sdk.init(
+        dsn=SentryConfig.DSN,
+        environment=SentryConfig.ENVIRONMENT or None,
+        release=SentryConfig.RELEASE or None,
+        send_default_pii=SentryConfig.SEND_DEFAULT_PII,
+        enable_logs=SentryConfig.ENABLE_LOGS,
+        traces_sample_rate=SentryConfig.TRACES_SAMPLE_RATE,
+        profile_session_sample_rate=SentryConfig.PROFILE_SESSION_SAMPLE_RATE,
+        profile_lifecycle="trace",
+    )
 from core.structured_logging import (
     setup_logging,
     get_logger,
@@ -171,6 +188,12 @@ def _is_valid_traceparent(value: str) -> bool:
 app.include_router(router)
 app.include_router(analytics_router)
 app.include_router(analysis_router)
+
+
+@app.get("/sentry-debug")
+async def sentry_debug():
+    """Sentry verification endpoint - triggers an error to test error capture."""
+    division_by_zero = 1 / 0  # noqa: F841
 
 
 # ============================================================================
