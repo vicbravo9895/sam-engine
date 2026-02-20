@@ -133,11 +133,13 @@ return new class extends Migration
             $table->dropColumn('samsara_event_id');
         });
 
-        // notification_throttle_logs: rename samsara_event_id → alert_id
-        Schema::table('notification_throttle_logs', function (Blueprint $table) {
-            $table->dropForeign(['samsara_event_id']);
-            $table->renameColumn('samsara_event_id', 'alert_id');
-        });
+        // notification_throttle_logs: rename samsara_event_id → alert_id (skip if table missing, e.g. old DB)
+        if (Schema::hasTable('notification_throttle_logs') && Schema::hasColumn('notification_throttle_logs', 'samsara_event_id')) {
+            Schema::table('notification_throttle_logs', function (Blueprint $table) {
+                $table->dropForeign(['samsara_event_id']);
+                $table->renameColumn('samsara_event_id', 'alert_id');
+            });
+        }
 
         // =====================================================================
         // 5. Rename tables to alert-centric names

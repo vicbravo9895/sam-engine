@@ -61,7 +61,8 @@ class CleanLegacySamsaraEvents extends Command
         }
 
         if (Schema::hasTable('samsara_events')) {
-            Schema::dropIfExists('samsara_events');
+            // CASCADE drops all foreign key constraints that reference this table (PostgreSQL)
+            DB::statement('DROP TABLE IF EXISTS samsara_events CASCADE');
             $this->info('Dropped table samsara_events.');
         } else {
             $this->line('Table samsara_events does not exist (already dropped or never created).');
