@@ -31,7 +31,7 @@ class AlertController extends Controller
             'attention' => (string) $request->input('attention', ''),
         ];
 
-        $query = Alert::query()->with(['signal', 'ownerUser']);
+        $query = Alert::query()->with(['signal', 'ownerUser', 'ai']);
 
         if ($user->company_id) {
             $query->forCompany($user->company_id);
@@ -208,6 +208,13 @@ class AlertController extends Controller
         $ai = $alert->relationLoaded('ai') ? $alert->ai : null;
         $aiAssessment = $ai?->ai_assessment;
         $aiActions = $ai?->ai_actions;
+        // Fallback: use normalized verdict/likelihood on alerts when ai_assessment is missing (e.g. old data)
+        if (empty($aiAssessment) && ($alert->verdict !== null || $alert->likelihood !== null)) {
+            $aiAssessment = array_filter([
+                'verdict' => $alert->verdict,
+                'likelihood' => $alert->likelihood,
+            ]);
+        }
         $assessment = $this->formatAssessment($aiAssessment);
 
         $displayEventType = $signal?->event_description ?: $this->alertTypeLabel($alertType);
