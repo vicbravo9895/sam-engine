@@ -8,14 +8,20 @@ use Illuminate\Support\Facades\DB;
 
 class AggregateUsage extends Command
 {
-    protected $signature = 'sam:aggregate-usage {--date= : Date to aggregate (YYYY-MM-DD), defaults to yesterday}';
+    protected $signature = 'sam:aggregate-usage
+                            {--date= : Date to aggregate (YYYY-MM-DD, or "today"/"yesterday"), defaults to yesterday}';
     protected $description = 'Aggregate usage_events into daily summaries for billing';
 
     public function handle(): int
     {
-        $date = $this->option('date')
-            ? \Carbon\Carbon::parse($this->option('date'))->toDateString()
-            : now()->subDay()->toDateString();
+        $dateOpt = $this->option('date');
+        $date = match (strtolower($dateOpt ?? '')) {
+            'today' => now()->toDateString(),
+            'yesterday' => now()->subDay()->toDateString(),
+            default => $dateOpt
+                ? \Carbon\Carbon::parse($dateOpt)->toDateString()
+                : now()->subDay()->toDateString(),
+        };
 
         $this->info("Aggregating usage for {$date}...");
 
