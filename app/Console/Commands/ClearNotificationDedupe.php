@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\NotificationDedupeLog;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Borra una o todas las claves de dedupe de notificaciones (solo para desarrollo/testing).
@@ -27,6 +28,11 @@ class ClearNotificationDedupe extends Command
         if (!$force && app()->environment('production')) {
             $this->error('Este comando no se puede ejecutar en producción sin --force.');
             return self::FAILURE;
+        }
+
+        if (! Schema::hasTable('notification_dedupe_logs')) {
+            $this->warn('La tabla notification_dedupe_logs no existe. Ejecuta: sail artisan migrate');
+            return self::SUCCESS;
         }
 
         if ($all) {

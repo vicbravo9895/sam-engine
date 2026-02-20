@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Modelo para log de deduplicación de notificaciones.
@@ -60,6 +61,9 @@ class NotificationDedupeLog extends Model
         if (empty($dedupeKey)) {
             return false;
         }
+        if (! Schema::hasTable('notification_dedupe_logs')) {
+            return false;
+        }
 
         // Clean up expired entries
         self::cleanupExpired($ttlHours);
@@ -92,6 +96,9 @@ class NotificationDedupeLog extends Model
      */
     public static function cleanupExpired(int $ttlHours = 24): int
     {
+        if (! Schema::hasTable('notification_dedupe_logs')) {
+            return 0;
+        }
         return self::where('last_seen_at', '<', now()->subHours($ttlHours))->delete();
     }
 
@@ -100,6 +107,9 @@ class NotificationDedupeLog extends Model
      */
     public static function getStats(string $dedupeKey): ?array
     {
+        if (! Schema::hasTable('notification_dedupe_logs')) {
+            return null;
+        }
         $entry = self::find($dedupeKey);
 
         if (!$entry) {

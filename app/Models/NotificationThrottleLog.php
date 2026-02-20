@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Modelo para log de throttling de notificaciones.
@@ -90,6 +91,9 @@ class NotificationThrottleLog extends Model
         int $windowMinutes = 30,
         int $maxNotifications = 5
     ): array {
+        if (! Schema::hasTable('notification_throttle_logs')) {
+            return [false, null];
+        }
         // Clean up old entries first
         self::cleanupOld($windowMinutes * 2);
 
@@ -112,8 +116,11 @@ class NotificationThrottleLog extends Model
     /**
      * Record a notification.
      */
-    public static function record(string $throttleKey, ?int $alertId = null): self
+    public static function record(string $throttleKey, ?int $alertId = null): ?self
     {
+        if (! Schema::hasTable('notification_throttle_logs')) {
+            return null;
+        }
         return self::create([
             'throttle_key' => $throttleKey,
             'notification_timestamp' => now(),
@@ -126,6 +133,9 @@ class NotificationThrottleLog extends Model
      */
     public static function cleanupOld(int $olderThanMinutes = 60): int
     {
+        if (! Schema::hasTable('notification_throttle_logs')) {
+            return 0;
+        }
         return self::where('notification_timestamp', '<', now()->subMinutes($olderThanMinutes))->delete();
     }
 
@@ -134,6 +144,9 @@ class NotificationThrottleLog extends Model
      */
     public static function getCountInWindow(string $throttleKey, int $windowMinutes = 30): int
     {
+        if (! Schema::hasTable('notification_throttle_logs')) {
+            return 0;
+        }
         return self::where('throttle_key', $throttleKey)
             ->where('notification_timestamp', '>', now()->subMinutes($windowMinutes))
             ->count();
