@@ -24,6 +24,7 @@ class SafetySignalController extends Controller
         $companyId = $user->company_id;
 
         $query = SafetySignal::forCompany($companyId)
+            ->withExists('incidents as used_in_evidence')
             ->orderBy('occurred_at', 'desc');
 
         // Apply filters
@@ -78,7 +79,7 @@ class SafetySignalController extends Controller
             'occurred_at' => $signal->occurred_at?->toIso8601String(),
             'occurred_at_human' => $signal->occurred_at?->diffForHumans(),
             'created_at' => $signal->created_at?->toIso8601String(),
-            'used_in_evidence' => $signal->incidents()->exists(),
+            'used_in_evidence' => (bool) $signal->used_in_evidence,
         ]);
 
         // Get stats for the header
