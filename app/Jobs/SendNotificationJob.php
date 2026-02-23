@@ -7,6 +7,7 @@ use App\Models\NotificationDecision;
 use App\Models\NotificationRecipient;
 use App\Models\NotificationResult;
 use App\Pulse\Recorders\NotificationRecorder;
+use App\Services\ContactResolver;
 use App\Services\DomainEventEmitter;
 use App\Services\NotificationDedupeService;
 use App\Services\TwilioService;
@@ -40,6 +41,8 @@ class SendNotificationJob implements ShouldQueue
 
         $this->alert->load('signal');
         $signal = $this->alert->signal;
+
+        $this->decision['recipients'] = $this->normalizeRecipients($this->decision['recipients'] ?? []);
 
         Log::info('SendNotificationJob: Iniciando', [
             'alert_id' => $this->alert->id,
@@ -197,6 +200,63 @@ class SendNotificationJob implements ShouldQueue
         }
 
         return $filteredChannels;
+    }
+
+    /**
+     * Ensures every recipient entry is a proper array with phone/whatsapp keys.
+     * String entries (e.g. "operator") are resolved via ContactResolver.
+     */
+    private function normalizeRecipients(array $recipients): array
+    {
+        $normalized = [];
+        $needsResolution = false;
+
+        foreach ($recipients as $entry) {
+            if (is_array($entry) && isset($entry['recipient_type'])) {
+                $normalized[] = $entry;
+            } else {
+                $needsResolution = true;
+            }
+        }
+
+        if (!$needsResolution) {
+            return $normalized;
+        }
+
+        Log::warning('SendNotificationJob: Recipients contain non-array entries, resolving from contacts', [
+            'alert_id' => $this->alert->id,
+            'raw_recipients' => $recipients,
+        ]);
+
+        $signal = $this->alert->signal;
+        $resolved = app(ContactResolver::class)->resolve(
+            $signal?->vehicle_id,
+            $signal?->driver_id,
+            $this->alert->company_id
+        );
+
+        foreach ($recipients as $entry) {
+            if (is_array($entry) && isset($entry['recipient_type'])) {
+                continue;
+            }
+            if (is_string($entry)) {
+                $typeKey = $entry === 'monitoring' ? 'monitoring_team' : $entry;
+                $contactData = $resolved[$typeKey] ?? null;
+                if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
+                    $normalized[] = array_merge($contactData, ['recipient_type' => $typeKey]);
+                }
+            }
+        }
+
+        if (empty($normalized)) {
+            foreach ($resolved as $type => $contactData) {
+                if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
+                    $normalized[] = array_merge($contactData, ['recipient_type' => $type]);
+                }
+            }
+        }
+
+        return $normalized;
     }
 
     private function sendToRecipient(

@@ -215,11 +215,61 @@ class AttentionEngine
             'recipients' => ['monitoring'],
         ]);
 
+        $channels = $matrix['channels'] ?? ['whatsapp'];
+        $recipientTypes = $matrix['recipients'] ?? ['monitoring'];
+
+        $signal = $alert->signal;
+        $contactResolver = app(ContactResolver::class);
+        $resolvedContacts = $contactResolver->resolve(
+            $signal?->vehicle_id,
+            $signal?->driver_id,
+            $alert->company_id
+        );
+
+        $recipients = [];
+        foreach ($recipientTypes as $type) {
+            $typeKey = $type === 'monitoring' ? 'monitoring_team' : $type;
+            $contactData = $resolvedContacts[$typeKey] ?? null;
+            if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
+                $recipients[] = array_merge($contactData, ['recipient_type' => $typeKey]);
+            }
+        }
+
+        if (empty($recipients)) {
+            foreach ($resolvedContacts as $type => $contactData) {
+                if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
+                    $recipients[] = array_merge($contactData, ['recipient_type' => $type]);
+                }
+            }
+        }
+
+        if (empty($recipients)) {
+            Log::warning('AttentionEngine: No contacts resolved for escalation', [
+                'alert_id' => $alert->id,
+                'recipient_types' => $recipientTypes,
+            ]);
+            return;
+        }
+
+        $escalationLevel = match ($matrixKey) {
+            'emergency' => 'critical',
+            'call' => 'high',
+            'warn' => 'low',
+            'monitor' => 'none',
+            default => 'high',
+        };
+
+        $messageText = $alert->ai_message ?? 'Alerta requiere atención — escalación automática';
+        $callScript = mb_substr($messageText, 0, 200);
+
         $escalationDecision = [
             'should_notify' => true,
-            'escalation_level' => $matrixKey,
-            'channels_to_use' => $matrix['channels'] ?? ['whatsapp'],
-            'recipients' => $matrix['recipients'] ?? ['monitoring'],
+            'escalation_level' => $escalationLevel,
+            'channels_to_use' => $channels,
+            'recipients' => $recipients,
+            'message_text' => $messageText,
+            'call_script' => $callScript,
+            'dedupe_key' => "escalation-{$alert->id}-{$newCount}",
             'reason' => "Escalación automática (nivel {$newCount}/{$maxEscalations}): sin ACK en tiempo SLA",
             'is_escalation' => true,
         ];

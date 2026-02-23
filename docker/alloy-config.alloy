@@ -40,7 +40,7 @@ loki.source.file "laravel" {
 }
 
 loki.process "laravel_pipeline" {
-    // Parse JSON and extract labels
+    // Parse JSON and extract labels (context.thread_id = copilot conversation ID)
     stage.json {
         expressions = {
             level       = "level",
@@ -50,6 +50,7 @@ loki.process "laravel_pipeline" {
             channel     = "channel",
             company_id  = "company_id",
             user_id     = "user_id",
+            thread_id   = "context.thread_id",
         }
     }
     
@@ -61,6 +62,7 @@ loki.process "laravel_pipeline" {
             environment = "",
             channel     = "",
             company_id  = "",
+            thread_id   = "",
         }
     }
     
