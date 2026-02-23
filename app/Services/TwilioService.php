@@ -47,7 +47,8 @@ class TwilioService
         $this->authToken = (string) config('services.twilio.token', '');
         $this->phoneNumber = (string) config('services.twilio.from', '');
         $this->whatsappNumber = (string) config('services.twilio.whatsapp', '');
-        $this->callbackUrl = config('services.twilio.callback_url');
+        $url = config('services.twilio.callback_url');
+        $this->callbackUrl = is_string($url) && $url !== '' ? rtrim($url, '/') : $url;
         $this->baseUrl = "https://api.twilio.com/2010-04-01/Accounts/{$this->accountSid}";
     }
 
