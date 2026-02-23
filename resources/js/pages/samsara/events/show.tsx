@@ -214,6 +214,13 @@ function formatRelative(iso?: string | null): string {
     }
 }
 
+function formatTimelineActor(actor: string): string {
+    if (actor === 'system') return 'Sistema';
+    if (actor === 'twilio') return 'Twilio';
+    if (actor.startsWith('user:')) return 'Usuario';
+    return actor;
+}
+
 function slaColor(acked: boolean, dueAt?: string | null): string {
     if (acked) return 'text-emerald-400';
     if (!dueAt) return 'text-muted-foreground';
@@ -607,7 +614,7 @@ function UnifiedTimeline({ entries }: { entries: UnifiedTimelineEntry[] }) {
                                     </p>
                                 )}
                                 <p className="mt-1 font-mono text-[10px] text-muted-foreground/50">
-                                    {formatRelative(entry.timestamp)} &middot; {entry.actor}
+                                    {formatRelative(entry.timestamp)} &middot; {formatTimelineActor(entry.actor)}
                                 </p>
                             </div>
                         </div>

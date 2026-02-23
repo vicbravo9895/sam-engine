@@ -1633,21 +1633,26 @@ class AlertController extends Controller
         }
 
         foreach ($alert->notificationResults ?? collect() as $nr) {
+            $errorLabel = $nr->success ? null : ($this->twilioErrorToSpanish($nr->error) ?? $nr->error ?? 'Error desconocido');
+            $description = $nr->to_number . ($errorLabel !== null ? ' (fallido: ' . $errorLabel . ')' : '');
             $entries->push([
                 'type' => 'notification',
                 'icon' => 'send',
                 'title' => 'Notificación enviada — ' . strtoupper($nr->channel),
-                'description' => $nr->to_number . ($nr->success ? '' : ' (fallido: ' . ($nr->error ?? '?') . ')'),
+                'description' => $description,
                 'timestamp' => ($nr->timestamp_utc ?? $nr->created_at)->toIso8601String(),
                 'actor' => 'system',
             ]);
 
             foreach ($nr->deliveryEvents ?? collect() as $de) {
+                $description = $de->error_message
+                    ? ($this->twilioErrorToSpanish($de->error_message) ?? $de->error_message)
+                    : null;
                 $entries->push([
                     'type' => 'notification_status',
                     'icon' => $de->isTerminal() ? ($de->status === 'delivered' || $de->status === 'read' ? 'check' : 'x') : 'clock',
                     'title' => $this->deliveryEventStatusLabel($de->status),
-                    'description' => $de->error_message,
+                    'description' => $description,
                     'timestamp' => $de->received_at->toIso8601String(),
                     'actor' => 'twilio',
                 ]);
@@ -1697,10 +1702,42 @@ class AlertController extends Controller
             Log::debug('buildUnifiedTimeline: domain events fetch failed', ['error' => $e->getMessage()]);
         }
 
-        return $entries
-            ->sortBy('timestamp')
-            ->values()
-            ->all();
+        $sorted = $entries->sortBy('timestamp')->values();
+
+        return $this->collapseConsecutiveTimelineDuplicates($sorted->all());
+    }
+
+    /**
+     * Agrupa entradas consecutivas con mismo tipo y título en una sola (ej. "Alerta escalada (3 veces)").
+     */
+    private function collapseConsecutiveTimelineDuplicates(array $entries): array
+    {
+        if ($entries === []) {
+            return [];
+        }
+        $out = [];
+        $current = null;
+        $count = 0;
+        foreach ($entries as $entry) {
+            $key = ($entry['type'] ?? '') . '|' . ($entry['title'] ?? '');
+            if ($current !== null && $current === $key) {
+                $count++;
+                continue;
+            }
+            if ($current !== null) {
+                $last = &$out[array_key_last($out)];
+                if ($count > 1) {
+                    $last['title'] = $last['title'] . ' (' . $count . ' veces)';
+                }
+            }
+            $current = $key;
+            $count = 1;
+            $out[] = $entry;
+        }
+        if ($current !== null && $count > 1) {
+            $out[array_key_last($out)]['title'] = $out[array_key_last($out)]['title'] . ' (' . $count . ' veces)';
+        }
+        return $out;
     }
 
     private function activityActionLabel(string $action): string
@@ -1725,7 +1762,9 @@ class AlertController extends Controller
             'marked_false_positive' => 'Marcado como falso positivo',
             'marked_resolved' => 'Marcado como resuelto',
             'marked_flagged' => 'Marcado para seguimiento',
-            default => Str::headline($action),
+            'alert_escalated' => 'Alerta escalada',
+            'escalated' => 'Alerta escalada',
+            default => 'Evento del sistema',
         };
     }
 
@@ -1738,6 +1777,36 @@ class AlertController extends Controller
             'failed', 'undelivered' => 'No se pudo entregar',
             default => 'Estado: ' . $status,
         };
+    }
+
+    /**
+     * Traduce mensajes de error de Twilio al español para la línea de tiempo.
+     */
+    private function twilioErrorToSpanish(?string $error): ?string
+    {
+        if ($error === null || $error === '') {
+            return null;
+        }
+        $e = strtolower($error);
+        if (str_contains($e, 'account not authorized to call') || str_contains($e, 'not authorized to call')) {
+            return 'Cuenta no autorizada para llamar a este número. Revisa los permisos de llamadas internacionales en Twilio.';
+        }
+        if (str_contains($e, 'international permissions') || str_contains($e, 'geo-permissions')) {
+            return 'Permisos de llamadas internacionales no habilitados en Twilio.';
+        }
+        if (str_contains($e, 'invalid phone number') || str_contains($e, 'invalid parameter')) {
+            return 'Número de teléfono no válido.';
+        }
+        if (str_contains($e, 'unable to create record') || str_contains($e, 'resource not found')) {
+            return 'No se pudo completar la operación (recurso no encontrado).';
+        }
+        if (str_contains($e, 'authenticate') || str_contains($e, 'authentication')) {
+            return 'Error de autenticación con Twilio.';
+        }
+        if (str_contains($e, 'busy') || str_contains($e, 'no-answer')) {
+            return 'Llamada no contestada o ocupado.';
+        }
+        return null;
     }
 
     /**
@@ -1819,7 +1888,7 @@ class AlertController extends Controller
             'alert.revalidation_started' => 'Revisión de seguimiento',
             'alert.revalidation_completed' => 'Revisión de seguimiento completada',
             'alert.human_reviewed' => 'Revisado por una persona',
-            default => Str::headline(str_replace('.', ' ', $eventType)),
+            default => 'Evento del sistema',
         };
     }
 

@@ -34,17 +34,48 @@ class DashboardController extends Controller
             $alertsBaseQuery->forCompany($companyIdFilter);
         }
 
+        // Single aggregated query for all samsaraStats counts (avoids 10 separate COUNT queries)
+        $samsaraCounts = (clone $alertsBaseQuery)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN DATE(created_at) = ? THEN 1 ELSE 0 END) as today,
+                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as this_week,
+                SUM(CASE WHEN severity = ? THEN 1 ELSE 0 END) as critical,
+                SUM(CASE WHEN ai_status = ? THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN ai_status = ? THEN 1 ELSE 0 END) as processing,
+                SUM(CASE WHEN ai_status = ? THEN 1 ELSE 0 END) as investigating,
+                SUM(CASE WHEN ai_status = ? THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN ai_status = ? THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN human_status = ? AND (ai_status IN (?, ?) OR severity = ? OR risk_escalation IN (?, ?)) THEN 1 ELSE 0 END) as needs_human_attention
+            ", [
+                $today->format('Y-m-d'),
+                $lastWeek,
+                Alert::SEVERITY_CRITICAL,
+                Alert::STATUS_PENDING,
+                Alert::STATUS_PROCESSING,
+                Alert::STATUS_INVESTIGATING,
+                Alert::STATUS_COMPLETED,
+                Alert::STATUS_FAILED,
+                Alert::HUMAN_STATUS_PENDING,
+                Alert::STATUS_FAILED,
+                Alert::STATUS_INVESTIGATING,
+                Alert::SEVERITY_CRITICAL,
+                Alert::RISK_CALL,
+                Alert::RISK_EMERGENCY,
+            ])
+            ->first();
+
         $samsaraStats = [
-            'total' => (clone $alertsBaseQuery)->count(),
-            'today' => (clone $alertsBaseQuery)->whereDate('created_at', $today)->count(),
-            'thisWeek' => (clone $alertsBaseQuery)->where('created_at', '>=', $lastWeek)->count(),
-            'critical' => (clone $alertsBaseQuery)->critical()->count(),
-            'pending' => (clone $alertsBaseQuery)->pending()->count(),
-            'processing' => (clone $alertsBaseQuery)->processing()->count(),
-            'investigating' => (clone $alertsBaseQuery)->investigating()->count(),
-            'completed' => (clone $alertsBaseQuery)->completed()->count(),
-            'failed' => (clone $alertsBaseQuery)->failed()->count(),
-            'needsHumanAttention' => (clone $alertsBaseQuery)->needsHumanAttention()->count(),
+            'total' => (int) $samsaraCounts->total,
+            'today' => (int) $samsaraCounts->today,
+            'thisWeek' => (int) $samsaraCounts->this_week,
+            'critical' => (int) $samsaraCounts->critical,
+            'pending' => (int) $samsaraCounts->pending,
+            'processing' => (int) $samsaraCounts->processing,
+            'investigating' => (int) $samsaraCounts->investigating,
+            'completed' => (int) $samsaraCounts->completed,
+            'failed' => (int) $samsaraCounts->failed,
+            'needsHumanAttention' => (int) $samsaraCounts->needs_human_attention,
         ];
 
         $eventsBySeverity = (clone $alertsBaseQuery)
@@ -191,31 +222,40 @@ class DashboardController extends Controller
             'thisWeek' => (clone $conversationsQuery)->where('created_at', '>=', $lastWeek)->count(),
         ];
 
-        $recentConversations = (clone $conversationsQuery)
+        $recentConversationsCollection = (clone $conversationsQuery)
+            ->withCount('messages')
             ->with('user:id,name')
             ->orderBy('updated_at', 'desc')
             ->limit(5)
-            ->get(['id', 'thread_id', 'title', 'user_id', 'updated_at', 'created_at'])
-            ->map(function ($conv) {
-                $messageCount = ChatMessage::where('thread_id', $conv->thread_id)->count();
-                $lastMessage = ChatMessage::where('thread_id', $conv->thread_id)
-                    ->orderBy('created_at', 'desc')
-                    ->first();
+            ->get(['id', 'thread_id', 'title', 'user_id', 'updated_at', 'created_at']);
 
-                return [
-                    'id' => $conv->id,
-                    'thread_id' => $conv->thread_id,
-                    'title' => $conv->title,
-                    'user_name' => $conv->user?->name ?? 'Usuario',
-                    'message_count' => $messageCount,
-                    'last_message_preview' => $lastMessage
-                        ? (is_array($lastMessage->content)
-                            ? \Illuminate\Support\Str::limit($lastMessage->content['text'] ?? '', 80)
-                            : \Illuminate\Support\Str::limit($lastMessage->content ?? '', 80))
-                        : null,
-                    'updated_at' => $conv->updated_at->diffForHumans(),
-                ];
-            });
+        $threadIds = $recentConversationsCollection->pluck('thread_id')->filter()->values()->all();
+        $lastMessagesByThread = collect();
+        if ($threadIds !== []) {
+            $lastMessagesByThread = ChatMessage::query()
+                ->whereIn('thread_id', $threadIds)
+                ->orderByDesc('created_at')
+                ->get()
+                ->unique('thread_id')
+                ->keyBy('thread_id');
+        }
+
+        $recentConversations = $recentConversationsCollection->map(function ($conv) use ($lastMessagesByThread) {
+            $lastMessage = $lastMessagesByThread->get($conv->thread_id);
+            return [
+                'id' => $conv->id,
+                'thread_id' => $conv->thread_id,
+                'title' => $conv->title,
+                'user_name' => $conv->user?->name ?? 'Usuario',
+                'message_count' => (int) $conv->messages_count,
+                'last_message_preview' => $lastMessage
+                    ? (is_array($lastMessage->content)
+                        ? \Illuminate\Support\Str::limit($lastMessage->content['text'] ?? '', 80)
+                        : \Illuminate\Support\Str::limit($lastMessage->content ?? '', 80))
+                    : null,
+                'updated_at' => $conv->updated_at->diffForHumans(),
+            ];
+        });
 
         $onboardingStatus = null;
         if (!$isSuperAdmin && $user->company) {
@@ -244,16 +284,34 @@ class DashboardController extends Controller
 
         $alertsQuery = Alert::query()->when($companyIdFilter !== null, fn ($q) => $q->forCompany($companyIdFilter));
 
+        // Single aggregated query for operationalStatus alert counts (avoids 5+ separate COUNT queries)
+        $operationalCounts = (clone $alertsQuery)
+            ->selectRaw("
+                SUM(CASE WHEN ai_status != ? THEN 1 ELSE 0 END) as alerts_open,
+                SUM(CASE WHEN ack_status = ? AND ack_due_at IS NOT NULL AND ack_due_at < ? THEN 1 ELSE 0 END) as sla_breaches,
+                SUM(CASE WHEN attention_state IS NOT NULL AND attention_state != ? THEN 1 ELSE 0 END) as needs_attention,
+                SUM(CASE WHEN DATE(created_at) = ? THEN 1 ELSE 0 END) as alerts_today,
+                SUM(CASE WHEN acked_at IS NOT NULL AND acked_at >= ? THEN 1 ELSE 0 END) as acked_last_week
+            ", [
+                Alert::STATUS_COMPLETED,
+                Alert::ACK_PENDING,
+                now(),
+                Alert::ATTENTION_CLOSED,
+                $today->format('Y-m-d'),
+                $lastWeek,
+            ])
+            ->first();
+
         $operationalStatus = [
-            'alerts_open' => (clone $alertsQuery)->whereNotIn('ai_status', ['completed'])->count(),
-            'sla_breaches' => (clone $alertsQuery)->overdueAck()->count(),
-            'needs_attention' => (clone $alertsQuery)->needsAttention()->count(),
+            'alerts_open' => (int) $operationalCounts->alerts_open,
+            'sla_breaches' => (int) $operationalCounts->sla_breaches,
+            'needs_attention' => (int) $operationalCounts->needs_attention,
             'avg_ack_seconds' => null,
             'deliverability_rate' => null,
-            'alerts_today' => (clone $alertsQuery)->whereDate('created_at', $today)->count(),
+            'alerts_today' => (int) $operationalCounts->alerts_today,
         ];
 
-        $ackedCount = (clone $alertsQuery)->whereNotNull('acked_at')->where('acked_at', '>=', $lastWeek)->count();
+        $ackedCount = (int) $operationalCounts->acked_last_week;
         if ($ackedCount > 0) {
             $avgAck = (clone $alertsQuery)
                 ->whereNotNull('acked_at')
@@ -300,18 +358,20 @@ class DashboardController extends Controller
             ])
             ->toArray();
 
+        // Single grouped query for alerts per day (avoids 14 separate COUNT queries)
+        $fourteenDaysAgo = Carbon::now()->subDays(14)->startOfDay();
+        $alertsByDate = (clone $alertsBaseQuery)
+            ->where('created_at', '>=', $fourteenDaysAgo)
+            ->select(DB::raw('DATE(created_at) as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->get()
+            ->keyBy('date');
         $alertsPerDay = [];
         for ($i = 13; $i >= 0; $i--) {
             $date = Carbon::now()->subDays($i)->format('Y-m-d');
-            $dayStart = Carbon::parse($date)->startOfDay();
-            $dayEnd = Carbon::parse($date)->endOfDay();
-            $q = Alert::query()->whereBetween('created_at', [$dayStart, $dayEnd]);
-            if ($companyIdFilter !== null) {
-                $q->forCompany($companyIdFilter);
-            }
             $alertsPerDay[] = [
                 'date' => $date,
-                'count' => $q->count(),
+                'count' => (int) ($alertsByDate->get($date)?->count ?? 0),
             ];
         }
 
