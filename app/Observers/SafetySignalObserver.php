@@ -215,6 +215,7 @@ class SafetySignalObserver
                 'samsara_event_id' => $safetySignal->samsara_event_id,
             ],
             [
+                'source' => 'safety_stream',
                 'event_type' => 'AlertIncident',
                 'event_description' => $safetySignal->primary_label_translated
                     ?? $safetySignal->primary_behavior_label

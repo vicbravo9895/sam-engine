@@ -455,7 +455,7 @@ function StreamingIndicator({ isHeavy }: { isHeavy: boolean }) {
                     <span className="bg-primary size-1.5 animate-pulse rounded-full [animation-delay:-0.15s]"></span>
                     <span className="bg-primary size-1.5 animate-pulse rounded-full"></span>
                 </div>
-                <span className="text-primary text-xs font-medium">Generando contenido...</span>
+                <span className="text-primary text-xs font-medium">Generando contenido…</span>
             </div>
         );
     }

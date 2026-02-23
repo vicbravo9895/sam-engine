@@ -180,7 +180,7 @@ export function TagQuickSearch({
     if (!open) return null;
 
     return (
-        <div ref={panelRef} className="animate-in fade-in slide-in-from-bottom-2 absolute inset-x-0 bottom-full z-40 mb-0 duration-200">
+        <div ref={panelRef} className="animate-in fade-in slide-in-from-bottom-2 absolute inset-x-0 bottom-full z-40 mb-0 overscroll-contain duration-200" role="dialog" aria-label="Seleccionar grupo">
             <div className="bg-background mx-3 rounded-2xl border shadow-xl md:mx-auto md:max-w-4xl">
                 {/* Header */}
                 <div className="flex items-center gap-2 border-b px-3 py-2.5">
@@ -190,8 +190,9 @@ export function TagQuickSearch({
                                 type="button"
                                 onClick={handleBack}
                                 className="text-muted-foreground hover:text-foreground -ml-1 rounded-lg p-1 transition-colors"
+                                aria-label="Volver a la lista de grupos"
                             >
-                                <ChevronLeft className="size-4" />
+                                <ChevronLeft className="size-4" aria-hidden />
                             </button>
                             <Tag className="text-teal-500 size-4" />
                             <span className="text-sm font-semibold">{selectedTag.name}</span>
@@ -204,19 +205,22 @@ export function TagQuickSearch({
                             <Search className="text-muted-foreground size-4" />
                             <input
                                 ref={inputRef}
-                                type="text"
+                                type="search"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Buscar grupo por nombre..."
+                                placeholder="Buscar grupo por nombre…"
                                 className="placeholder:text-muted-foreground flex-1 bg-transparent text-sm outline-none"
+                                aria-label="Buscar grupo"
+                                autoComplete="off"
                             />
                             {search && (
                                 <button
                                     type="button"
                                     onClick={() => setSearch('')}
                                     className="text-muted-foreground hover:text-foreground rounded p-0.5 transition-colors"
+                                    aria-label="Borrar búsqueda"
                                 >
-                                    <X className="size-3.5" />
+                                    <X className="size-3.5" aria-hidden />
                                 </button>
                             )}
                         </>
@@ -225,8 +229,9 @@ export function TagQuickSearch({
                         type="button"
                         onClick={onClose}
                         className="text-muted-foreground hover:text-foreground ml-auto rounded-lg p-1 transition-colors"
+                        aria-label="Cerrar"
                     >
-                        <X className="size-4" />
+                        <X className="size-4" aria-hidden />
                     </button>
                 </div>
 
@@ -246,7 +251,7 @@ export function TagQuickSearch({
                                         key={action.id}
                                         type="button"
                                         onClick={() => handleActionClick(action)}
-                                        className="hover:bg-muted flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-all hover:shadow-sm"
+                                        className="hover:bg-muted flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-[background-color,box-shadow] duration-200 hover:shadow-sm"
                                     >
                                         <div className={cn('flex size-8 items-center justify-center rounded-lg', bgColor)}>
                                             <Icon className={cn('size-4', textColor)} />

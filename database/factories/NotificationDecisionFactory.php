@@ -16,7 +16,7 @@ class NotificationDecisionFactory extends Factory
         return [
             'alert_id' => Alert::factory(),
             'should_notify' => true,
-            'escalation_level' => 0,
+            'escalation_level' => 'critical',
             'message_text' => fake()->sentence(),
             'reason' => 'Critical safety event requires notification.',
             'created_at' => now(),

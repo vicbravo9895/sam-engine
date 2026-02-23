@@ -89,7 +89,10 @@ class SendNotificationJobTest extends TestCase
         ['alert' => $alert] = $this->createCompletedAlert($this->company);
         Contact::factory()->monitoringTeam()->forCompany($this->company)->create();
 
-        $decision = $this->makeDecision(['channels_to_use' => ['call']]);
+        $decision = $this->makeDecision([
+            'channels_to_use' => ['call'],
+            'escalation_level' => 'high',
+        ]);
 
         $this->runJob(new SendNotificationJob($alert, $decision));
 

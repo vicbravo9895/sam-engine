@@ -215,7 +215,7 @@ export function VehicleQuickSearch({
     if (!open) return null;
 
     return (
-        <div ref={panelRef} className="animate-in fade-in slide-in-from-bottom-2 absolute inset-x-0 bottom-full z-40 mb-0 duration-200">
+        <div ref={panelRef} className="animate-in fade-in slide-in-from-bottom-2 absolute inset-x-0 bottom-full z-40 mb-0 overscroll-contain duration-200" role="dialog" aria-label="Seleccionar vehículo">
             <div className="bg-background mx-3 rounded-2xl border shadow-xl md:mx-auto md:max-w-4xl">
                 {/* Header */}
                 <div className="flex items-center gap-2 border-b px-3 py-2.5">
@@ -225,8 +225,9 @@ export function VehicleQuickSearch({
                                 type="button"
                                 onClick={handleBack}
                                 className="text-muted-foreground hover:text-foreground -ml-1 rounded-lg p-1 transition-colors"
+                                aria-label="Volver a la lista de vehículos"
                             >
-                                <ChevronLeft className="size-4" />
+                                <ChevronLeft className="size-4" aria-hidden />
                             </button>
                             <Truck className="text-primary size-4" />
                             <span className="text-sm font-semibold">{selectedVehicle.name}</span>
@@ -239,19 +240,22 @@ export function VehicleQuickSearch({
                             <Search className="text-muted-foreground size-4" />
                             <input
                                 ref={inputRef}
-                                type="text"
+                                type="search"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Buscar vehículo por nombre, placa o modelo..."
+                                placeholder="Buscar vehículo por nombre, placa o modelo…"
                                 className="placeholder:text-muted-foreground flex-1 bg-transparent text-sm outline-none"
+                                aria-label="Buscar vehículo"
+                                autoComplete="off"
                             />
                             {search && (
                                 <button
                                     type="button"
                                     onClick={() => setSearch('')}
                                     className="text-muted-foreground hover:text-foreground rounded p-0.5 transition-colors"
+                                    aria-label="Borrar búsqueda"
                                 >
-                                    <X className="size-3.5" />
+                                    <X className="size-3.5" aria-hidden />
                                 </button>
                             )}
                         </>
@@ -260,8 +264,9 @@ export function VehicleQuickSearch({
                         type="button"
                         onClick={onClose}
                         className="text-muted-foreground hover:text-foreground ml-auto rounded-lg p-1 transition-colors"
+                        aria-label="Cerrar"
                     >
-                        <X className="size-4" />
+                        <X className="size-4" aria-hidden />
                     </button>
                 </div>
 
@@ -282,7 +287,7 @@ export function VehicleQuickSearch({
                                         type="button"
                                         onClick={() => handleActionClick(action)}
                                         className={cn(
-                                            'hover:bg-muted flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-all hover:shadow-sm',
+                                            'hover:bg-muted flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-xs font-medium transition-[background-color,box-shadow] duration-200 hover:shadow-sm',
                                         )}
                                     >
                                         <div className={cn('flex size-8 items-center justify-center rounded-lg', bgColor)}>

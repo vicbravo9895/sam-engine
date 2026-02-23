@@ -25,6 +25,11 @@ class RevalidateAlertJobTest extends TestCase
         $this->setUpTenant();
     }
 
+    private function runJob(RevalidateAlertJob $job): void
+    {
+        app()->call([$job, 'handle']);
+    }
+
     public function test_revalidates_investigating_alert(): void
     {
         Bus::fake([SendNotificationJob::class, RevalidateAlertJob::class]);
@@ -34,7 +39,7 @@ class RevalidateAlertJobTest extends TestCase
 
         $this->mockPipelineAdapterForRevalidation();
 
-        (new RevalidateAlertJob($alert))->handle(app(\App\Services\ContactResolver::class));
+        $this->runJob(new RevalidateAlertJob($alert));
 
         $alert->refresh();
         $this->assertEquals(Alert::STATUS_COMPLETED, $alert->ai_status);
@@ -46,7 +51,7 @@ class RevalidateAlertJobTest extends TestCase
 
         ['alert' => $alert] = $this->createCompletedAlert($this->company);
 
-        (new RevalidateAlertJob($alert))->handle(app(\App\Services\ContactResolver::class));
+        $this->runJob(new RevalidateAlertJob($alert));
 
         Http::assertNothingSent();
     }
@@ -59,7 +64,7 @@ class RevalidateAlertJobTest extends TestCase
         ['alert' => $alert, 'ai' => $ai] = $this->createInvestigatingAlert($this->company);
         $ai->update(['investigation_count' => 10]);
 
-        (new RevalidateAlertJob($alert))->handle(app(\App\Services\ContactResolver::class));
+        $this->runJob(new RevalidateAlertJob($alert));
 
         $alert->refresh();
         $this->assertEquals(Alert::STATUS_COMPLETED, $alert->ai_status);
@@ -74,7 +79,7 @@ class RevalidateAlertJobTest extends TestCase
 
         ['alert' => $alert] = $this->createInvestigatingAlert($this->company);
 
-        (new RevalidateAlertJob($alert))->handle(app(\App\Services\ContactResolver::class));
+        $this->runJob(new RevalidateAlertJob($alert));
 
         Bus::assertDispatched(RevalidateAlertJob::class);
     }
@@ -87,7 +92,7 @@ class RevalidateAlertJobTest extends TestCase
 
         ['alert' => $alert, 'ai' => $ai] = $this->createInvestigatingAlert($this->company);
 
-        (new RevalidateAlertJob($alert))->handle(app(\App\Services\ContactResolver::class));
+        $this->runJob(new RevalidateAlertJob($alert));
 
         $ai->refresh();
         $this->assertNotNull($ai->ai_assessment);
@@ -102,7 +107,7 @@ class RevalidateAlertJobTest extends TestCase
 
         $this->expectException(\Exception::class);
 
-        (new RevalidateAlertJob($alert))->handle(app(\App\Services\ContactResolver::class));
+        $this->runJob(new RevalidateAlertJob($alert));
     }
 
     private function mockPipelineAdapterForRevalidation(): void

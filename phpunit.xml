@@ -16,6 +16,12 @@
         <include>
             <directory>app</directory>
         </include>
+        <exclude>
+            <directory>app/Console/Commands</directory>
+            <directory>app/Pulse</directory>
+            <directory>app/Neuron</directory>
+            <directory>app/Samsara/Client</directory>
+        </exclude>
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>

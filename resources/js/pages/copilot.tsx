@@ -31,7 +31,7 @@ import {
     User,
     Users,
 } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
 
 interface Message {
     id: number;
@@ -155,8 +155,9 @@ function EventContextBanner({ context }: { context: EventContextPayload }) {
                 </div>
                 <a
                     href={`/samsara/alerts/${context.event_id}`}
-                    className="text-muted-foreground hover:text-foreground flex-shrink-0 transition-colors"
+                    className="text-muted-foreground hover:text-foreground focus-visible:ring-primary flex-shrink-0 rounded p-1.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                     title="Ver detalle de alerta"
+                    aria-label="Ver detalle de alerta"
                 >
                     <ExternalLink className="size-3.5" />
                 </a>
@@ -330,6 +331,198 @@ function getFollowUpSuggestions(lastMessageContent: string): string[] {
     ];
 }
 
+// ============================================================================
+// Extracted helpers (pure functions — no component state dependency)
+// ============================================================================
+
+const getToolIcon = (iconName: string) => {
+    const icons: Record<string, React.ReactNode> = {
+        truck: <Truck className="size-4" />,
+        activity: <Activity className="size-4" />,
+        database: <Database className="size-4" />,
+        search: <Search className="size-4" />,
+        loader: <Loader2 className="size-4 animate-spin" />,
+        'bar-chart': <BarChart3 className="size-4" />,
+    };
+    return icons[iconName] || <Loader2 className="size-4 animate-spin" />;
+};
+
+const getToolContext = (label: string): { description: string; colorClass: string } => {
+    const labelLower = label.toLowerCase();
+    if (labelLower.includes('ubicación') || labelLower.includes('location')) {
+        return { description: 'Consultando GPS del vehículo…', colorClass: 'from-blue-500/20 to-cyan-500/20' };
+    }
+    if (labelLower.includes('vehículo') || labelLower.includes('vehicle') || labelLower.includes('stats')) {
+        return { description: 'Obteniendo estadísticas del vehículo…', colorClass: 'from-indigo-500/20 to-purple-500/20' };
+    }
+    if (labelLower.includes('conductor') || labelLower.includes('driver')) {
+        return { description: 'Buscando información del conductor…', colorClass: 'from-green-500/20 to-emerald-500/20' };
+    }
+    if (labelLower.includes('flota') || labelLower.includes('fleet')) {
+        return { description: 'Generando reporte de flota…', colorClass: 'from-blue-600/20 to-blue-400/20' };
+    }
+    if (labelLower.includes('seguridad') || labelLower.includes('safety') || labelLower.includes('evento')) {
+        return { description: 'Analizando eventos de seguridad…', colorClass: 'from-red-500/20 to-orange-500/20' };
+    }
+    if (labelLower.includes('cámara') || labelLower.includes('dashcam') || labelLower.includes('media') || labelLower.includes('imagen')) {
+        return { description: 'Procesando imágenes de dashcam…', colorClass: 'from-purple-500/20 to-pink-500/20' };
+    }
+    if (labelLower.includes('viaje') || labelLower.includes('trip') || labelLower.includes('ruta')) {
+        return { description: 'Consultando historial de viajes…', colorClass: 'from-green-500/20 to-teal-500/20' };
+    }
+    if (labelLower.includes('analizando datos') || labelLower.includes('análisis') || labelLower.includes('analysis')) {
+        return { description: 'Ejecutando análisis avanzado con AI…', colorClass: 'from-violet-500/20 to-fuchsia-500/20' };
+    }
+    if (labelLower.includes('notificación') || labelLower.includes('sms') || labelLower.includes('whatsapp') || labelLower.includes('llamada')) {
+        return { description: 'Enviando notificación…', colorClass: 'from-amber-500/20 to-yellow-500/20' };
+    }
+    return { description: 'Procesando solicitud…', colorClass: 'from-blue-500/20 to-purple-500/20' };
+};
+
+// ============================================================================
+// Memoized sub-components — prevent re-renders during streaming
+// ============================================================================
+
+const MessageBubble = memo(function MessageBubble({
+    message,
+    isNew,
+}: {
+    message: Message;
+    isNew: boolean;
+}) {
+    return (
+        <div
+            className={cn(
+                'mb-4 flex min-w-0 gap-2 md:mb-6 md:gap-4',
+                message.role === 'user' ? 'justify-end' : 'justify-start',
+                isNew && 'animate-in fade-in duration-300 motion-reduce:animate-none',
+                isNew && message.role === 'user' && 'slide-in-from-right-4',
+                isNew && message.role === 'assistant' && 'slide-in-from-left-4',
+            )}
+        >
+            {message.role === 'assistant' && (
+                <div className={cn(
+                    'bg-primary/10 flex size-7 flex-shrink-0 items-center justify-center rounded-full md:size-8',
+                    isNew && 'animate-in zoom-in duration-300 motion-reduce:animate-none'
+                )}>
+                    <Bot className="text-primary size-4 md:size-5" />
+                </div>
+            )}
+            <div
+                className={cn(
+                    'min-w-0 overflow-hidden rounded-2xl px-3 py-2 transition-colors duration-200 md:px-4 md:py-3',
+                    message.role === 'user'
+                        ? 'bg-primary text-primary-foreground max-w-[85%] shadow-sm md:max-w-[70%]'
+                        : 'bg-muted/60 border border-border/40 flex-1 max-w-none',
+                )}
+            >
+                {message.role === 'assistant' ? (
+                    <MarkdownContent content={message.content} className="text-sm" />
+                ) : (
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.content}</p>
+                )}
+            </div>
+            {message.role === 'user' && (
+                <div className={cn(
+                    'bg-secondary flex size-7 flex-shrink-0 items-center justify-center rounded-full md:size-8',
+                    isNew && 'animate-in zoom-in duration-300 motion-reduce:animate-none'
+                )}>
+                    <User className="text-secondary-foreground size-4 md:size-5" />
+                </div>
+            )}
+        </div>
+    );
+});
+
+const ToolIndicator = memo(function ToolIndicator({
+    activeTool,
+}: {
+    activeTool: { label: string; icon: string };
+}) {
+    const toolContext = getToolContext(activeTool.label);
+    return (
+        <div className="animate-in fade-in slide-in-from-left-4 motion-reduce:animate-none mb-4 flex gap-2 duration-300 md:mb-6 md:gap-4">
+            <div className="bg-primary/10 animate-in zoom-in motion-reduce:animate-none flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
+                <Bot className="text-primary size-4 md:size-5" />
+            </div>
+            <div className="bg-muted border-primary/20 animate-in fade-in zoom-in motion-reduce:animate-none flex items-center gap-3 rounded-2xl border px-3 py-2.5 duration-200 md:gap-4 md:px-4 md:py-3">
+                <div className={`text-primary flex size-9 items-center justify-center rounded-xl bg-gradient-to-br ${toolContext.colorClass} md:size-10`}>
+                    {getToolIcon(activeTool.icon)}
+                </div>
+                <div className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold md:text-sm">{activeTool.label}</span>
+                    <span className="text-muted-foreground text-[10px] md:text-xs">{toolContext.description}</span>
+                    <div className="mt-0.5 flex items-center gap-1">
+                        <span className="bg-primary/70 size-1.5 animate-pulse rounded-full"></span>
+                        <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:150ms]"></span>
+                        <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:300ms]"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+});
+
+const ThinkingIndicator = memo(function ThinkingIndicator() {
+    return (
+        <div className="animate-in fade-in slide-in-from-left-4 motion-reduce:animate-none mb-4 flex gap-2 duration-300 md:mb-6 md:gap-4">
+            <div className="bg-primary/10 animate-in zoom-in motion-reduce:animate-none flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
+                <Bot className="text-primary size-4 md:size-5" />
+            </div>
+            <div className="bg-muted border-muted-foreground/10 flex items-center gap-3 rounded-2xl border px-3 py-2.5 md:px-4 md:py-3">
+                <div className="text-primary flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 md:size-10">
+                    <Sparkles className="size-4 animate-pulse" />
+                </div>
+                <div className="flex flex-col gap-1">
+<span className="text-xs font-semibold md:text-sm">Pensando…</span>
+                                                    <span className="text-muted-foreground text-[10px] md:text-xs">Analizando tu solicitud</span>
+                    <div className="mt-0.5 flex items-center gap-1">
+                        <span className="bg-primary/70 size-1.5 animate-pulse rounded-full"></span>
+                        <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:150ms]"></span>
+                        <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:300ms]"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+});
+
+const FollowUpSuggestions = memo(function FollowUpSuggestions({
+    lastMessageContent,
+    onSuggestionClick,
+}: {
+    lastMessageContent: string;
+    onSuggestionClick: (suggestion: string) => void;
+}) {
+    const suggestions = getFollowUpSuggestions(lastMessageContent);
+    return (
+        <div
+            className="animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none mb-4 ml-9 duration-500 md:ml-12"
+            style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}
+        >
+            <div className="flex items-start gap-2">
+                <Lightbulb className="mt-1 size-3.5 flex-shrink-0 text-amber-500" />
+                <div className="flex flex-wrap gap-1.5">
+                    {suggestions.map((suggestion) => (
+                                        <button
+                                            key={suggestion}
+                                            type="button"
+                                            onClick={() => onSuggestionClick(suggestion)}
+                                            className="border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 focus-visible:ring-primary cursor-pointer rounded-full border px-3 py-1.5 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2"
+                                        >
+                                            {suggestion}
+                                        </button>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+});
+
+// ============================================================================
+// Main Component
+// ============================================================================
+
 export default function Copilot() {
     const { conversations: serverConversations, currentConversation, messages, vehicles, drivers, tags } =
         usePage<{ props: CopilotPageProps }>().props as unknown as CopilotPageProps;
@@ -391,26 +584,28 @@ export default function Copilot() {
         setActiveTool(null);
     }, []);
 
+    const currentThreadIdRef = useRef(currentThreadId);
+    currentThreadIdRef.current = currentThreadId;
+
     const handleStreamEnd = useCallback((tokens?: { total_tokens?: number }) => {
         setIsStreaming(false);
         setStreamingContent('');
         setActiveTool(null);
         
-        // Actualizar tokens si los recibimos
         const totalTokens = tokens?.total_tokens;
         if (totalTokens) {
             setConversationTokens(prev => prev + totalTokens);
         }
         
-        // Navegar a la conversación (esto recargará los mensajes correctamente)
-        if (currentThreadId) {
-            router.visit(show.url(currentThreadId), {
+        const threadId = currentThreadIdRef.current;
+        if (threadId) {
+            router.visit(show.url(threadId), {
                 preserveScroll: true,
             });
         } else {
             router.reload({ only: ['messages', 'currentConversation', 'conversations'] });
         }
-    }, [currentThreadId]);
+    }, []);
 
     const handleStreamError = useCallback((error: string) => {
         setIsStreaming(false);
@@ -543,23 +738,26 @@ export default function Copilot() {
         }
     }, [input]);
 
-    // Helper para obtener CSRF token (con fallback para PWA)
+    // CSRF token cached to avoid repeated DOM/cookie reads
+    const csrfTokenRef = useRef<string | null>(null);
     const getCsrfToken = (): string | null => {
-        // Primero intentar del meta tag
+        if (csrfTokenRef.current) return csrfTokenRef.current;
+
         const metaToken = document.querySelector<HTMLMetaElement>(
             'meta[name="csrf-token"]',
         )?.content;
-        
         if (metaToken) {
+            csrfTokenRef.current = metaToken;
             return metaToken;
         }
-        
-        // Fallback: buscar en cookies (Laravel también lo guarda ahí)
+
         const cookieMatch = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
         if (cookieMatch) {
-            return decodeURIComponent(cookieMatch[1]);
+            const decoded = decodeURIComponent(cookieMatch[1]);
+            csrfTokenRef.current = decoded;
+            return decoded;
         }
-        
+
         return null;
     };
 
@@ -638,7 +836,7 @@ export default function Copilot() {
                 const newConversation: Conversation = {
                     id: Date.now(), // ID temporal
                     thread_id: data.thread_id,
-                    title: userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : ''),
+                    title: userMessage.slice(0, 50) + (userMessage.length > 50 ? '…' : ''),
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 };
@@ -671,66 +869,6 @@ export default function Copilot() {
     const handleSubmit = (e: FormEvent) => {
         e.preventDefault();
         submitMessage(input);
-    };
-
-    // Helper para obtener el icono de la herramienta
-    const getToolIcon = (iconName: string) => {
-        const icons: Record<string, React.ReactNode> = {
-            truck: <Truck className="size-4" />,
-            activity: <Activity className="size-4" />,
-            database: <Database className="size-4" />,
-            search: <Search className="size-4" />,
-            loader: <Loader2 className="size-4 animate-spin" />,
-            'bar-chart': <BarChart3 className="size-4" />,
-        };
-        return icons[iconName] || <Loader2 className="size-4 animate-spin" />;
-    };
-
-    // Helper para obtener descripción contextual de la herramienta
-    const getToolContext = (label: string): { description: string; colorClass: string } => {
-        const labelLower = label.toLowerCase();
-        
-        // Vehicle/Fleet related
-        if (labelLower.includes('ubicación') || labelLower.includes('location')) {
-            return { description: 'Consultando GPS del vehículo...', colorClass: 'from-blue-500/20 to-cyan-500/20' };
-        }
-        if (labelLower.includes('vehículo') || labelLower.includes('vehicle') || labelLower.includes('stats')) {
-            return { description: 'Obteniendo estadísticas del vehículo...', colorClass: 'from-indigo-500/20 to-purple-500/20' };
-        }
-        if (labelLower.includes('conductor') || labelLower.includes('driver')) {
-            return { description: 'Buscando información del conductor...', colorClass: 'from-green-500/20 to-emerald-500/20' };
-        }
-        if (labelLower.includes('flota') || labelLower.includes('fleet')) {
-            return { description: 'Generando reporte de flota...', colorClass: 'from-blue-600/20 to-blue-400/20' };
-        }
-        
-        // Safety related
-        if (labelLower.includes('seguridad') || labelLower.includes('safety') || labelLower.includes('evento')) {
-            return { description: 'Analizando eventos de seguridad...', colorClass: 'from-red-500/20 to-orange-500/20' };
-        }
-        
-        // Media related
-        if (labelLower.includes('cámara') || labelLower.includes('dashcam') || labelLower.includes('media') || labelLower.includes('imagen')) {
-            return { description: 'Procesando imágenes de dashcam...', colorClass: 'from-purple-500/20 to-pink-500/20' };
-        }
-        
-        // Trips related
-        if (labelLower.includes('viaje') || labelLower.includes('trip') || labelLower.includes('ruta')) {
-            return { description: 'Consultando historial de viajes...', colorClass: 'from-green-500/20 to-teal-500/20' };
-        }
-        
-        // Analysis related
-        if (labelLower.includes('analizando datos') || labelLower.includes('análisis') || labelLower.includes('analysis')) {
-            return { description: 'Ejecutando análisis avanzado con AI...', colorClass: 'from-violet-500/20 to-fuchsia-500/20' };
-        }
-
-        // Notifications
-        if (labelLower.includes('notificación') || labelLower.includes('sms') || labelLower.includes('whatsapp') || labelLower.includes('llamada')) {
-            return { description: 'Enviando notificación...', colorClass: 'from-amber-500/20 to-yellow-500/20' };
-        }
-        
-        // Default
-        return { description: 'Procesando solicitud...', colorClass: 'from-blue-500/20 to-purple-500/20' };
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -825,26 +963,26 @@ export default function Copilot() {
         >
             <Head title="Copilot" />
 
-            <div className="flex h-full max-h-full min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="flex h-full max-h-full min-h-0 flex-1 flex-col overflow-hidden" role="main" aria-label="Conversación del Copilot">
                 {/* T5: Event context banner */}
                 {currentConversation?.context_payload && (
                     <EventContextBanner context={currentConversation.context_payload} />
                 )}
 
                 {/* Mensajes - área scrollable */}
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="min-h-0 flex-1 overflow-y-auto" aria-live="polite" aria-label="Mensajes de la conversación">
                     {localMessages.length === 0 && !streamingContent ? (
                         <div className="flex h-full flex-col items-center px-4 py-6 overflow-y-auto md:justify-center md:py-8">
                             <div className="w-full max-w-3xl">
                                 {/* Hero */}
                                 <div className="mb-6 text-center md:mb-8">
-                                    <div className="from-primary/20 to-primary/5 animate-in fade-in zoom-in mx-auto mb-4 inline-flex rounded-full bg-gradient-to-br p-4 duration-500 md:p-5">
+                                    <div className="from-primary/20 to-primary/5 animate-in fade-in zoom-in motion-reduce:animate-none mx-auto mb-4 inline-flex rounded-full bg-gradient-to-br p-4 duration-500 md:p-5">
                                         <Sparkles className="text-primary size-7 md:size-9" />
                                     </div>
-                                    <h2 className="animate-in fade-in slide-in-from-bottom-4 mb-2 font-display text-xl font-bold tracking-tight duration-500 md:text-2xl" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
+                                    <h2 className="animate-in fade-in slide-in-from-bottom-4 motion-reduce:animate-none mb-2 font-display text-xl font-bold tracking-tight duration-500 md:text-2xl" style={{ animationDelay: '100ms', animationFillMode: 'backwards' }}>
                                         Tu Copilot de Flota
                                     </h2>
-                                    <p className="text-muted-foreground animate-in fade-in slide-in-from-bottom-4 mx-auto max-w-lg text-sm duration-500 md:text-base" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
+                                    <p className="text-muted-foreground animate-in fade-in slide-in-from-bottom-4 motion-reduce:animate-none mx-auto max-w-lg text-sm duration-500 md:text-base" style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}>
                                         Pregúntame lo que necesites. Te ayudo a explorar tu flota,
                                         revisar seguridad, ubicar vehículos y mucho más — sin
                                         necesidad de saber nombres exactos.
@@ -853,7 +991,7 @@ export default function Copilot() {
 
                                 {/* Category cards */}
                                 <div
-                                    className="animate-in fade-in slide-in-from-bottom-4 flex flex-wrap justify-center gap-3 duration-500"
+                                    className="animate-in fade-in slide-in-from-bottom-4 motion-reduce:animate-none flex flex-wrap justify-center gap-3 duration-500"
                                     style={{ animationDelay: '300ms', animationFillMode: 'backwards' }}
                                 >
                                     {COPILOT_CATEGORIES.map((category, idx) => {
@@ -863,7 +1001,7 @@ export default function Copilot() {
                                             <div
                                                 key={category.title}
                                                 className={cn(
-                                                    'bg-card group rounded-2xl border p-4 transition-all duration-200 hover:shadow-md',
+                                                    'bg-card group cursor-pointer rounded-2xl border p-4 transition-[box-shadow,border-color] duration-200 hover:shadow-md focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2',
                                                     isLast
                                                         ? 'w-full'
                                                         : 'w-[calc(50%-0.375rem)] lg:w-[calc(25%-0.5625rem)]',
@@ -900,7 +1038,7 @@ export default function Copilot() {
                                                                 handleSuggestionClick(suggestion.query)
                                                             }
                                                             className={cn(
-                                                                'group/item hover:bg-muted flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors',
+                                                                'group/item hover:bg-muted focus-visible:ring-primary flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2',
                                                                 isLast ? 'w-full lg:w-auto' : 'w-full',
                                                             )}
                                                         >
@@ -919,67 +1057,18 @@ export default function Copilot() {
                         </div>
                     ) : (
                         <div className="min-w-0 px-3 py-4 md:px-6 md:py-8 lg:px-8">
-                            {localMessages.map((message) => {
-                                const isNew = shouldAnimateMessage(message.id);
-                                return (
-                                    <div
-                                        key={message.id}
-                                        className={cn(
-                                            'mb-4 flex min-w-0 gap-2 md:mb-6 md:gap-4',
-                                            message.role === 'user'
-                                                ? 'justify-end'
-                                                : 'justify-start',
-                                            // Solo aplicar animaciones a mensajes nuevos
-                                            isNew && 'animate-in fade-in duration-300',
-                                            isNew && message.role === 'user' && 'slide-in-from-right-4',
-                                            isNew && message.role === 'assistant' && 'slide-in-from-left-4',
-                                        )}
-                                    >
-                                        {message.role === 'assistant' && (
-                                            <div className={cn(
-                                                'bg-primary/10 flex size-7 flex-shrink-0 items-center justify-center rounded-full md:size-8',
-                                                isNew && 'animate-in zoom-in duration-300'
-                                            )}>
-                                                <Bot className="text-primary size-4 md:size-5" />
-                                            </div>
-                                        )}
-
-                                        <div
-                                            className={cn(
-                                                'min-w-0 overflow-hidden rounded-2xl px-3 py-2 transition-all duration-200 md:px-4 md:py-3',
-                                                message.role === 'user'
-                                                    ? 'bg-primary text-primary-foreground max-w-[85%] shadow-sm md:max-w-[70%]'
-                                                    : 'bg-muted/60 border border-border/40 flex-1 max-w-none',
-                                            )}
-                                        >
-                                            {message.role === 'assistant' ? (
-                                                <MarkdownContent
-                                                    content={message.content}
-                                                    className="text-sm"
-                                                />
-                                            ) : (
-                                                <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                                                    {message.content}
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        {message.role === 'user' && (
-                                            <div className={cn(
-                                                'bg-secondary flex size-7 flex-shrink-0 items-center justify-center rounded-full md:size-8',
-                                                isNew && 'animate-in zoom-in duration-300'
-                                            )}>
-                                                <User className="text-secondary-foreground size-4 md:size-5" />
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                            {localMessages.map((message) => (
+                                <MessageBubble
+                                    key={message.id}
+                                    message={message}
+                                    isNew={shouldAnimateMessage(message.id)}
+                                />
+                            ))}
 
                             {/* Mensaje de streaming */}
                             {streamingContent && (
-                                <div className="animate-in fade-in slide-in-from-left-4 mb-4 flex min-w-0 gap-2 duration-300 md:mb-6 md:gap-4">
-                                    <div className="bg-primary/10 animate-in zoom-in flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
+                                <div className="animate-in fade-in slide-in-from-left-4 motion-reduce:animate-none mb-4 flex min-w-0 gap-2 duration-300 md:mb-6 md:gap-4">
+                                    <div className="bg-primary/10 animate-in zoom-in motion-reduce:animate-none flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
                                         <Bot className="text-primary size-4 md:size-5" />
                                     </div>
                                     <div className="bg-muted min-w-0 flex-1 overflow-hidden rounded-2xl px-3 py-2 shadow-sm md:px-4 md:py-3">
@@ -990,80 +1079,20 @@ export default function Copilot() {
                                 </div>
                             )}
 
-                            {/* Indicador de herramienta activa */}
-                            {isStreaming && !streamingContent && activeTool && (() => {
-                                const toolContext = getToolContext(activeTool.label);
-                                return (
-                                    <div className="animate-in fade-in slide-in-from-left-4 mb-4 flex gap-2 duration-300 md:mb-6 md:gap-4">
-                                        <div className="bg-primary/10 animate-in zoom-in flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
-                                            <Bot className="text-primary size-4 md:size-5" />
-                                        </div>
-                                        <div className="bg-muted border-primary/20 animate-in fade-in zoom-in flex items-center gap-3 rounded-2xl border px-3 py-2.5 duration-200 md:gap-4 md:px-4 md:py-3">
-                                            <div className={`text-primary flex size-9 items-center justify-center rounded-xl bg-gradient-to-br ${toolContext.colorClass} md:size-10`}>
-                                                {getToolIcon(activeTool.icon)}
-                                            </div>
-                                            <div className="flex flex-col gap-1">
-                                                <span className="text-xs font-semibold md:text-sm">{activeTool.label}</span>
-                                                <span className="text-muted-foreground text-[10px] md:text-xs">{toolContext.description}</span>
-                                                <div className="mt-0.5 flex items-center gap-1">
-                                                    <span className="bg-primary/70 size-1.5 animate-pulse rounded-full"></span>
-                                                    <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:150ms]"></span>
-                                                    <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:300ms]"></span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            {/* Indicador de carga genérico */}
-                            {isStreaming && !streamingContent && !activeTool && (
-                                <div className="animate-in fade-in slide-in-from-left-4 mb-4 flex gap-2 duration-300 md:mb-6 md:gap-4">
-                                    <div className="bg-primary/10 animate-in zoom-in flex size-7 flex-shrink-0 items-center justify-center rounded-full duration-300 md:size-8">
-                                        <Bot className="text-primary size-4 md:size-5" />
-                                    </div>
-                                    <div className="bg-muted border-muted-foreground/10 flex items-center gap-3 rounded-2xl border px-3 py-2.5 md:px-4 md:py-3">
-                                        <div className="text-primary flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 md:size-10">
-                                            <Sparkles className="size-4 animate-pulse" />
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <span className="text-xs font-semibold md:text-sm">Pensando...</span>
-                                            <span className="text-muted-foreground text-[10px] md:text-xs">Analizando tu solicitud</span>
-                                            <div className="mt-0.5 flex items-center gap-1">
-                                                <span className="bg-primary/70 size-1.5 animate-pulse rounded-full"></span>
-                                                <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:150ms]"></span>
-                                                <span className="bg-primary/70 size-1.5 animate-pulse rounded-full [animation-delay:300ms]"></span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                            {isStreaming && !streamingContent && activeTool && (
+                                <ToolIndicator activeTool={activeTool} />
                             )}
 
-                            {/* Follow-up suggestions — contextual chips after the last assistant message */}
+                            {isStreaming && !streamingContent && !activeTool && (
+                                <ThinkingIndicator />
+                            )}
+
                             {!isStreaming && !streamingContent && localMessages.length > 0 &&
                                 localMessages[localMessages.length - 1]?.role === 'assistant' && (
-                                    <div
-                                        className="animate-in fade-in slide-in-from-bottom-2 mb-4 ml-9 duration-500 md:ml-12"
-                                        style={{ animationDelay: '200ms', animationFillMode: 'backwards' }}
-                                    >
-                                        <div className="flex items-start gap-2">
-                                            <Lightbulb className="mt-1 size-3.5 flex-shrink-0 text-amber-500" />
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {getFollowUpSuggestions(
-                                                    localMessages[localMessages.length - 1].content,
-                                                ).map((suggestion) => (
-                                                    <button
-                                                        key={suggestion}
-                                                        type="button"
-                                                        onClick={() => handleSuggestionClick(suggestion)}
-                                                        className="border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 rounded-full border px-3 py-1 text-xs transition-colors"
-                                                    >
-                                                        {suggestion}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <FollowUpSuggestions
+                                        lastMessageContent={localMessages[localMessages.length - 1].content}
+                                        onSuggestionClick={handleSuggestionClick}
+                                    />
                                 )}
 
                             <div ref={messagesEndRef} />
@@ -1115,7 +1144,7 @@ export default function Copilot() {
                                             key={action.label}
                                             type="button"
                                             onClick={() => handleSuggestionClick(action.query)}
-                                            className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1.5 whitespace-nowrap rounded-full border bg-transparent px-2.5 py-1 text-[11px] font-medium transition-colors"
+                                            className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-primary flex min-h-[44px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full border bg-transparent px-3 py-2.5 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-2"
                                         >
                                             <ActionIcon className={`size-3 ${action.color}`} />
                                             {action.label}
@@ -1130,23 +1159,27 @@ export default function Copilot() {
                     <div className="p-3 md:p-4">
                         <form
                             onSubmit={handleSubmit}
-                            className="bg-muted/50 mx-auto flex max-w-4xl items-end gap-2 rounded-2xl border p-1.5 md:p-2"
+                            className="bg-muted/50 mx-auto flex max-w-4xl touch-manipulation items-end gap-2 rounded-2xl border p-1.5 md:p-2"
                         >
                             <textarea
                                 ref={textareaRef}
+                                name="message"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={handleKeyDown}
-                                placeholder={isHydrated ? "Pregúntame sobre tu flota, vehículos, seguridad..." : "Cargando..."}
-                                className="placeholder:text-muted-foreground max-h-[120px] min-h-[40px] flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none md:max-h-[200px] md:min-h-[44px] md:px-3 md:py-2.5"
+                                placeholder={isHydrated ? "Pregúntame sobre tu flota, vehículos, seguridad…" : "Cargando…"}
+                                className="placeholder:text-muted-foreground focus-visible:ring-primary max-h-[120px] min-h-[40px] flex-1 resize-none bg-transparent px-2.5 py-2 text-sm outline-none md:max-h-[200px] md:min-h-[44px] md:px-3 md:py-2.5 focus-visible:ring-2 focus-visible:ring-offset-2 rounded-lg"
                                 rows={1}
                                 disabled={isStreaming || !isHydrated}
+                                aria-label="Mensaje para el Copilot"
+                                autoComplete="off"
                             />
                             <Button
                                 type="submit"
                                 size="icon"
                                 disabled={!input.trim() || isStreaming || !isHydrated}
                                 className="size-9 flex-shrink-0 rounded-xl md:size-10"
+                                aria-label="Enviar mensaje"
                             >
                                 <Send className="size-4" />
                             </Button>
@@ -1156,8 +1189,8 @@ export default function Copilot() {
                                 Copilot puede cometer errores. Verifica la información importante.
                             </p>
                             {conversationTokens > 0 && (
-                                <div className="text-muted-foreground flex items-center gap-1.5 text-[10px] md:text-xs" title={`Sesión: ${sessionTokens.toLocaleString()} tokens`}>
-                                    <Coins className="size-3" />
+                                <div className="text-muted-foreground flex items-center gap-1.5 text-[10px] md:text-xs" title={`Tokens de esta conversación: ${conversationTokens.toLocaleString()}. Sesión: ${sessionTokens.toLocaleString()}`} aria-label={`${conversationTokens.toLocaleString()} tokens en esta conversación`}>
+                                    <Coins className="size-3" aria-hidden />
                                     <span>{conversationTokens.toLocaleString()} tokens</span>
                                 </div>
                             )}
