@@ -8,6 +8,11 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
     Select,
     SelectContent,
     SelectItem,
@@ -16,18 +21,26 @@ import {
 } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { type IncidentDetail, INCIDENT_STATUS_OPTIONS } from '@/types/incidents';
+import {
+    type IncidentDetail,
+    type IncidentAiAssessmentView,
+    INCIDENT_STATUS_OPTIONS,
+} from '@/types/incidents';
 import { Head, Link, router } from '@inertiajs/react';
 import {
     Activity,
     AlertTriangle,
     ArrowLeft,
     Car,
+    ChevronDown,
     Clock,
+    ListChecks,
     Radio,
     Shield,
+    Timer,
     User,
 } from 'lucide-react';
+import { useState } from 'react';
 
 interface ShowProps {
     incident: IncidentDetail;
@@ -60,6 +73,235 @@ const typeIcons: Record<string, React.ElementType> = {
     pattern: Activity,
     safety_violation: Shield,
 };
+
+/** Build a structured view from raw ai_assessment JSON for display. */
+function parseAiAssessment(raw: Record<string, unknown> | null): IncidentAiAssessmentView | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const arr = (v: unknown): v is string[] =>
+        Array.isArray(v) && v.every((x) => typeof x === 'string');
+    const num = (v: unknown): number | null =>
+        typeof v === 'number' && !Number.isNaN(v) ? v : null;
+    const str = (v: unknown): string | null =>
+        typeof v === 'string' && v.length > 0 ? v : null;
+    return {
+        verdict: str(raw.verdict),
+        likelihood: str(raw.likelihood),
+        confidence: num(raw.confidence) ?? null,
+        reasoning: str(raw.reasoning),
+        visual_summary: str(raw.visual_summary),
+        vehicle_stats_summary: str(raw.vehicle_stats_summary),
+        recommended_actions: arr(raw.recommended_actions) ? raw.recommended_actions : undefined,
+        next_check_minutes: num(raw.next_check_minutes),
+        monitoring_reason: str(raw.monitoring_reason),
+        risk_escalation: str(raw.risk_escalation),
+    };
+}
+
+function verdictLabel(value: string | null | undefined): string {
+    if (!value) return '—';
+    const v = value.toLowerCase();
+    if (v === 'review required' || v.includes('review')) return 'Requiere revisión';
+    if (v === 'confirmed' || v.includes('confirm')) return 'Confirmado';
+    if (v === 'false_positive' || v.includes('false')) return 'Falso positivo';
+    if (v === 'monitor') return 'Monitorear';
+    return value;
+}
+
+function likelihoodLabel(value: string | null | undefined): string {
+    if (!value) return '—';
+    const v = value.toLowerCase();
+    if (v === 'high') return 'Alta';
+    if (v === 'medium') return 'Media';
+    if (v === 'low') return 'Baja';
+    return value;
+}
+
+function IncidentAiEvaluationCard({
+    assessment,
+    raw,
+}: {
+    assessment: IncidentAiAssessmentView | null;
+    raw: Record<string, unknown>;
+}) {
+    const [technicalOpen, setTechnicalOpen] = useState(false);
+    if (!assessment) return null;
+
+    const hasContent =
+        assessment.verdict ||
+        assessment.likelihood ||
+        assessment.reasoning ||
+        assessment.visual_summary ||
+        (assessment.recommended_actions && assessment.recommended_actions.length > 0) ||
+        assessment.monitoring_reason ||
+        assessment.next_check_minutes != null;
+
+    if (!hasContent) return null;
+
+    return (
+        <Card className="lg:col-span-3 overflow-hidden border-violet-500/10 bg-gradient-to-b from-violet-500/[0.02] to-transparent dark:from-violet-500/[0.04] dark:to-transparent">
+            <CardHeader className="pb-4">
+                <div className="flex items-center gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                        <Shield className="size-5" aria-hidden />
+                    </div>
+                    <div>
+                        <CardTitle className="text-lg tracking-tight">Evaluación AI</CardTitle>
+                        <CardDescription className="mt-0.5">
+                            Análisis automático del incidente
+                        </CardDescription>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                {/* Metrics strip — same height, clear hierarchy */}
+                <div className="grid gap-3 sm:grid-cols-3">
+                    {assessment.verdict && (
+                        <div
+                            className="relative rounded-xl border border-violet-500/25 bg-violet-500/10 p-4 shadow-sm ring-1 ring-violet-500/5 transition-shadow duration-200 hover:shadow-md"
+                            role="group"
+                        >
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-violet-500 dark:text-violet-400">
+                                Veredicto
+                            </p>
+                            <p className="mt-2 text-base font-semibold leading-snug text-foreground">
+                                {verdictLabel(assessment.verdict)}
+                            </p>
+                        </div>
+                    )}
+                    {assessment.likelihood && (
+                        <div className="rounded-xl border border-border/60 bg-muted/20 p-4 transition-colors duration-200 hover:bg-muted/30">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                                Probabilidad
+                            </p>
+                            <p className="mt-2 text-base font-medium leading-snug">
+                                {likelihoodLabel(assessment.likelihood)}
+                            </p>
+                        </div>
+                    )}
+                    {assessment.confidence != null && (
+                        <div className="rounded-xl border border-border/60 bg-muted/20 p-4 transition-colors duration-200 hover:bg-muted/30">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                                Confianza
+                            </p>
+                            <p className="mt-2 text-base font-medium tabular-nums leading-snug">
+                                {Math.round(assessment.confidence * 100)}%
+                            </p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Narrative blocks — readable line length and line-height */}
+                {assessment.reasoning && (
+                    <section aria-labelledby="ai-reasoning-heading">
+                        <h3
+                            id="ai-reasoning-heading"
+                            className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                        >
+                            Razonamiento
+                        </h3>
+                        <p className="max-w-prose rounded-xl bg-muted/30 px-4 py-3 text-[15px] leading-[1.65] text-muted-foreground">
+                            {assessment.reasoning}
+                        </p>
+                    </section>
+                )}
+
+                {assessment.visual_summary && (
+                    <section aria-labelledby="ai-visual-heading">
+                        <h3
+                            id="ai-visual-heading"
+                            className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                        >
+                            Resumen visual
+                        </h3>
+                        <p className="max-w-prose rounded-xl bg-muted/20 px-4 py-3 text-[15px] leading-[1.65]">
+                            {assessment.visual_summary}
+                        </p>
+                    </section>
+                )}
+
+                {/* Recommended actions — list with left accent, hover state */}
+                {assessment.recommended_actions && assessment.recommended_actions.length > 0 && (
+                    <section aria-labelledby="ai-actions-heading">
+                        <h3
+                            id="ai-actions-heading"
+                            className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                        >
+                            <ListChecks className="size-3.5 text-emerald-500" aria-hidden />
+                            Acciones recomendadas
+                        </h3>
+                        <ul className="space-y-2" role="list">
+                            {assessment.recommended_actions.map((action, i) => (
+                                <li
+                                    key={i}
+                                    className="flex items-start gap-3 rounded-lg border-l-2 border-emerald-500/50 bg-emerald-500/5 py-2.5 pl-4 pr-3 transition-colors duration-150 hover:bg-emerald-500/10 hover:border-emerald-500/70"
+                                >
+                                    <span
+                                        className="mt-1.5 size-2 shrink-0 rounded-full bg-emerald-500/80"
+                                        aria-hidden
+                                    />
+                                    <span className="text-[15px] leading-[1.6]">{action}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                )}
+
+                {/* Monitoring callout — prominent, timer icon */}
+                {(assessment.monitoring_reason || assessment.next_check_minutes != null) && (
+                    <section
+                        className="flex gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 ring-1 ring-amber-500/10"
+                        aria-label="Monitoreo programado"
+                    >
+                        <Timer className="size-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-amber-600 dark:text-amber-400">
+                                Monitoreo
+                            </p>
+                            {assessment.next_check_minutes != null && (
+                                <p className="mt-1 text-sm font-medium">
+                                    Próxima revisión en <strong>{assessment.next_check_minutes} min</strong>
+                                </p>
+                            )}
+                            {assessment.monitoring_reason && (
+                                <p className="mt-1 text-[15px] leading-[1.55] text-muted-foreground">
+                                    {assessment.monitoring_reason}
+                                </p>
+                            )}
+                        </div>
+                    </section>
+                )}
+
+                {/* Technical JSON — accessible trigger, reduced-motion friendly */}
+                <Collapsible open={technicalOpen} onOpenChange={setTechnicalOpen}>
+                    <CollapsibleTrigger asChild>
+                        <button
+                            type="button"
+                            className="flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-lg px-2 py-2.5 text-left text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            aria-expanded={technicalOpen}
+                            aria-controls="technical-json-content"
+                            id="technical-json-trigger"
+                        >
+                            <ChevronDown
+                                className={`size-4 shrink-0 transition-transform duration-200 ${technicalOpen ? 'rotate-180' : ''}`}
+                                aria-hidden
+                            />
+                            <span>Ver JSON técnico</span>
+                        </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent
+                        id="technical-json-content"
+                        aria-labelledby="technical-json-trigger"
+                        className="overflow-hidden"
+                    >
+                        <pre className="mt-2 max-h-52 overflow-auto rounded-xl border border-border/60 bg-muted/50 px-4 py-3 text-xs font-mono leading-relaxed">
+                            {JSON.stringify(raw, null, 2)}
+                        </pre>
+                    </CollapsibleContent>
+                </Collapsible>
+            </CardContent>
+        </Card>
+    );
+}
 
 export default function IncidentShow({ incident }: ShowProps) {
     const breadcrumbs: BreadcrumbItem[] = [
@@ -274,19 +516,9 @@ export default function IncidentShow({ incident }: ShowProps) {
                         </CardContent>
                     </Card>
 
-                    {/* AI Assessment */}
+                    {/* AI Assessment — structured, no raw JSON for operators */}
                     {incident.ai_assessment && Object.keys(incident.ai_assessment).length > 0 && (
-                        <Card className="lg:col-span-3">
-                            <CardHeader>
-                                <CardTitle>Evaluación AI</CardTitle>
-                                <CardDescription>Análisis automático del incidente</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <pre className="text-sm bg-muted/50 p-4 rounded-lg overflow-auto">
-                                    {JSON.stringify(incident.ai_assessment, null, 2)}
-                                </pre>
-                            </CardContent>
-                        </Card>
+                        <IncidentAiEvaluationCard assessment={parseAiAssessment(incident.ai_assessment)} raw={incident.ai_assessment} />
                     )}
                 </div>
             </div>

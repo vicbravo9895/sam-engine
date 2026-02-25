@@ -119,6 +119,20 @@ export interface IncidentListItem {
     is_resolved: boolean;
 }
 
+/** Parsed AI assessment for display (from ai_assessment JSON). */
+export interface IncidentAiAssessmentView {
+    verdict?: string | null;
+    likelihood?: string | null;
+    confidence?: number | null;
+    reasoning?: string | null;
+    visual_summary?: string | null;
+    vehicle_stats_summary?: string | null;
+    recommended_actions?: string[];
+    next_check_minutes?: number | null;
+    monitoring_reason?: string | null;
+    risk_escalation?: string | null;
+}
+
 export interface IncidentDetail extends IncidentListItem {
     samsara_event_id: string | null;
     dedupe_key: string | null;
