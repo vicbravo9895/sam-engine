@@ -21,8 +21,18 @@ import {
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { Bell, CheckCircle, Filter, MessageSquare, Phone, Search, XCircle } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import {
+    Bell,
+    CheckCircle,
+    ChevronDown,
+    ChevronRight,
+    Filter,
+    MessageSquare,
+    Phone,
+    Search,
+    XCircle,
+} from 'lucide-react';
+import { Fragment, useCallback, useState } from 'react';
 
 interface PaginationLink { label: string; url: string | null; active: boolean; }
 interface PaginationMeta { current_page: number; from: number | null; to: number | null; total: number; links: PaginationLink[]; }
@@ -78,8 +88,35 @@ const statusBadgeVariants: Record<string, 'success' | 'warning' | 'destructive' 
 
 const channelLabels: Record<string, string> = { sms: 'SMS', whatsapp: 'WhatsApp', call: 'Llamada' };
 
+const statusLabels: Record<string, string> = {
+    queued: 'En cola',
+    accepted: 'Aceptado',
+    sending: 'Enviando',
+    sent: 'Enviado',
+    delivered: 'Entregado',
+    read: 'Leído',
+    failed: 'Fallido',
+    undelivered: 'No entregado',
+};
+
+function formatNotificationDate(iso: string): string {
+    try {
+        const d = new Date(iso);
+        return d.toLocaleString('es-MX', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+    } catch {
+        return iso;
+    }
+}
+
 export default function NotificationsIndex({ results, filters, stats }: IndexProps) {
     const [localFilters, setLocalFilters] = useState<Filters>(filters);
+    const [expandedId, setExpandedId] = useState<number | null>(null);
 
     const applyFilters = useCallback(() => {
         const params = Object.fromEntries(
@@ -239,45 +276,191 @@ export default function NotificationsIndex({ results, filters, stats }: IndexPro
                         <Table>
                             <TableHeader>
                                 <TableRow className="hover:bg-transparent">
-                                    <TableHead>Alerta</TableHead>
-                                    <TableHead>Vehiculo</TableHead>
+                                    <TableHead className="w-10">Alerta</TableHead>
+                                    <TableHead>Vehículo</TableHead>
                                     <TableHead>Canal</TableHead>
                                     <TableHead>Destinatario</TableHead>
                                     <TableHead>Estado</TableHead>
                                     <TableHead>Enviada</TableHead>
-                                    <TableHead>Error</TableHead>
+                                    <TableHead className="min-w-[180px]">Error</TableHead>
+                                    <TableHead className="w-20 text-right">Detalle</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {results.data.map((row) => (
-                                    <TableRow key={row.id} className="text-sm">
-                                        <TableCell className="font-mono text-xs font-medium">
-                                            {row.alert_id != null ? (
-                                                <Link href={`/samsara/alerts/${row.alert_id}`} className="text-primary hover:underline">#{row.alert_id}</Link>
-                                            ) : (
-                                                <span>#{row.alert_id}</span>
+                                {results.data.map((row) => {
+                                    const hasDetail =
+                                        (row.delivery_events && row.delivery_events.length > 0) ||
+                                        (row.error && row.error.length > 0);
+                                    const isExpanded = expandedId === row.id;
+                                    const statusLabel = statusLabels[row.status_current] ?? row.status_current;
+                                    return (
+                                        <Fragment key={row.id}>
+                                            <TableRow
+                                                key={row.id}
+                                                className="text-sm transition-colors hover:bg-muted/30"
+                                            >
+                                                <TableCell className="font-mono text-xs font-medium">
+                                                    {row.alert_id != null ? (
+                                                        <Link
+                                                            href={`/samsara/alerts/${row.alert_id}`}
+                                                            className="text-primary hover:underline"
+                                                        >
+                                                            #{row.alert_id}
+                                                        </Link>
+                                                    ) : (
+                                                        <span>#{row.alert_id}</span>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-foreground">
+                                                    {row.vehicle_name ?? '\u2014'}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge
+                                                        variant={channelBadgeVariants[row.channel] ?? 'secondary'}
+                                                        className="gap-1"
+                                                    >
+                                                        {channelIcons[row.channel] ?? null}
+                                                        {channelLabels[row.channel] ?? row.channel}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="font-mono text-xs">
+                                                    {row.to_number}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span
+                                                                className={`size-2 shrink-0 rounded-full ${
+                                                                    row.success ? 'bg-green-500' : 'bg-red-500'
+                                                                }`}
+                                                                aria-hidden
+                                                            />
+                                                            <Badge
+                                                                variant={statusBadgeVariants[row.status_current] ?? 'secondary'}
+                                                                className="font-medium"
+                                                            >
+                                                                {statusLabel}
+                                                            </Badge>
+                                                        </div>
+                                                        {row.delivery_events?.length ? (
+                                                            <span className="text-[11px] text-muted-foreground">
+                                                                {row.delivery_events.length} evento
+                                                                {row.delivery_events.length !== 1 ? 's' : ''}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="text-xs">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted-foreground">
+                                                            {row.created_at_human ?? '—'}
+                                                        </span>
+                                                        <span
+                                                            className="text-[11px] text-muted-foreground/80"
+                                                            title={row.created_at}
+                                                        >
+                                                            {formatNotificationDate(row.created_at)}
+                                                        </span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className="align-top">
+                                                    {row.error ? (
+                                                        <div
+                                                            className="max-h-20 overflow-y-auto rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
+                                                            title={row.error}
+                                                        >
+                                                            {row.error}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {hasDetail ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setExpandedId((prev) => (prev === row.id ? null : row.id))
+                                                            }
+                                                            className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                                                            aria-expanded={isExpanded}
+                                                            aria-label={isExpanded ? 'Ocultar detalle' : 'Ver detalle'}
+                                                        >
+                                                            {isExpanded ? (
+                                                                <ChevronDown className="size-4" />
+                                                            ) : (
+                                                                <ChevronRight className="size-4" />
+                                                            )}
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-muted-foreground/50">—</span>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                            {isExpanded && hasDetail && (
+                                                <TableRow key={`${row.id}-detail`} className="bg-muted/20 hover:bg-muted/20">
+                                                    <TableCell colSpan={8} className="p-0">
+                                                        <div className="border-t border-border/60 bg-muted/10 px-4 py-4">
+                                                            <div className="grid gap-4 sm:grid-cols-2">
+                                                                <div>
+                                                                    <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                                                                        Fecha y hora
+                                                                    </h4>
+                                                                    <p className="text-sm font-medium tabular-nums">
+                                                                        {formatNotificationDate(row.created_at)}
+                                                                    </p>
+                                                                </div>
+                                                                {row.delivery_events && row.delivery_events.length > 0 && (
+                                                                    <div>
+                                                                        <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                                                                            Eventos de entrega
+                                                                        </h4>
+                                                                        <ol className="space-y-2">
+                                                                            {[...row.delivery_events]
+                                                                                .sort(
+                                                                                    (a, b) =>
+                                                                                        new Date(a.received_at).getTime() -
+                                                                                        new Date(b.received_at).getTime()
+                                                                                )
+                                                                                .map((evt) => (
+                                                                                <li
+                                                                                    key={evt.id}
+                                                                                    className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border border-border/50 bg-background px-3 py-2 text-xs"
+                                                                                >
+                                                                                    <span className="font-medium">
+                                                                                        {statusLabels[evt.status] ?? evt.status}
+                                                                                    </span>
+                                                                                    <span className="tabular-nums text-muted-foreground">
+                                                                                        {formatNotificationDate(evt.received_at)}
+                                                                                    </span>
+                                                                                    {evt.error_message ? (
+                                                                                        <span className="w-full text-red-600 dark:text-red-400">
+                                                                                            {evt.error_message}
+                                                                                        </span>
+                                                                                    ) : null}
+                                                                                </li>
+                                                                                ))}
+                                                                        </ol>
+                                                                    </div>
+                                                                )}
+                                                                {row.error && (
+                                                                    <div className="sm:col-span-2">
+                                                                        <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                                                                            Error
+                                                                        </h4>
+                                                                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
+                                                                            {row.error}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
                                             )}
-                                        </TableCell>
-                                        <TableCell>{row.vehicle_name ?? '\u2014'}</TableCell>
-                                        <TableCell>
-                                            <Badge variant={channelBadgeVariants[row.channel] ?? 'secondary'} className="gap-1">
-                                                {channelIcons[row.channel] ?? null}
-                                                {channelLabels[row.channel] ?? row.channel}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="font-mono text-xs">{row.to_number}</TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-1.5">
-                                                <span className={`size-1.5 rounded-full ${row.success ? 'bg-green-500' : 'bg-red-500'}`} />
-                                                <Badge variant={statusBadgeVariants[row.status_current] ?? 'secondary'}>
-                                                    {row.status_current}
-                                                </Badge>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{row.created_at_human ?? row.created_at}</TableCell>
-                                        <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground" title={row.error ?? undefined}>{row.error ?? '\u2014'}</TableCell>
-                                    </TableRow>
-                                ))}
+                                        </Fragment>
+                                    );
+                                })}
                             </TableBody>
                         </Table>
                     )}
