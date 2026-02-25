@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -57,27 +58,27 @@ class Signal extends Model
     // Scopes
     // =========================================================================
 
-    public function scopeForCompany($query, int $companyId)
+    public function scopeForCompany(Builder $query, int $companyId): Builder
     {
         return $query->where('company_id', $companyId);
     }
 
-    public function scopeForVehicle($query, string $vehicleId)
+    public function scopeForVehicle(Builder $query, string $vehicleId): Builder
     {
         return $query->where('vehicle_id', $vehicleId);
     }
 
-    public function scopeFromSource($query, string $source)
+    public function scopeFromSource(Builder $query, string $source): Builder
     {
         return $query->where('source', $source);
     }
 
-    public function scopeSince($query, $dateTime)
+    public function scopeSince(Builder $query, \DateTimeInterface|string $dateTime): Builder
     {
         return $query->where('occurred_at', '>=', $dateTime);
     }
 
-    public function scopeUntil($query, $dateTime)
+    public function scopeUntil(Builder $query, \DateTimeInterface|string $dateTime): Builder
     {
         return $query->where('occurred_at', '<=', $dateTime);
     }

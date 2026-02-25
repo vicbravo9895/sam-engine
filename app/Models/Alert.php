@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -236,57 +237,57 @@ class Alert extends Model
     // Scopes — AI Status
     // =========================================================================
 
-    public function scopeForCompany($query, int $companyId)
+    public function scopeForCompany(Builder $query, int $companyId): Builder
     {
         return $query->where('alerts.company_id', $companyId);
     }
 
-    public function scopeWithStatus($query, string $status)
+    public function scopeWithStatus(Builder $query, string $status): Builder
     {
         return $query->where('ai_status', $status);
     }
 
-    public function scopePending($query)
+    public function scopePending(Builder $query): Builder
     {
         return $query->where('ai_status', self::STATUS_PENDING);
     }
 
-    public function scopeProcessing($query)
+    public function scopeProcessing(Builder $query): Builder
     {
         return $query->where('ai_status', self::STATUS_PROCESSING);
     }
 
-    public function scopeCompleted($query)
+    public function scopeCompleted(Builder $query): Builder
     {
         return $query->where('ai_status', self::STATUS_COMPLETED);
     }
 
-    public function scopeInvestigating($query)
+    public function scopeInvestigating(Builder $query): Builder
     {
         return $query->where('ai_status', self::STATUS_INVESTIGATING);
     }
 
-    public function scopeFailed($query)
+    public function scopeFailed(Builder $query): Builder
     {
         return $query->where('ai_status', self::STATUS_FAILED);
     }
 
-    public function scopeCritical($query)
+    public function scopeCritical(Builder $query): Builder
     {
         return $query->where('severity', self::SEVERITY_CRITICAL);
     }
 
-    public function scopeProactive($query)
+    public function scopeProactive(Builder $query): Builder
     {
         return $query->where('proactive_flag', true);
     }
 
-    public function scopeByRiskEscalation($query, string $level)
+    public function scopeByRiskEscalation(Builder $query, string $level): Builder
     {
         return $query->where('risk_escalation', $level);
     }
 
-    public function scopeByDedupeKey($query, string $key)
+    public function scopeByDedupeKey(Builder $query, string $key): Builder
     {
         return $query->where('dedupe_key', $key);
     }
@@ -295,27 +296,27 @@ class Alert extends Model
     // Scopes — Human Status
     // =========================================================================
 
-    public function scopeHumanPending($query)
+    public function scopeHumanPending(Builder $query): Builder
     {
         return $query->where('human_status', self::HUMAN_STATUS_PENDING);
     }
 
-    public function scopeHumanReviewed($query)
+    public function scopeHumanReviewed(Builder $query): Builder
     {
         return $query->where('human_status', self::HUMAN_STATUS_REVIEWED);
     }
 
-    public function scopeHumanFlagged($query)
+    public function scopeHumanFlagged(Builder $query): Builder
     {
         return $query->where('human_status', self::HUMAN_STATUS_FLAGGED);
     }
 
-    public function scopeHumanResolved($query)
+    public function scopeHumanResolved(Builder $query): Builder
     {
         return $query->where('human_status', self::HUMAN_STATUS_RESOLVED);
     }
 
-    public function scopeHumanFalsePositive($query)
+    public function scopeHumanFalsePositive(Builder $query): Builder
     {
         return $query->where('human_status', self::HUMAN_STATUS_FALSE_POSITIVE);
     }
@@ -324,43 +325,43 @@ class Alert extends Model
     // Scopes — Normalized Fields
     // =========================================================================
 
-    public function scopeByVerdict($query, string $verdict)
+    public function scopeByVerdict(Builder $query, string $verdict): Builder
     {
         return $query->where('verdict', $verdict);
     }
 
-    public function scopeByLikelihood($query, string $likelihood)
+    public function scopeByLikelihood(Builder $query, string $likelihood): Builder
     {
         return $query->where('likelihood', $likelihood);
     }
 
-    public function scopeByAlertKind($query, string $alertKind)
+    public function scopeByAlertKind(Builder $query, string $alertKind): Builder
     {
         return $query->where('alert_kind', $alertKind);
     }
 
-    public function scopeHighConfidence($query, float $threshold = 0.8)
+    public function scopeHighConfidence(Builder $query, float $threshold = 0.8): Builder
     {
         return $query->where('confidence', '>=', $threshold);
     }
 
-    public function scopePanicAlerts($query)
+    public function scopePanicAlerts(Builder $query): Builder
     {
         return $query->where('alert_kind', self::ALERT_KIND_PANIC);
     }
 
-    public function scopeSafetyAlerts($query)
+    public function scopeSafetyAlerts(Builder $query): Builder
     {
         return $query->where('alert_kind', self::ALERT_KIND_SAFETY);
     }
 
-    public function scopeNeedsAttention($query)
+    public function scopeNeedsAttention(Builder $query): Builder
     {
         return $query->whereNotNull('attention_state')
                      ->where('attention_state', '!=', self::ATTENTION_CLOSED);
     }
 
-    public function scopeNeedsHumanAttention($query)
+    public function scopeNeedsHumanAttention(Builder $query): Builder
     {
         return $query->where('human_status', self::HUMAN_STATUS_PENDING)
             ->where(function ($q) {
@@ -374,20 +375,20 @@ class Alert extends Model
     // Scopes — Attention Engine
     // =========================================================================
 
-    public function scopeOverdueAck($query)
+    public function scopeOverdueAck(Builder $query): Builder
     {
         return $query->where('ack_status', self::ACK_PENDING)
                      ->whereNotNull('ack_due_at')
                      ->where('ack_due_at', '<', now());
     }
 
-    public function scopeUnacked($query)
+    public function scopeUnacked(Builder $query): Builder
     {
         return $query->where('attention_state', self::ATTENTION_NEEDS_ATTENTION)
                      ->where('ack_status', self::ACK_PENDING);
     }
 
-    public function scopeNeedsEscalation($query)
+    public function scopeNeedsEscalation(Builder $query): Builder
     {
         return $query->where('attention_state', self::ATTENTION_NEEDS_ATTENTION)
                      ->where('ack_status', self::ACK_PENDING)
@@ -395,12 +396,12 @@ class Alert extends Model
                      ->where('next_escalation_at', '<=', now());
     }
 
-    public function scopeByAttentionState($query, string $state)
+    public function scopeByAttentionState(Builder $query, string $state): Builder
     {
         return $query->where('attention_state', $state);
     }
 
-    public function scopeOrderByAttentionPriority($query)
+    public function scopeOrderByAttentionPriority(Builder $query): Builder
     {
         return $query->orderByRaw(
             "CASE risk_escalation WHEN 'emergency' THEN 4 WHEN 'call' THEN 3 WHEN 'warn' THEN 2 WHEN 'monitor' THEN 1 ELSE 0 END DESC"

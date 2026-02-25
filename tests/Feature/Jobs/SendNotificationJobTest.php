@@ -23,6 +23,13 @@ class SendNotificationJobTest extends TestCase
     {
         parent::setUp();
         $this->setUpTenant();
+
+        // Ensure TwilioService is "configured" so it makes HTTP requests (then mocked by mockTwilioAll).
+        config([
+            'services.twilio.sid' => 'ACtest123',
+            'services.twilio.token' => 'test-token',
+            'services.twilio.from' => '+15551234567',
+        ]);
     }
 
     private function makeDecision(array $overrides = []): array
@@ -34,7 +41,7 @@ class SendNotificationJobTest extends TestCase
             'call_script' => null,
             'channels_to_use' => ['sms'],
             'recipients' => [
-                ['type' => 'monitoring_team', 'phone' => '+5211234567890', 'priority' => 1],
+                ['recipient_type' => 'monitoring_team', 'phone' => '+5211234567890', 'priority' => 1],
             ],
             'reason' => 'Safety event notification.',
         ], $overrides);
@@ -157,22 +164,50 @@ class SendNotificationJobTest extends TestCase
         ]);
     }
 
-    public function test_handles_panic_button_special_flow(): void
+    public function test_handles_panic_button_special_flow_sends_ivr_only_to_operator(): void
     {
         Bus::fake([RecordUsageEventJob::class]);
         $this->mockTwilioAll();
 
         ['alert' => $alert] = $this->createCriticalPanicAlert($this->company);
-        Contact::factory()->monitoringTeam()->forCompany($this->company)->create();
 
         $decision = $this->makeDecision([
             'channels_to_use' => ['call'],
             'escalation_level' => 'critical',
+            'recipients' => [
+                ['recipient_type' => 'operator', 'phone' => '+5211234567890', 'priority' => 1],
+            ],
         ]);
 
         $this->runJob(new SendNotificationJob($alert, $decision));
 
         $this->assertDatabaseHas('notification_results', [
+            'alert_id' => $alert->id,
+            'channel' => 'call',
+            'recipient_type' => 'operator',
+        ]);
+    }
+
+    public function test_panic_button_does_not_send_confirmation_call_to_emergency_or_monitoring(): void
+    {
+        Bus::fake([RecordUsageEventJob::class]);
+        $this->mockTwilioAll();
+
+        ['alert' => $alert] = $this->createCriticalPanicAlert($this->company);
+
+        $decision = $this->makeDecision([
+            'channels_to_use' => ['call'],
+            'escalation_level' => 'critical',
+            'recipients' => [
+                ['recipient_type' => 'emergency', 'phone' => '+5219876543210', 'priority' => 1],
+                ['recipient_type' => 'monitoring_team', 'phone' => '+5215555555555', 'priority' => 2],
+            ],
+        ]);
+
+        $this->runJob(new SendNotificationJob($alert, $decision));
+
+        // La llamada IVR de confirmación (presione 1/2) no debe enviarse a emergencia ni monitoreo.
+        $this->assertDatabaseMissing('notification_results', [
             'alert_id' => $alert->id,
             'channel' => 'call',
         ]);

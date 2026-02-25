@@ -99,6 +99,7 @@ trait CreatesAlertPipeline
                 'risk_escalation' => Alert::RISK_EMERGENCY,
                 'ai_status' => Alert::STATUS_COMPLETED,
                 'ai_message' => 'Panic alert confirmed.',
+                'event_description' => 'Botón de pánico',
             ],
         );
     }

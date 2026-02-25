@@ -279,6 +279,17 @@ class SendNotificationJob implements ShouldQueue
             $isPanic = $this->isPanicButtonEvent();
 
             if ($isPanic && in_array($escalationLevel, ['critical', 'high'])) {
+                // La llamada IVR de confirmación (presione 1 = emergencia real, 2 = error) solo va al operador.
+                // Contactos de emergencia/monitoreo/supervisor se notifican después vía SendPanicEscalationJob
+                // cuando el operador confirma; no deben recibir esta llamada de confirmación.
+                if ($recipientType !== 'operator') {
+                    Log::info('SendNotificationJob: Omitiendo llamada de confirmación de pánico para no-operador', [
+                        'alert_id' => $this->alert->id,
+                        'recipient_type' => $recipientType,
+                        'to' => $phone,
+                    ]);
+                    return null;
+                }
                 $response = $twilioService->makePanicCallWithCallback(
                     to: $phone,
                     vehicleName: $vehicleName,

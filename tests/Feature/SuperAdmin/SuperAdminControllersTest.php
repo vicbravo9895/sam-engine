@@ -24,8 +24,8 @@ class SuperAdminControllersTest extends TestCase
         parent::setUp();
 
         $this->superAdmin = $this->setUpSuperAdmin();
-        $this->companyA = Company::factory()->withSamsaraApiKey()->create(['name' => 'Acme Corp']);
-        $this->companyB = Company::factory()->withSamsaraApiKey()->create(['name' => 'Beta Inc']);
+        $this->companyA = Company::factory()->withSamsaraApiKey()->create(['name' => 'Acme Corp', 'slug' => 'acme-corp']);
+        $this->companyB = Company::factory()->withSamsaraApiKey()->create(['name' => 'Beta Inc', 'slug' => 'beta-inc']);
     }
 
     // ── UserController: index ───────────────────────────────────────

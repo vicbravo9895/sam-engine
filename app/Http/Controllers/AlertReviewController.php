@@ -2,12 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Alerts\AddCommentRequest;
+use App\Http\Requests\Alerts\AssignRequest;
+use App\Http\Requests\Alerts\CloseAttentionRequest;
+use App\Http\Requests\Alerts\UpdateStatusRequest;
 use App\Jobs\ProcessAlertJob;
 use App\Models\Alert;
 use App\Models\AlertActivity;
 use App\Models\AlertComment;
 use App\Models\NotificationAck;
 use App\Models\User;
+use App\Services\AlertDisplayService;
 use App\Services\AttentionEngine;
 use App\Services\DomainEventEmitter;
 use Laravel\Pennant\Feature;
@@ -15,24 +20,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 
 class AlertReviewController extends Controller
 {
     /**
      * PATCH /api/alerts/{alert}/status
      */
-    public function updateStatus(Request $request, Alert $alert): JsonResponse
+    public function updateStatus(UpdateStatusRequest $request, Alert $alert): JsonResponse
     {
-        $validated = $request->validate([
-            'status' => ['required', Rule::in([
-                Alert::HUMAN_STATUS_PENDING,
-                Alert::HUMAN_STATUS_REVIEWED,
-                Alert::HUMAN_STATUS_FLAGGED,
-                Alert::HUMAN_STATUS_RESOLVED,
-                Alert::HUMAN_STATUS_FALSE_POSITIVE,
-            ])],
-        ]);
+        $validated = $request->validated();
 
         $user = Auth::user();
         $previousStatus = $alert->human_status;
@@ -51,13 +47,15 @@ class AlertReviewController extends Controller
             actorId: (string) $user->id,
         );
 
+        $display = app(AlertDisplayService::class);
+
         return response()->json([
             'success' => true,
             'message' => 'Estado actualizado correctamente',
             'data' => [
                 'id' => $alert->id,
                 'human_status' => $alert->human_status,
-                'human_status_label' => $this->humanStatusLabel($alert->human_status),
+                'human_status_label' => $display->humanStatusLabel($alert->human_status),
                 'reviewed_by' => $user->name,
                 'reviewed_at' => $alert->reviewed_at?->toIso8601String(),
             ],
@@ -67,11 +65,9 @@ class AlertReviewController extends Controller
     /**
      * POST /api/alerts/{alert}/comments
      */
-    public function addComment(Request $request, Alert $alert): JsonResponse
+    public function addComment(AddCommentRequest $request, Alert $alert): JsonResponse
     {
-        $validated = $request->validate([
-            'content' => ['required', 'string', 'max:2000'],
-        ]);
+        $validated = $request->validated();
 
         $user = Auth::user();
         $comment = $alert->addComment($user->id, $validated['content']);
@@ -123,6 +119,8 @@ class AlertReviewController extends Controller
      */
     public function getActivities(Alert $alert): JsonResponse
     {
+        $display = app(AlertDisplayService::class);
+
         $activities = $alert->activities()
             ->with('user:id,name')
             ->orderByDesc('created_at')
@@ -131,8 +129,8 @@ class AlertReviewController extends Controller
             ->map(fn (AlertActivity $activity) => [
                 'id' => $activity->id,
                 'action' => $activity->action,
-                'action_label' => $this->actionLabel($activity->action),
-                'action_icon' => $this->actionIcon($activity->action),
+                'action_label' => $display->actionLabel($activity->action),
+                'action_icon' => $display->actionIcon($activity->action),
                 'is_ai_action' => $activity->isAiAction(),
                 'user' => $activity->user ? [
                     'id' => $activity->user->id,
@@ -155,12 +153,13 @@ class AlertReviewController extends Controller
     public function getReviewSummary(Alert $alert): JsonResponse
     {
         $alert->load(['reviewedBy:id,name', 'comments.user:id,name']);
+        $display = app(AlertDisplayService::class);
 
         return response()->json([
             'success' => true,
             'data' => [
                 'human_status' => $alert->human_status,
-                'human_status_label' => $this->humanStatusLabel($alert->human_status),
+                'human_status_label' => $display->humanStatusLabel($alert->human_status),
                 'reviewed_by' => $alert->reviewedBy ? [
                     'id' => $alert->reviewedBy->id,
                     'name' => $alert->reviewedBy->name,
@@ -269,7 +268,7 @@ class AlertReviewController extends Controller
     /**
      * POST /api/alerts/{alert}/assign
      */
-    public function assign(Request $request, Alert $alert): JsonResponse
+    public function assign(AssignRequest $request, Alert $alert): JsonResponse
     {
         /** @var User $user */
         $user = Auth::user();
@@ -282,17 +281,7 @@ class AlertReviewController extends Controller
             ], 422);
         }
 
-        $validated = $request->validate([
-            'user_id' => ['nullable', 'integer', 'exists:users,id'],
-            'contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
-        ]);
-
-        if (empty($validated['user_id']) && empty($validated['contact_id'])) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Se requiere user_id o contact_id',
-            ], 422);
-        }
+        $validated = $request->validated();
 
         app(AttentionEngine::class)->assignOwner(
             alert: $alert,
@@ -317,7 +306,7 @@ class AlertReviewController extends Controller
     /**
      * POST /api/alerts/{alert}/close-attention
      */
-    public function closeAttention(Request $request, Alert $alert): JsonResponse
+    public function closeAttention(CloseAttentionRequest $request, Alert $alert): JsonResponse
     {
         /** @var User $user */
         $user = Auth::user();
@@ -337,9 +326,7 @@ class AlertReviewController extends Controller
             ]);
         }
 
-        $validated = $request->validate([
-            'reason' => ['required', 'string', 'max:500'],
-        ]);
+        $validated = $request->validated();
 
         app(AttentionEngine::class)->closeAttention($alert, $user, $validated['reason']);
 
@@ -354,63 +341,6 @@ class AlertReviewController extends Controller
                 'closed_by' => $user->name,
             ],
         ]);
-    }
-
-    /**
-     * Label para human_status.
-     */
-    private function humanStatusLabel(string $status): string
-    {
-        return match ($status) {
-            Alert::HUMAN_STATUS_PENDING => 'Sin revisar',
-            Alert::HUMAN_STATUS_REVIEWED => 'Revisado',
-            Alert::HUMAN_STATUS_FLAGGED => 'Marcado',
-            Alert::HUMAN_STATUS_RESOLVED => 'Resuelto',
-            Alert::HUMAN_STATUS_FALSE_POSITIVE => 'Falso positivo',
-            default => 'Desconocido',
-        };
-    }
-
-    /**
-     * Label para action de actividad.
-     */
-    private function actionLabel(string $action): string
-    {
-        return match ($action) {
-            AlertActivity::ACTION_AI_PROCESSING_STARTED => 'AI inició procesamiento',
-            AlertActivity::ACTION_AI_COMPLETED => 'AI completó análisis',
-            AlertActivity::ACTION_AI_FAILED => 'AI falló',
-            AlertActivity::ACTION_AI_INVESTIGATING => 'AI en investigación',
-            AlertActivity::ACTION_AI_REVALIDATED => 'AI revalidó',
-            AlertActivity::ACTION_HUMAN_REVIEWED => 'Revisado por humano',
-            AlertActivity::ACTION_HUMAN_STATUS_CHANGED => 'Estado cambiado',
-            AlertActivity::ACTION_COMMENT_ADDED => 'Comentario agregado',
-            AlertActivity::ACTION_MARKED_FALSE_POSITIVE => 'Marcado como falso positivo',
-            AlertActivity::ACTION_MARKED_RESOLVED => 'Marcado como resuelto',
-            AlertActivity::ACTION_MARKED_FLAGGED => 'Marcado para seguimiento',
-            default => 'Actividad',
-        };
-    }
-
-    /**
-     * Icono para action de actividad.
-     */
-    private function actionIcon(string $action): string
-    {
-        return match ($action) {
-            AlertActivity::ACTION_AI_PROCESSING_STARTED => 'cpu',
-            AlertActivity::ACTION_AI_COMPLETED => 'check-circle',
-            AlertActivity::ACTION_AI_FAILED => 'x-circle',
-            AlertActivity::ACTION_AI_INVESTIGATING => 'search',
-            AlertActivity::ACTION_AI_REVALIDATED => 'refresh-cw',
-            AlertActivity::ACTION_HUMAN_REVIEWED => 'eye',
-            AlertActivity::ACTION_HUMAN_STATUS_CHANGED => 'toggle-right',
-            AlertActivity::ACTION_COMMENT_ADDED => 'message-square',
-            AlertActivity::ACTION_MARKED_FALSE_POSITIVE => 'slash',
-            AlertActivity::ACTION_MARKED_RESOLVED => 'check-circle-2',
-            AlertActivity::ACTION_MARKED_FLAGGED => 'flag',
-            default => 'activity',
-        };
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Jobs\EmitDomainEventJob;
 use App\Jobs\SendNotificationJob;
 use App\Models\Alert;
 use App\Models\Company;
+use App\Models\Contact;
 use App\Models\Signal;
 use App\Models\User;
 use App\Services\AttentionEngine;
@@ -234,6 +235,10 @@ class AttentionEngineTest extends TestCase
     {
         Bus::fake([SendNotificationJob::class, EmitDomainEventJob::class]);
 
+        Contact::factory()->monitoringTeam()->forCompany($this->company)->create([
+            'phone' => '+5215512345678',
+        ]);
+
         $event = $this->createEvent();
         $this->engine->initializeAttention($event);
         $event->refresh();
@@ -338,6 +343,10 @@ class AttentionEngineTest extends TestCase
     {
         Bus::fake([SendNotificationJob::class, EmitDomainEventJob::class]);
 
+        Contact::factory()->monitoringTeam()->forCompany($this->company)->create([
+            'phone' => '+5215512345678',
+        ]);
+
         $event = $this->createEvent();
         $this->engine->initializeAttention($event);
 
@@ -374,6 +383,10 @@ class AttentionEngineTest extends TestCase
     public function test_scheduled_job_calls_engine(): void
     {
         Bus::fake([SendNotificationJob::class, EmitDomainEventJob::class]);
+
+        Contact::factory()->monitoringTeam()->forCompany($this->company)->create([
+            'phone' => '+5215512345678',
+        ]);
 
         $event = $this->createEvent();
         $this->engine->initializeAttention($event);
