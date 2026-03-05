@@ -65,13 +65,14 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
-     * Register feature flags for phased rollout per tenant.
+     * Feature flags: always active for all companies (no gating).
+     * Definitions kept for SuperAdmin UI compatibility.
      */
     protected function configureFeatureFlags(): void
     {
         Feature::define('ledger-v1', fn (Company $company) => true);
         Feature::define('notifications-v2', fn (Company $company) => true);
-        Feature::define('metering-v1', fn (Company $company) => false);
+        Feature::define('metering-v1', fn (Company $company) => true);
         Feature::define('attention-engine-v1', fn (Company $company) => true);
     }
 

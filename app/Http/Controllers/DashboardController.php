@@ -249,9 +249,7 @@ class DashboardController extends Controller
                 'user_name' => $conv->user?->name ?? 'Usuario',
                 'message_count' => (int) $conv->messages_count,
                 'last_message_preview' => $lastMessage
-                    ? (is_array($lastMessage->content)
-                        ? \Illuminate\Support\Str::limit($lastMessage->content['text'] ?? '', 80)
-                        : \Illuminate\Support\Str::limit($lastMessage->content ?? '', 80))
+                    ? \Illuminate\Support\Str::limit($lastMessage->getTextContent() ?? '', 80)
                     : null,
                 'updated_at' => $conv->updated_at->diffForHumans(),
             ];

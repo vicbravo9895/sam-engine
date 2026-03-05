@@ -3,7 +3,6 @@
 namespace Tests\Feature\Jobs;
 
 use App\Jobs\RecordUsageEventJob;
-use Laravel\Pennant\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 use Tests\Traits\ActsAsTenant;
@@ -18,10 +17,8 @@ class RecordUsageEventJobTest extends TestCase
         $this->setUpTenant();
     }
 
-    public function test_records_usage_event_when_feature_active(): void
+    public function test_records_usage_event_when_company_exists(): void
     {
-        Feature::define('metering-v1', fn () => true);
-
         $job = new RecordUsageEventJob(
             companyId: $this->company->id,
             meter: 'alerts_processed',
@@ -37,12 +34,10 @@ class RecordUsageEventJobTest extends TestCase
         ]);
     }
 
-    public function test_skips_when_feature_inactive(): void
+    public function test_skips_when_company_not_found(): void
     {
-        Feature::define('metering-v1', fn () => false);
-
         $job = new RecordUsageEventJob(
-            companyId: $this->company->id,
+            companyId: 99999,
             meter: 'alerts_processed',
             qty: 1,
             idempotencyKey: 'test-key-' . uniqid(),
@@ -51,7 +46,7 @@ class RecordUsageEventJobTest extends TestCase
         $job->handle();
 
         $this->assertDatabaseMissing('usage_events', [
-            'company_id' => $this->company->id,
+            'company_id' => 99999,
             'meter' => 'alerts_processed',
         ]);
     }

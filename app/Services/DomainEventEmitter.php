@@ -4,15 +4,11 @@ namespace App\Services;
 
 use App\Jobs\EmitDomainEventJob;
 use App\Models\Company;
-use Laravel\Pennant\Feature;
 
 class DomainEventEmitter
 {
     /**
      * Emit a domain event asynchronously via the domain-events queue.
-     *
-     * The event is only dispatched when the `ledger-v1` feature flag
-     * is active for the given company.
      */
     public static function emit(
         int $companyId,
@@ -27,7 +23,7 @@ class DomainEventEmitter
     ): void {
         $company = Company::find($companyId);
 
-        if (!$company || !Feature::for($company)->active('ledger-v1')) {
+        if (!$company) {
             return;
         }
 

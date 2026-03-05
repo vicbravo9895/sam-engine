@@ -475,10 +475,6 @@ class RevalidateAlertJob implements ShouldQueue
                 return;
             }
 
-            if (!\Laravel\Pennant\Feature::for($company)->active('attention-engine-v1')) {
-                return;
-            }
-
             app(AttentionEngine::class)->initializeAttention($this->alert->fresh());
         } catch (\Exception $e) {
             Log::warning('AttentionEngine initialization failed (non-blocking)', [

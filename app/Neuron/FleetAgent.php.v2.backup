@@ -15,12 +15,12 @@ use App\Neuron\Tools\GetTrips;
 use App\Neuron\Tools\GetVehicles;
 use App\Neuron\Tools\GetVehicleStats;
 use App\Neuron\Tools\RunFleetAnalysis;
-use NeuronAI\Agent\Agent;
-use NeuronAI\Agent\SystemPrompt;
+use NeuronAI\Agent;
 use NeuronAI\Chat\History\ChatHistoryInterface;
 use NeuronAI\Chat\History\EloquentChatHistory;
-use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Providers\OpenAI\Responses\OpenAIResponses;
+use NeuronAI\SystemPrompt;
+use NeuronAI\Providers\AIProviderInterface;
 use NeuronAI\Tools\Toolkits\PGSQL\PGSQLToolkit;
 use NeuronAI\Tools\Toolkits\PGSQL\PGSQLWriteTool;
 use PDO;
@@ -158,10 +158,10 @@ class FleetAgent extends Agent
                 '```',
                 '',
                 'PROHIBIDO:',
-                '- ```json (usar ::: no backticks)',
-                '- ![img](url) para dashcam',
-                '- Texto descriptivo dentro del bloque :::',
-                '- Modificar el JSON de _cardData',
+                '- ❌ ```json (usar ::: no backticks)',
+                '- ❌ ![img](url) para dashcam',
+                '- ❌ Texto descriptivo dentro del bloque :::',
+                '- ❌ Modificar el JSON de _cardData',
                 '',
                 // ═══════════════════════════════════════════════════════════════
                 // ANÁLISIS AI vs REPORTE (DISTINCIÓN OBLIGATORIA)

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Samsara\Client;
 
 use Carbon\Carbon;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -123,9 +124,9 @@ class PipelineAdapter extends TelematicsClientCore
         $preloadedData = array_merge($preloadedData, $this->processDriverAssignmentResponse($responses['driver_assignment'], $vehicleId));
 
         // Vehicle Stats
-        if ($responses['vehicle_stats']->successful()) {
-            $preloadedData['vehicle_stats'] = $responses['vehicle_stats']->json('data')
-                ?? $responses['vehicle_stats']->json();
+        if ($this->isSuccessResponse($responses['vehicle_stats'] ?? null)) {
+            $r = $responses['vehicle_stats'];
+            $preloadedData['vehicle_stats'] = $r->json('data') ?? $r->json();
         }
 
         // Safety Events
@@ -142,11 +143,10 @@ class PipelineAdapter extends TelematicsClientCore
         );
 
         // Camera Media
-        if ($responses['camera_media']->successful()) {
+        if ($this->isSuccessResponse($responses['camera_media'] ?? null)) {
+            $r = $responses['camera_media'];
             $preloadedData['camera_media'] = $this->processCameraMedia(
-                $responses['camera_media']->json('data.media')
-                    ?? $responses['camera_media']->json('data')
-                    ?? []
+                $r->json('data.media') ?? $r->json('data') ?? []
             );
         }
 
@@ -228,23 +228,25 @@ class PipelineAdapter extends TelematicsClientCore
 
         $reloadedData = [];
 
-        if ($responses['vehicle_info']->successful()) {
-            $reloadedData['vehicle_info'] = $responses['vehicle_info']->json('data')
-                ?? $responses['vehicle_info']->json();
+        if ($this->isSuccessResponse($responses['vehicle_info'] ?? null)) {
+            $r = $responses['vehicle_info'];
+            $reloadedData['vehicle_info'] = $r->json('data') ?? $r->json();
         }
 
-        if ($responses['driver_assignment']->successful()) {
-            $data = $responses['driver_assignment']->json('data') ?? [];
+        if ($this->isSuccessResponse($responses['driver_assignment'] ?? null)) {
+            $r = $responses['driver_assignment'];
+            $data = $r->json('data') ?? [];
             $reloadedData['driver_assignment'] = $this->formatDriverAssignment($data);
         }
 
-        if ($responses['vehicle_stats']->successful()) {
-            $reloadedData['vehicle_stats_since_last_check'] = $responses['vehicle_stats']->json('data')
-                ?? $responses['vehicle_stats']->json();
+        if ($this->isSuccessResponse($responses['vehicle_stats'] ?? null)) {
+            $r = $responses['vehicle_stats'];
+            $reloadedData['vehicle_stats_since_last_check'] = $r->json('data') ?? $r->json();
         }
 
-        if ($responses['safety_events_new']->successful()) {
-            $events = $responses['safety_events_new']->json('data') ?? [];
+        if ($this->isSuccessResponse($responses['safety_events_new'] ?? null)) {
+            $r = $responses['safety_events_new'];
+            $events = $r->json('data') ?? [];
             $reloadedData['safety_events_since_last_check'] = [
                 'total_events' => count($events),
                 'events' => array_map(fn ($e) => $this->formatSafetyEventSummary($e), $events),
@@ -255,10 +257,9 @@ class PipelineAdapter extends TelematicsClientCore
             ];
         }
 
-        if ($responses['camera_media_new']->successful()) {
-            $media = $responses['camera_media_new']->json('data.media')
-                ?? $responses['camera_media_new']->json('data')
-                ?? [];
+        if ($this->isSuccessResponse($responses['camera_media_new'] ?? null)) {
+            $r = $responses['camera_media_new'];
+            $media = $r->json('data.media') ?? $r->json('data') ?? [];
 
             $limitedMedia = $this->limitCameraMedia($media, maxDriver: 3, maxRoad: 2);
 
@@ -495,6 +496,15 @@ class PipelineAdapter extends TelematicsClientCore
     // Private helpers
     // =========================================================================
 
+    /**
+     * Pool() can return Response or ConnectionException when a request fails.
+     * Only call ->successful() on actual Response instances.
+     */
+    private function isSuccessResponse(mixed $value): bool
+    {
+        return $value instanceof Response && $value->successful();
+    }
+
     private function vehicleInfoCacheKey(string $vehicleId): string
     {
         return "samsara:vehicle_info:{$vehicleId}";
@@ -505,11 +515,11 @@ class PipelineAdapter extends TelematicsClientCore
         return "samsara:driver_assignment:{$vehicleId}";
     }
 
-    private function processVehicleInfoResponse($response, string $vehicleId): array
+    private function processVehicleInfoResponse(mixed $response, string $vehicleId): array
     {
         $cacheKey = $this->vehicleInfoCacheKey($vehicleId);
 
-        if ($response->successful()) {
+        if ($this->isSuccessResponse($response)) {
             $vehicleInfo = $response->json('data') ?? $response->json();
 
             if (!empty($vehicleInfo)) {
@@ -528,11 +538,11 @@ class PipelineAdapter extends TelematicsClientCore
         return [];
     }
 
-    private function processDriverAssignmentResponse($response, string $vehicleId): array
+    private function processDriverAssignmentResponse(mixed $response, string $vehicleId): array
     {
         $cacheKey = $this->driverAssignmentCacheKey($vehicleId);
 
-        if ($response->successful()) {
+        if ($this->isSuccessResponse($response)) {
             $data = $response->json('data') ?? [];
             $assignment = $this->formatDriverAssignment($data);
 
@@ -581,7 +591,7 @@ class PipelineAdapter extends TelematicsClientCore
                     '_from_database' => true,
                 ];
             }
-        } elseif ($response && $response->successful()) {
+        } elseif ($this->isSuccessResponse($response)) {
             $events = $response->json('data') ?? [];
 
             if (!empty($events)) {
@@ -599,7 +609,7 @@ class PipelineAdapter extends TelematicsClientCore
                     'events' => array_map(fn ($e) => $this->formatSafetyEventSummary($e), $events),
                 ];
             }
-        } elseif ($response) {
+        } elseif ($response instanceof Response) {
             Log::warning('PipelineAdapter: Safety events API call failed', [
                 'vehicle_id' => $vehicleId,
                 'status' => $response->status(),

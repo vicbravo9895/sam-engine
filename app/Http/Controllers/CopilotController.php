@@ -293,26 +293,18 @@ class CopilotController extends Controller
         return ChatMessage::where('thread_id', $threadId)
             ->orderBy('created_at', 'asc')
             ->get()
-            ->map(function ($message) {
-                $content = $message->content;
-                
-                // Si el mensaje está en streaming, usar streaming_content
+            ->map(function (ChatMessage $message) {
                 if ($message->status === 'streaming' && $message->streaming_content) {
                     $content = $message->streaming_content;
                 } else {
-                    // Manejar diferentes formatos de contenido
-                    if (is_array($content)) {
-                        // Skip tool_call and tool_call_result messages (they have no visible content)
-                        $type = $content['type'] ?? null;
-                        if (in_array($type, ['tool_call', 'tool_call_result'])) {
-                            return null;
-                        }
-                        
-                        $content = $content['text'] ?? (is_string($content) ? $content : null);
+                    $neuronType = $message->getNeuronType();
+                    if (in_array($neuronType, ['tool_call', 'tool_call_result'])) {
+                        return null;
                     }
+
+                    $content = $message->getTextContent();
                 }
                 
-                // Skip empty messages
                 if (empty($content) || (is_string($content) && trim($content) === '')) {
                     return null;
                 }
@@ -325,8 +317,8 @@ class CopilotController extends Controller
                     'created_at' => $message->created_at->toISOString(),
                 ];
             })
-            ->filter() // Remove null entries
-            ->values() // Re-index array
+            ->filter()
+            ->values()
             ->toArray();
     }
 
