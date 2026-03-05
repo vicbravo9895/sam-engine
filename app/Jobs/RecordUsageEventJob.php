@@ -10,7 +10,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Laravel\Pennant\Feature;
 
 class RecordUsageEventJob implements ShouldQueue
 {
@@ -34,7 +33,11 @@ class RecordUsageEventJob implements ShouldQueue
     {
         $company = Company::find($this->companyId);
 
-        if (!$company || !Feature::for($company)->active('metering-v1')) {
+        if (!$company) {
+            Log::debug('RecordUsageEventJob skipped: company not found', [
+                'company_id' => $this->companyId,
+                'meter' => $this->meter,
+            ]);
             return;
         }
 
@@ -46,6 +49,12 @@ class RecordUsageEventJob implements ShouldQueue
             dimensions: $this->dimensions,
             occurredAt: $this->occurredAt ? new \DateTimeImmutable($this->occurredAt) : null,
         );
+
+        Log::info('Usage event recorded', [
+            'company_id' => $this->companyId,
+            'meter' => $this->meter,
+            'qty' => $this->qty,
+        ]);
     }
 
     public function failed(\Throwable $e): void

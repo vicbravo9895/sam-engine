@@ -17,8 +17,9 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use NeuronAI\Chat\Messages\ToolCallMessage;
-use NeuronAI\Chat\Messages\ToolCallResultMessage;
+use NeuronAI\Chat\Messages\Stream\Chunks\TextChunk;
+use NeuronAI\Chat\Messages\Stream\Chunks\ToolCallChunk;
+use NeuronAI\Chat\Messages\Stream\Chunks\ToolResultChunk;
 use NeuronAI\Chat\Messages\UserMessage;
 use NeuronAI\Observability\LogObserver;
 
@@ -128,11 +129,6 @@ class ProcessCopilotMessageJob implements ShouldQueue
                 'is_complex' => $useAdvancedModel,
             ]);
             
-            // Asegurar que las clases estén cargadas
-            if (!class_exists(\NeuronAI\Agent::class)) {
-                throw new \RuntimeException('NeuronAI\Agent class not found. Please run: composer dump-autoload');
-            }
-            
             // Usar el canal 'neuron' o 'single' como fallback
             $logger = null;
             try {
@@ -166,17 +162,14 @@ class ProcessCopilotMessageJob implements ShouldQueue
             $agent->observe(new LogObserver($logger))
                 ->observe($tokenObserver);
 
-            // Usar streaming para obtener la respuesta chunk por chunk
-            // NeuronAI guardará automáticamente el mensaje del usuario y del asistente
-            // v3: stream() retorna un Generator que se puede iterar directamente
-            $stream = $agent->stream(new UserMessage($this->message));
+            // v3: stream() returns AgentHandler; call events() to get the Generator
+            $handler = $agent->stream(new UserMessage($this->message));
 
             $fullContent = '';
             $toolMeta = [];
-            $lastSyncLength = 0; // Para tracking de sincronización con BD
+            $lastSyncLength = 0;
 
-            foreach ($stream as $chunk) {
-                // Verificar si el job fue cancelado
+            foreach ($handler->events() as $chunk) {
                 if ($this->job && $this->job->isDeleted()) {
                     Log::info('Job was deleted, stopping stream', [
                         'thread_id' => $this->threadId,
@@ -184,48 +177,42 @@ class ProcessCopilotMessageJob implements ShouldQueue
                     break;
                 }
 
-                // Manejar tool calls
-                if ($chunk instanceof ToolCallMessage) {
-                    $tools = [];
-                    foreach ($chunk->getTools() as $tool) {
-                        $toolName = $tool->getName();
-                        $toolInfo = $this->getToolDisplayInfo($toolName);
-                        $tools[] = [
-                            'name' => $toolName,
-                            'inputs' => $tool->getInputs(),
-                        ];
-                        
-                        // Publicar tool start a Redis
-                        $streamingService->publishToolStart($this->threadId, $toolName, $toolInfo);
-                    }
+                // v3: Tool call chunks
+                if ($chunk instanceof ToolCallChunk) {
+                    $tool = $chunk->tool;
+                    $toolName = $tool->getName();
+                    $toolInfo = $this->getToolDisplayInfo($toolName);
+
+                    $streamingService->publishToolStart($this->threadId, $toolName, $toolInfo);
+
                     $toolMeta[] = [
                         'type' => 'tool_start',
-                        'tools' => $tools,
+                        'tools' => [[
+                            'name' => $toolName,
+                            'inputs' => $tool->getInputs(),
+                        ]],
                         'timestamp' => now()->toISOString(),
                     ];
-                    
-                    // También actualizar BD para reconexión
+
                     if ($conversation) {
                         $conversation->update([
                             'meta' => array_merge($conversation->meta ?? [], [
-                                'active_tool' => $tools[0]['name'] ?? null,
+                                'active_tool' => $toolName,
                             ]),
                         ]);
                     }
                     continue;
                 }
 
-                // Manejar tool results
-                if ($chunk instanceof ToolCallResultMessage) {
+                // v3: Tool result chunks
+                if ($chunk instanceof ToolResultChunk) {
                     $toolMeta[] = [
                         'type' => 'tool_end',
                         'timestamp' => now()->toISOString(),
                     ];
-                    
-                    // Publicar tool end a Redis
+
                     $streamingService->publishToolEnd($this->threadId);
-                    
-                    // Limpiar herramienta activa en BD
+
                     if ($conversation) {
                         $conversation->update([
                             'meta' => array_merge($conversation->meta ?? [], [
@@ -236,29 +223,24 @@ class ProcessCopilotMessageJob implements ShouldQueue
                     continue;
                 }
 
-                // Solo procesar chunks de texto
-                if (!is_string($chunk)) {
-                    continue;
-                }
+                // v3: Text chunks carry content
+                if ($chunk instanceof TextChunk) {
+                    $fullContent .= $chunk->content;
 
-                // Acumular contenido
-                $fullContent .= $chunk;
+                    $streamingService->publishChunk($this->threadId, $chunk->content);
 
-                // Publicar chunk a Redis (para SSE en tiempo real)
-                $streamingService->publishChunk($this->threadId, $chunk);
-
-                // Actualizar BD cada ~500 caracteres (para reconexión)
-                // Esto evita demasiados writes a BD mientras mantiene el progreso sincronizado
-                if (strlen($fullContent) - $lastSyncLength > 500) {
-                    if ($conversation) {
-                        $conversation->update([
-                            'meta' => array_merge($conversation->meta ?? [], [
-                                'streaming_content' => $fullContent,
-                                'active_tool' => null,
-                            ]),
-                        ]);
+                    if (strlen($fullContent) - $lastSyncLength > 500) {
+                        if ($conversation) {
+                            $conversation->update([
+                                'meta' => array_merge($conversation->meta ?? [], [
+                                    'streaming_content' => $fullContent,
+                                    'active_tool' => null,
+                                ]),
+                            ]);
+                        }
+                        $lastSyncLength = strlen($fullContent);
                     }
-                    $lastSyncLength = strlen($fullContent);
+                    continue;
                 }
             }
 

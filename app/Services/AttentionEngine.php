@@ -8,7 +8,6 @@ use App\Models\AlertActivity;
 use App\Models\Company;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
-use Laravel\Pennant\Feature;
 
 class AttentionEngine
 {
@@ -418,6 +417,6 @@ class AttentionEngine
             return false;
         }
 
-        return Feature::for($company)->active('attention-engine-v1');
+        return true;
     }
 }

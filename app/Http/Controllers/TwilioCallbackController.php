@@ -13,7 +13,6 @@ use App\Services\DomainEventEmitter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
-use Laravel\Pennant\Feature;
 
 class TwilioCallbackController extends Controller
 {
@@ -461,7 +460,7 @@ class TwilioCallbackController extends Controller
 
     private function isNotificationsV2Active(Company $company): bool
     {
-        return Feature::for($company)->active('notifications-v2');
+        return true;
     }
 
     private function twimlResponse(string $content): Response

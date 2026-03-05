@@ -15,7 +15,6 @@ use App\Models\User;
 use App\Services\AlertDisplayService;
 use App\Services\AttentionEngine;
 use App\Services\DomainEventEmitter;
-use Laravel\Pennant\Feature;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -188,7 +187,7 @@ class AlertReviewController extends Controller
         $user = Auth::user();
         $company = $alert->company;
 
-        if (!$company || !Feature::for($company)->active('notifications-v2')) {
+        if (!$company) {
             return response()->json([
                 'success' => false,
                 'message' => 'Acknowledgement no disponible para esta empresa',
@@ -239,9 +238,7 @@ class AlertReviewController extends Controller
             correlationId: (string) $alert->id,
         );
 
-        if (Feature::for($company)->active('attention-engine-v1')) {
-            app(AttentionEngine::class)->acknowledge($alert, $user);
-        }
+        app(AttentionEngine::class)->acknowledge($alert, $user);
 
         AlertActivity::logHumanAction(
             $alert->id,
@@ -274,7 +271,7 @@ class AlertReviewController extends Controller
         $user = Auth::user();
         $company = $alert->company;
 
-        if (!$company || !Feature::for($company)->active('attention-engine-v1')) {
+        if (!$company) {
             return response()->json([
                 'success' => false,
                 'message' => 'Attention Engine no disponible para esta empresa',
@@ -312,7 +309,7 @@ class AlertReviewController extends Controller
         $user = Auth::user();
         $company = $alert->company;
 
-        if (!$company || !Feature::for($company)->active('attention-engine-v1')) {
+        if (!$company) {
             return response()->json([
                 'success' => false,
                 'message' => 'Attention Engine no disponible para esta empresa',

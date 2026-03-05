@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Neuron\Observers;
 
 use App\Models\TokenUsage;
+use NeuronAI\Observability\Events\MessageSaved;
 use NeuronAI\Observability\ObserverInterface;
 use Psr\Log\LoggerInterface;
 
@@ -21,16 +22,9 @@ class TokenTrackingObserver implements ObserverInterface
     ) {
     }
 
-    public function notify(string $event, mixed $data): void
+    public function onEvent(string $event, object $source, mixed $data = null): void
     {
-        // v3: El método cambió de update() a notify()
-        // Solo nos interesa el evento message-saved
-        if ($event !== 'message-saved') {
-            return;
-        }
-
-        // v3: Verificar que $data tiene la estructura esperada
-        if (!is_object($data) || !property_exists($data, 'message')) {
+        if (!$data instanceof MessageSaved) {
             return;
         }
 
@@ -44,16 +38,13 @@ class TokenTrackingObserver implements ObserverInterface
         $inputTokens = $usage->inputTokens;
         $outputTokens = $usage->outputTokens;
 
-        // Solo registrar si hay tokens
         if ($inputTokens === 0 && $outputTokens === 0) {
             return;
         }
 
-        // Acumular tokens
         $this->totalInputTokens += $inputTokens;
         $this->totalOutputTokens += $outputTokens;
 
-        // Registrar en la base de datos
         TokenUsage::record(
             userId: $this->userId,
             threadId: $this->threadId,
@@ -62,13 +53,12 @@ class TokenTrackingObserver implements ObserverInterface
             model: $this->model,
             requestType: $message->getRole(),
             meta: [
-                'content_length' => is_string($message->getContent()) 
-                    ? strlen($message->getContent()) 
+                'content_length' => is_string($message->getContent())
+                    ? strlen($message->getContent())
                     : 0,
             ]
         );
 
-        // Log si hay logger
         if ($this->logger) {
             $this->logger->info('tokens-recorded', [
                 'user_id' => $this->userId,
