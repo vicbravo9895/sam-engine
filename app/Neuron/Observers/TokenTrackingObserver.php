@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace App\Neuron\Observers;
 
 use App\Models\TokenUsage;
-use NeuronAI\Observability\Events\MessageSaved;
+use NeuronAI\Observability\ObserverInterface;
 use Psr\Log\LoggerInterface;
-use SplObserver;
-use SplSubject;
 
-class TokenTrackingObserver implements SplObserver
+class TokenTrackingObserver implements ObserverInterface
 {
     protected int $totalInputTokens = 0;
     protected int $totalOutputTokens = 0;
@@ -23,10 +21,16 @@ class TokenTrackingObserver implements SplObserver
     ) {
     }
 
-    public function update(SplSubject $subject, ?string $event = null, mixed $data = null): void
+    public function notify(string $event, mixed $data): void
     {
+        // v3: El método cambió de update() a notify()
         // Solo nos interesa el evento message-saved
-        if ($event !== 'message-saved' || !$data instanceof MessageSaved) {
+        if ($event !== 'message-saved') {
+            return;
+        }
+
+        // v3: Verificar que $data tiene la estructura esperada
+        if (!is_object($data) || !property_exists($data, 'message')) {
             return;
         }
 

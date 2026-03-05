@@ -168,9 +168,8 @@ class ProcessCopilotMessageJob implements ShouldQueue
 
             // Usar streaming para obtener la respuesta chunk por chunk
             // NeuronAI guardará automáticamente el mensaje del usuario y del asistente
-            // v3: stream() retorna un Generator que se puede iterar directamente
             $stream = $agent->stream(new UserMessage($this->message));
-
+            
             $fullContent = '';
             $toolMeta = [];
             $lastSyncLength = 0; // Para tracking de sincronización con BD

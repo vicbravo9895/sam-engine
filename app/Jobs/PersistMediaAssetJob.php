@@ -12,6 +12,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -100,8 +101,26 @@ class PersistMediaAssetJob implements ShouldQueue
                 return;
             }
 
-            // Descargar desde source_url
-            $response = Http::timeout(60)->get($asset->source_url);
+            // Descargar desde source_url (timeout 60s; Samsara S3 puede ser lento)
+            try {
+                $response = Http::timeout(60)->get($asset->source_url);
+            } catch (ConnectionException $e) {
+                Log::warning('media_asset.download_timeout', [
+                    'asset_id' => $asset->id,
+                    'company_id' => $asset->company_id,
+                    'attempt' => $this->attempts(),
+                    'max_attempts' => $this->tries,
+                    'message' => $e->getMessage(),
+                ]);
+                if ($this->attempts() >= $this->tries) {
+                    $asset->markAsFailed('Timeout al descargar desde source_url: ' . $e->getMessage());
+                    return;
+                }
+                $delays = $this->backoff;
+                $delay = $delays[min($this->attempts() - 1, count($delays) - 1)] ?? 60;
+                $this->release($delay);
+                return;
+            }
 
             if (!$response->successful()) {
                 throw new RuntimeException(
