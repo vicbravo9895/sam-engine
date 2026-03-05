@@ -50,6 +50,34 @@ Successfully migrated the Neuron AI framework from v2 to v3 with minimal code ch
 
 ### 2. Code Changes
 
+#### app/Neuron/FleetAgent.php ⚠️ CRITICAL NAMESPACE CHANGE
+
+**Before (v2)**:
+```php
+use NeuronAI\Agent;
+
+class FleetAgent extends Agent
+{
+    // ...
+}
+```
+
+**After (v3)**:
+```php
+use NeuronAI\Agent\Agent;
+
+class FleetAgent extends Agent
+{
+    // ...
+}
+```
+
+**Reason**: Neuron v3 reorganized class structure. The `Agent` class moved from:
+- v2: `vendor/neuron-core/neuron-ai/src/Agent.php`
+- v3: `vendor/neuron-core/neuron-ai/src/Agent/Agent.php`
+
+---
+
 #### app/Neuron/Observers/TokenTrackingObserver.php ⚠️ BREAKING
 
 **Before (v2)**:
@@ -118,7 +146,8 @@ $stream = $agent->stream(new UserMessage($this->message));
 
 The following files were analyzed and confirmed compatible with v3:
 
-#### ✅ app/Neuron/FleetAgent.php
+#### ⚠️ app/Neuron/FleetAgent.php (NAMESPACE CHANGE)
+- **Breaking Change**: Updated import from `use NeuronAI\Agent` → `use NeuronAI\Agent\Agent`
 - `provider()` method: Compatible
 - `instructions()` method: Compatible
 - `tools()` method: Compatible
@@ -144,7 +173,22 @@ The following files were analyzed and confirmed compatible with v3:
 
 ## 📋 Breaking Changes from v2 → v3
 
-### 1. Observer Pattern
+### 1. Agent Namespace Change ⚠️ CRITICAL
+```php
+// v2
+use NeuronAI\Agent;
+
+class FleetAgent extends Agent { ... }
+
+// v3
+use NeuronAI\Agent\Agent;
+
+class FleetAgent extends Agent { ... }
+```
+
+**Reason**: In v3, Agent class moved from `src/Agent.php` to `src/Agent/Agent.php`
+
+### 2. Observer Pattern
 ```php
 // v2
 class MyObserver implements SplObserver {
@@ -157,7 +201,7 @@ class MyObserver implements ObserverInterface {
 }
 ```
 
-### 2. Agent.chat() Return Type
+### 3. Agent.chat() Return Type
 ```php
 // v2
 $message = $agent->chat(new UserMessage("Hi"));
@@ -171,7 +215,7 @@ echo $message->getContent();
 
 **Impact on this project**: NOT USED - We only use `stream()`, not `chat()`
 
-### 3. Content Blocks (Attachments Deprecated)
+### 4. Content Blocks (Attachments Deprecated)
 ```php
 // v2 (deprecated in v3)
 $message = new UserMessage('Analyze this');
