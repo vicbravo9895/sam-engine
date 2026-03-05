@@ -15,7 +15,7 @@ use App\Neuron\Tools\GetTrips;
 use App\Neuron\Tools\GetVehicles;
 use App\Neuron\Tools\GetVehicleStats;
 use App\Neuron\Tools\RunFleetAnalysis;
-use NeuronAI\Agent;
+use NeuronAI\Agent\Agent;
 use NeuronAI\Chat\History\ChatHistoryInterface;
 use NeuronAI\Chat\History\EloquentChatHistory;
 use NeuronAI\Providers\OpenAI\Responses\OpenAIResponses;
