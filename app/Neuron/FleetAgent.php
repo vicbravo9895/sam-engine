@@ -158,10 +158,10 @@ class FleetAgent extends Agent
                 '```',
                 '',
                 'PROHIBIDO:',
-                '- ❌ ```json (usar ::: no backticks)',
-                '- ❌ ![img](url) para dashcam',
-                '- ❌ Texto descriptivo dentro del bloque :::',
-                '- ❌ Modificar el JSON de _cardData',
+                '- ```json (usar ::: no backticks)',
+                '- ![img](url) para dashcam',
+                '- Texto descriptivo dentro del bloque :::',
+                '- Modificar el JSON de _cardData',
                 '',
                 // ═══════════════════════════════════════════════════════════════
                 // ANÁLISIS AI vs REPORTE (DISTINCIÓN OBLIGATORIA)
