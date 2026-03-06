@@ -73,6 +73,7 @@ class NotificationController extends Controller
                 'vehicle_name' => $signal?->vehicle_name,
                 'event_type' => $signal?->event_type,
                 'channel' => $nr->channel,
+                'recipient_type' => $nr->recipient_type,
                 'to_number' => $nr->to_number,
                 'success' => $nr->success,
                 'status_current' => $nr->status_current,

@@ -44,6 +44,7 @@ interface NotificationResultItem {
     vehicle_name: string | null;
     event_type: string | null;
     channel: string;
+    recipient_type: string | null;
     to_number: string;
     success: boolean;
     status_current: string;
@@ -87,6 +88,14 @@ const statusBadgeVariants: Record<string, 'success' | 'warning' | 'destructive' 
 };
 
 const channelLabels: Record<string, string> = { sms: 'SMS', whatsapp: 'WhatsApp', call: 'Llamada' };
+
+const recipientTypeLabels: Record<string, string> = {
+    operator: 'Operador',
+    monitoring_team: 'Monitoreo',
+    supervisor: 'Supervisor',
+    emergency: 'Emergencia',
+    dispatch: 'Despacho',
+};
 
 const statusLabels: Record<string, string> = {
     queued: 'En cola',
@@ -323,8 +332,17 @@ export default function NotificationsIndex({ results, filters, stats }: IndexPro
                                                         {channelLabels[row.channel] ?? row.channel}
                                                     </Badge>
                                                 </TableCell>
-                                                <TableCell className="font-mono text-xs">
-                                                    {row.to_number}
+                                                <TableCell>
+                                                    <div className="flex flex-col">
+                                                        {row.recipient_type && (
+                                                            <span className="text-xs font-medium text-foreground">
+                                                                {recipientTypeLabels[row.recipient_type] ?? row.recipient_type}
+                                                            </span>
+                                                        )}
+                                                        <span className="font-mono text-xs text-muted-foreground">
+                                                            {row.to_number}
+                                                        </span>
+                                                    </div>
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className="flex flex-col gap-0.5">
