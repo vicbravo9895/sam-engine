@@ -270,7 +270,6 @@ class AttentionEngine
             'call_script' => $callScript,
             'dedupe_key' => "escalation-{$alert->id}-{$newCount}",
             'reason' => "Escalación automática (nivel {$newCount}/{$maxEscalations}): sin ACK en tiempo SLA",
-            'is_escalation' => true,
         ];
 
         SendNotificationJob::dispatch($alert, $escalationDecision);

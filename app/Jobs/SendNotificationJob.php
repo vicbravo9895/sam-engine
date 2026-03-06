@@ -203,60 +203,82 @@ class SendNotificationJob implements ShouldQueue
     }
 
     /**
-     * Ensures every recipient entry is a proper array with phone/whatsapp keys.
-     * String entries (e.g. "operator") are resolved via ContactResolver.
+     * Resolves phone/whatsapp for each recipient from ContactResolver.
+     *
+     * AI decisions only provide recipient_type + priority (no phone numbers).
+     * Backend callers (AttentionEngine, MonitorMatrixOverride, scenario commands)
+     * may already include resolved numbers — those are kept as-is.
+     * Recipients without phone/whatsapp are resolved from the contacts DB.
      */
     private function normalizeRecipients(array $recipients): array
     {
-        $normalized = [];
-        $needsResolution = false;
+        $resolvedContacts = null; // lazy-loaded
 
+        $requestedEntries = [];
         foreach ($recipients as $entry) {
             if (is_array($entry) && isset($entry['recipient_type'])) {
-                $normalized[] = $entry;
-            } else {
-                $needsResolution = true;
+                $entry['recipient_type'] = $entry['recipient_type'] === 'monitoring' ? 'monitoring_team' : $entry['recipient_type'];
+                $requestedEntries[] = $entry;
+            } elseif (is_string($entry)) {
+                $requestedEntries[] = [
+                    'recipient_type' => $entry === 'monitoring' ? 'monitoring_team' : $entry,
+                    'priority' => 999,
+                ];
             }
         }
 
-        if (!$needsResolution) {
-            return $normalized;
-        }
+        $normalized = [];
+        foreach ($requestedEntries as $entry) {
+            $typeKey = $entry['recipient_type'];
+            $hasContact = ($entry['phone'] ?? null) || ($entry['whatsapp'] ?? null);
 
-        Log::warning('SendNotificationJob: Recipients contain non-array entries, resolving from contacts', [
-            'alert_id' => $this->alert->id,
-            'raw_recipients' => $recipients,
-        ]);
-
-        $signal = $this->alert->signal;
-        $resolved = app(ContactResolver::class)->resolve(
-            $signal?->vehicle_id,
-            $signal?->driver_id,
-            $this->alert->company_id
-        );
-
-        foreach ($recipients as $entry) {
-            if (is_array($entry) && isset($entry['recipient_type'])) {
+            if ($hasContact) {
+                $normalized[] = $entry;
                 continue;
             }
-            if (is_string($entry)) {
-                $typeKey = $entry === 'monitoring' ? 'monitoring_team' : $entry;
-                $contactData = $resolved[$typeKey] ?? null;
-                if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
-                    $normalized[] = array_merge($contactData, ['recipient_type' => $typeKey]);
-                }
+
+            $resolvedContacts ??= $this->resolveContacts();
+
+            $contactData = $resolvedContacts[$typeKey] ?? null;
+            if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
+                $normalized[] = array_merge($contactData, [
+                    'recipient_type' => $typeKey,
+                    'priority' => $entry['priority'] ?? $contactData['priority'] ?? 999,
+                ]);
+            } else {
+                Log::warning('SendNotificationJob: No contact resolved for recipient type', [
+                    'alert_id' => $this->alert->id,
+                    'recipient_type' => $typeKey,
+                ]);
             }
         }
 
         if (empty($normalized)) {
-            foreach ($resolved as $type => $contactData) {
-                if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
-                    $normalized[] = array_merge($contactData, ['recipient_type' => $type]);
+            $resolvedContacts ??= $this->resolveContacts();
+            if (!empty($resolvedContacts)) {
+                Log::info('SendNotificationJob: No requested recipients resolved, falling back to all available contacts', [
+                    'alert_id' => $this->alert->id,
+                    'available_types' => array_keys($resolvedContacts),
+                ]);
+                foreach ($resolvedContacts as $type => $contactData) {
+                    if ($contactData && (($contactData['phone'] ?? null) || ($contactData['whatsapp'] ?? null))) {
+                        $normalized[] = array_merge($contactData, ['recipient_type' => $type]);
+                    }
                 }
             }
         }
 
         return $normalized;
+    }
+
+    private function resolveContacts(): array
+    {
+        $signal = $this->alert->signal;
+        return app(ContactResolver::class)->resolve(
+            $signal?->vehicle_id,
+            $signal?->driver_id,
+            $this->alert->company_id
+        );
     }
 
     private function sendToRecipient(

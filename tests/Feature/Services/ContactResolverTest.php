@@ -87,8 +87,17 @@ class ContactResolverTest extends TestCase
         $contacts = $this->resolver->resolve(null, null, $this->company->id);
         $payload = $this->resolver->formatForPayload($contacts);
 
-        $this->assertArrayHasKey('monitoring_team_number', $payload);
         $this->assertArrayHasKey('notification_contacts', $payload);
+        $this->assertArrayNotHasKey('operator_phone', $payload);
+        $this->assertArrayNotHasKey('monitoring_team_number', $payload);
+        $this->assertArrayNotHasKey('supervisor_phone', $payload);
+
+        $contact = $payload['notification_contacts']['monitoring_team'] ?? null;
+        $this->assertNotNull($contact);
+        $this->assertArrayHasKey('name', $contact);
+        $this->assertArrayHasKey('role', $contact);
+        $this->assertArrayNotHasKey('phone', $contact);
+        $this->assertArrayNotHasKey('whatsapp', $contact);
     }
 
     public function test_handles_missing_driver(): void

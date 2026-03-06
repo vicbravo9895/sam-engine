@@ -16,7 +16,7 @@ from .alert_types import AlertType, AlertCategory
 
 
 class ContactInfo(BaseModel):
-    """Información de un contacto para notificaciones."""
+    """Contact identity for triage context. Phone resolution is backend-only."""
     
     name: Optional[str] = Field(
         None,
@@ -25,22 +25,6 @@ class ContactInfo(BaseModel):
     role: Optional[str] = Field(
         None,
         description="Rol del contacto (Operador, Supervisor, etc.)"
-    )
-    phone: Optional[str] = Field(
-        None,
-        description="Número de teléfono para llamadas/SMS"
-    )
-    whatsapp: Optional[str] = Field(
-        None,
-        description="Número de WhatsApp"
-    )
-    email: Optional[str] = Field(
-        None,
-        description="Correo electrónico"
-    )
-    priority: Optional[int] = Field(
-        None,
-        description="Prioridad del contacto (menor = más prioritario)"
     )
 
 

@@ -230,18 +230,22 @@ class ContactResolver
 
     /**
      * Formatea los contactos para inyectarlos en el payload del AI Service.
+     * Only names and roles — phone numbers are never sent to the AI.
      */
     public function formatForPayload(array $contacts): array
     {
-        $operatorPhone = $contacts['operator']['phone'] ?? null;
-        $monitoringTeamPhone = $contacts['monitoring_team']['phone'] ?? null;
-        $supervisorPhone = $contacts['supervisor']['phone'] ?? null;
+        $minimal = [];
+        foreach ($contacts as $type => $contact) {
+            if (is_array($contact)) {
+                $minimal[$type] = [
+                    'name' => $contact['name'] ?? null,
+                    'role' => $contact['role'] ?? null,
+                ];
+            }
+        }
 
         return [
-            'operator_phone' => $operatorPhone,
-            'monitoring_team_number' => $monitoringTeamPhone,
-            'supervisor_phone' => $supervisorPhone,
-            'notification_contacts' => $contacts,
+            'notification_contacts' => $minimal,
         ];
     }
 }

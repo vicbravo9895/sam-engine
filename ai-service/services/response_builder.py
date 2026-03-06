@@ -297,11 +297,16 @@ class AlertResponseBuilder:
         human_message = _ensure_string(result.human_message) or "Procesamiento completado"
         response["human_message"] = _fix_corrupted_encoding(human_message)
         
-        # notification_decision - objeto JSON (decisión sin side effects)
-        # Aplicar corrección de encoding para campos de texto
+        # notification_decision — AI only provides recipient types, not phone numbers.
         notification_decision = _ensure_object(result.notification_decision)
         if notification_decision:
-            response["notification_decision"] = _fix_dict_encoding(notification_decision)
+            nd = _fix_dict_encoding(notification_decision)
+            # Strip any phone/whatsapp the AI might have hallucinated
+            for r in nd.get("recipients", []):
+                if isinstance(r, dict):
+                    r.pop("phone", None)
+                    r.pop("whatsapp", None)
+            response["notification_decision"] = nd
         else:
             response["notification_decision"] = {
                 "should_notify": False,
@@ -313,19 +318,9 @@ class AlertResponseBuilder:
                 "reason": "Sin decisión de notificación"
             }
         
-        # notification_execution - objeto JSON (resultados de ejecución)
-        notification_execution = _ensure_object(result.notification_execution)
-        if notification_execution:
-            response["notification_execution"] = notification_execution
-        else:
-            response["notification_execution"] = {
-                "attempted": False,
-                "results": [],
-                "timestamp_utc": "",
-                "dedupe_key": "",
-                "throttled": False,
-                "throttle_reason": None
-            }
+        # notification_execution is always null from AI — execution happens in Laravel.
+        # Omit from response to avoid confusion; Laravel handles this independently.
+        response["notification_execution"] = None
         
         # execution - trazabilidad
         response["execution"] = {

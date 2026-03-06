@@ -1015,11 +1015,13 @@ class PipelineExecutor:
             parts.append(f"\n## HISTORIAL DE INVESTIGACIONES ({len(windows_history)} ventanas, {total_minutes} minutos observados)")
             parts.append(json.dumps(windows_history, ensure_ascii=False, indent=2))
         
-        # 8. Contactos para notificaciones
+        # 8. Contact names for context (phone resolution is backend-only)
         contacts = payload.get('notification_contacts', {})
         if contacts:
-            parts.append("\n## CONTACTOS PARA NOTIFICACIONES")
-            parts.append(json.dumps(contacts, ensure_ascii=False, indent=2))
+            minimal = {k: {"name": v.get("name"), "role": v.get("role")} for k, v in contacts.items() if isinstance(v, dict)}
+            if minimal:
+                parts.append("\n## CONTACTOS DISPONIBLES (solo nombres)")
+                parts.append(json.dumps(minimal, ensure_ascii=False, indent=2))
         
         # 9. Instrucciones finales
         parts.append("\n## INSTRUCCIONES")
@@ -1116,12 +1118,20 @@ class PipelineExecutor:
         else:
             parts.append(alert_context)
         
-        # 3. Contactos para notificaciones (del payload)
+        # 3. Available recipient types (names only — phone resolution is backend-only)
         if self._full_payload:
             contacts = self._full_payload.get('notification_contacts', {})
             if contacts:
-                parts.append("\n## CONTACTOS DISPONIBLES")
-                parts.append(json.dumps(contacts, ensure_ascii=False, indent=2))
+                minimal = {}
+                for key, contact in contacts.items():
+                    if isinstance(contact, dict):
+                        minimal[key] = {
+                            "name": contact.get("name"),
+                            "role": contact.get("role"),
+                        }
+                if minimal:
+                    parts.append("\n## DESTINATARIOS DISPONIBLES (solo tipos, sin numeros)")
+                    parts.append(json.dumps(minimal, ensure_ascii=False, indent=2))
         
         return "\n".join(parts)
     
@@ -1188,12 +1198,14 @@ class PipelineExecutor:
                 parts.append(f"- Número de investigaciones: {self._revalidation_context.get('investigation_count', 0)}")
                 parts.append(f"- Último veredicto: {self._revalidation_context.get('previous_assessment', {}).get('verdict', 'unknown')}")
         
-        # 4. Contactos para notificaciones
+        # 4. Contact names for context (phone resolution is backend-only)
         if self._full_payload:
             contacts = self._full_payload.get('notification_contacts', {})
             if contacts:
-                parts.append("\n## CONTACTOS PARA NOTIFICACIONES")
-                parts.append(json.dumps(contacts, ensure_ascii=False, indent=2))
+                minimal = {k: {"name": v.get("name"), "role": v.get("role")} for k, v in contacts.items() if isinstance(v, dict)}
+                if minimal:
+                    parts.append("\n## CONTACTOS DISPONIBLES (solo nombres)")
+                    parts.append(json.dumps(minimal, ensure_ascii=False, indent=2))
         
         return "\n".join(parts)
     
